@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Zinga Remote</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+</head>
+<body>
+  <div id="app">
+    
+    <div v-if="screen === 'pairing'" class="screen pairing-screen">
+      <div class="pairing-card">
+        <h1 class="logo">Zinga</h1>
+        <p class="subtitle">Control remoto</p>
+        <div class="input-group">
+          <label>Código de vinculación</label>
+          <input
+            v-model="pairingCode"
+            type="text"
+            maxlength="6"
+            pattern="[0-9]*"
+            inputmode="numeric"
+            placeholder="000000"
+            class="code-input"
+            @keyup.enter="pair"
+          >
+        </div>
+        <button class="btn btn-primary" :disabled="pairingCode.length !== 6 || pairing" @click="pair">
+          {{ pairing ? 'Vinculando...' : 'Vincular' }}
+        </button>
+        <p v-if="pairError" class="error">{{ pairError }}</p>
+      </div>
+    </div>
+
+    
+    <div v-else class="app-container">
+      
+      <nav class="tab-bar">
+        <button
+          v-for="tab in tabs"
+          :key="tab.id"
+          class="tab-btn"
+          :class="{ active: screen === tab.id }"
+          @click="screen = tab.id"
+        >
+          <span class="tab-icon" v-html="tab.icon"></span>
+          <span class="tab-label">{{ tab.label }}</span>
+        </button>
+      </nav>
+
+      
+      <div v-if="screen === 'playing'" class="screen now-playing">
+        <div class="track-cover">
+          <div v-if="currentTrack" class="cover-placeholder">
+            <span>{{ (currentTrack.track?.name || 'Sin track')[0] }}</span>
+          </div>
+          <div v-else class="cover-placeholder">
+            <span>♪</span>
+          </div>
+        </div>
+
+        <div class="track-info">
+          <h2 class="track-name">{{ currentTrack?.track?.name || 'Sin reproducción' }}</h2>
+          <p class="track-artist">{{ currentTrack?.track?.artists?.[0]?.name || '' }}</p>
+          <p class="track-album">{{ currentTrack?.track?.album?.name || '' }}</p>
+        </div>
+
+        <div class="seek-bar">
+          <span class="time">{{ formatTime(playbackPosition) }}</span>
+          <input
+            type="range"
+            min="0"
+            :max="trackDuration"
+            :value="playbackPosition"
+            class="slider"
+            @change="seek($event.target.value)"
+          >
+          <span class="time">{{ formatTime(trackDuration) }}</span>
+        </div>
+
+        <div class="controls">
+          <button class="ctrl-btn" @click="command('previous')">⏮</button>
+          <button class="ctrl-btn ctrl-play" @click="command(playbackState === 'playing' ? 'pause' : 'play')">
+            {{ playbackState === 'playing' ? '⏸' : '▶' }}
+          </button>
+          <button class="ctrl-btn" @click="command('next')">⏭</button>
+        </div>
+      </div>
+
+      
+      <div v-if="screen === 'queue'" class="screen queue-screen">
+        <h2 class="screen-title">Cola de reproducción</h2>
+        <div v-if="queue.length === 0" class="empty-state">
+          <p>La cola está vacía</p>
+        </div>
+        <div v-else class="track-list">
+          <div
+            v-for="(item, i) in queue"
+            :key="item.tlid"
+            class="track-item"
+            :class="{ 'is-current': item.tlid === currentTrack?.tlid }"
+          >
+            <span class="track-num">{{ i + 1 }}</span>
+            <div class="track-details">
+              <p class="track-item-name">{{ item.track?.name || 'Track' }}</p>
+              <p class="track-item-artist">{{ item.track?.artists?.[0]?.name || '' }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      
+      <div v-if="screen === 'browse'" class="screen browse-screen">
+        <h2 class="screen-title">Buscar en Tidal</h2>
+        <div class="search-bar">
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Buscar artista, álbum..."
+            @keyup.enter="doSearch"
+          >
+          <button class="btn btn-sm" @click="doSearch">Buscar</button>
+        </div>
+
+        <div v-if="searching" class="empty-state">
+          <p>Buscando...</p>
+        </div>
+
+        <div v-if="searchResults" class="search-results">
+          
+          <div v-if="searchResults.artists?.length" class="result-section">
+            <h3>Artistas</h3>
+            <div
+              v-for="artist in searchResults.artists"
+              :key="artist.id"
+              class="result-item"
+              @click="viewArtist(artist.id)"
+            >
+              <p class="result-name">{{ artist.attributes?.name || artist.name || 'Artista' }}</p>
+            </div>
+          </div>
+
+          
+          <div v-if="searchResults.albums?.length" class="result-section">
+            <h3>Álbumes</h3>
+            <div
+              v-for="album in searchResults.albums"
+              :key="album.id"
+              class="result-item"
+              @click="playAlbum(album.id)"
+            >
+              <p class="result-name">{{ album.attributes?.title || album.title || 'Álbum' }}</p>
+              <p class="result-sub">{{ album.attributes?.artists?.[0]?.name || '' }}</p>
+            </div>
+          </div>
+
+          
+          <div v-if="searchResults.tracks?.length" class="result-section">
+            <h3>Canciones</h3>
+            <div
+              v-for="track in searchResults.tracks"
+              :key="track.id"
+              class="result-item"
+            >
+              <p class="result-name">{{ track.attributes?.title || track.name || 'Track' }}</p>
+              <p class="result-sub">{{ track.attributes?.artists?.[0]?.name || '' }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

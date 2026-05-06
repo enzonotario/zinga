@@ -1,0 +1,63 @@
+{
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "remote-client/*": "remote-client/",
+      "../scripts/*": "scripts/",
+      "../scripts/lib/*": "scripts/lib/"
+    },
+    "externalBin": [],
+    "copyright": "",
+    "category": "DeveloperTool",
+    "shortDescription": "",
+    "longDescription": "",
+    "macOS": {},
+    "linux": {
+      "deb": {}
+    }
+  },
+  "build": {
+    "beforeBuildCommand": "pnpm generate",
+    "frontendDist": "../.output/public",
+    "beforeDevCommand": "pnpm dev --port 5432",
+    "devUrl": "http://localhost:5432"
+  },
+  "productName": "Zinga",
+  "version": "0.0.1",
+  "identifier": "com.enzonotario.zinga",
+  "plugins": {},
+  "app": {
+    "windows": [
+      {
+        "title": "Zinga",
+        "width": 1366,
+        "height": 768,
+        "minWidth": 375,
+        "minHeight": 812,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null,
+      "dangerousDisableAssetCspModification": true,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**"]
+      }
+    }
+  }
+}
