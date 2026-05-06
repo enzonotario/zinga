@@ -1,0 +1,16 @@
+node_modules
+.DS_Store
+*.log*
+.data
+.nuxt
+.nitro
+.cache
+.output
+.env
+.cargo
+dist
+docs/.vitepress/dist
+docs/.vitepress/cache
+src-tauri/target
+.idea
+*.tsbuildinfo

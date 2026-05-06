@@ -1,0 +1,79 @@
+{
+  "name": "zinga",
+  "type": "module",
+  "version": "0.0.1",
+  "private": true,
+  "packageManager": "pnpm@10.33.2",
+  "description": "Music app for UPnP devices, built with Nuxt 4 and Tauri 2",
+  "author": "Enzo Notario",
+  "license": "MIT",
+  "engines": {
+    "node": ">=23"
+  },
+  "scripts": {
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preinstall": "npx only-allow pnpm",
+    "postinstall": "nuxt prepare",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "assets:generate": "node scripts/generate-assets.mjs",
+    "docs:dev": "pnpm run -C docs dev",
+    "docs:build": "pnpm run -C docs build",
+    "docs:preview": "pnpm run -C docs preview",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "sh -c '[ -n \"$CI\" ] && export CI=true; tauri build'",
+    "desktop:build:appimage": "sh -c '[ -n \"$CI\" ] && export CI=true; tauri build -b appimage'",
+    "test": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@nuxt/image": "2.0.0",
+    "@nuxt/ui": "^4.7.0",
+    "@nuxtjs/i18n": "^10.3.0",
+    "@tauri-apps/api": "2.9.1",
+    "@tauri-apps/plugin-dialog": "2.6.0",
+    "@tauri-apps/plugin-fs": "2.4.5",
+    "@tauri-apps/plugin-notification": "^2.3.3",
+    "@tauri-apps/plugin-os": "^2.3.2",
+    "@tauri-apps/plugin-shell": "^2.3.5",
+    "@tauri-apps/plugin-sql": "2.3.1",
+    "@tauri-apps/plugin-store": "^2.4.2",
+    "@tidal-music/api": "^0.21.0",
+    "@tidal-music/auth": "^1.6.0",
+    "@wterm/dom": "^0.1.9",
+    "@wterm/vue": "0.1.9",
+    "nuxt": "^4.4.2",
+    "tailwindcss": "^4.2.4",
+    "vue": "^3.5.33",
+    "vue-router": "^5.0.6",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@antfu/eslint-config": "^8.2.0",
+    "@iconify-json/heroicons": "^1.2.3",
+    "@iconify-json/lucide": "^1.2.103",
+    "@nuxt/eslint": "^1.15.2",
+    "@tauri-apps/cli": "^2.10.1",
+    "@vitest/coverage-v8": "^4.1.5",
+    "@vitest/ui": "^4.1.5",
+    "@vue/test-utils": "^2.4.8",
+    "@vueuse/core": "^14.2.1",
+    "@vueuse/nuxt": "^14.2.1",
+    "bumpp": "^11.0.1",
+    "eslint": "^10.2.1",
+    "happy-dom": "^20.9.0",
+    "jsdom": "^29.0.2",
+    "nuxt-svgo": "^4.2.6",
+    "sharp": "^0.34.5",
+    "takumi-js": "^1.1.2",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5"
+  },
+  "resolutions": {
+    "typescript": "npm:tslite@latest"
+  },
+  "volta": {
+    "node": "24.13.0"
+  }
+}

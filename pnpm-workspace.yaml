@@ -1,0 +1,18 @@
+shellEmulator: true
+
+trustPolicy: no-downgrade
+
+trustPolicyExclude:
+  - chokidar@4.0.3
+  - semver@6.3.1
+  - vite@5.4.21
+packages:
+  - docs
+
+onlyBuiltDependencies:
+  - '@parcel/watcher'
+  - '@tailwindcss/oxide'
+  - esbuild
+  - rollup
+  - unrs-resolver
+  - vue-demi

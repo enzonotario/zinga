@@ -1,0 +1,14 @@
+{
+  "name": "zinga-docs",
+  "private": true,
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "dependencies": {
+    "@unocss/reset": "^66.6.8",
+    "unocss": "^66.6.8",
+    "vitepress": "^1.6.4"
+  }
+}
