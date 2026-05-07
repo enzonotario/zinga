@@ -44,6 +44,7 @@ const error = ref<string | null>(null);
 const album = ref<NormalizedAlbum | null>(null);
 const tracks = ref<NormalizedTrack[]>([]);
 const playingUpnp = ref(false);
+const addingToQueue = ref(false);
 const mopidyError = ref<string | null>(null);
 const isAlbumFav = ref(false);
 const loadingAlbumFav = ref(false);
@@ -166,6 +167,27 @@ async function playAlbum() {
     console.error('Playback error:', err);
   } finally {
     playingUpnp.value = false;
+  }
+}
+async function addAlbumToQueue() {
+  if (!selectedDeviceId.value) {
+    mopidyError.value = t('album.noPlaybackDevice');
+    return;
+  }
+  try {
+    addingToQueue.value = true;
+    mopidyError.value = null;
+    const connected = await mopidy.mopidyRpc('core.get_version').then(() => true).catch(() => false);
+    if (!connected) {
+      throw new Error(t('album.mopidyUnavailable'));
+    }
+    const trackUris = tracks.value.map((t) => t.uri || `tidal:track:${t.id}`);
+    await mopidy.add(trackUris);
+  } catch (err) {
+    mopidyError.value = err instanceof Error ? err.message : t('album.playbackError');
+    console.error('Queue error:', err);
+  } finally {
+    addingToQueue.value = false;
   }
 }
 const albumTitle = computed(() => album.value?.title || t('album.unknown'));
@@ -400,13 +422,23 @@ watch(albumCover, (cover) => setPageBackground(cover), { immediate: true });
               {{ t('album.play') }}
             </UButton>
             <UButton
+              :loading="addingToQueue"
+              :disabled="!selectedDeviceId || addingToQueue"
+              :label="t('album.addToQueue')"
+              icon="i-heroicons-queue-list"
+              variant="ghost"
+              size="sm"
+              @click="addAlbumToQueue"
+            />
+
+            <span class="flex-1" />
+            <UButton
               :label="isAlbumFav ? t('album.removeFavorite') : t('album.addFavorite')"
               :icon="isAlbumFav ? 'i-heroicons-heart-solid' : 'i-heroicons-heart'"
               :color="isAlbumFav ? 'error' : 'neutral'"
               variant="ghost"
               size="sm"
               :loading="loadingAlbumFav"
-              class="hover:bg-white/10"
               :class="isAlbumFav ? 'text-red-500' : ''"
               :aria-label="isAlbumFav ? t('album.removeFavorite') : t('album.addFavorite')"
               @click="toggleAlbumFavorite"

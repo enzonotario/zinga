@@ -313,6 +313,7 @@
     "play": "Reproducir",
     "removeFavorite": "Quitar de favoritos",
     "addFavorite": "Añadir a favoritos",
+    "addToQueue": "Agregar a la cola",
     "credits": "Créditos",
     "songCount": "{count} canción | {count} canciones",
     "loadingCredits": "Cargando créditos...",
