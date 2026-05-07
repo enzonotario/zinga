@@ -345,7 +345,7 @@ onUnmounted(() => clearPageBackground());
             v-for="group in albumsByType"
             :key="group.type"
             class="space-y-4"
-            :ui="{ body: viewMode === 'list' ? 'p-0' : '' }"
+            :ui="{ body: viewMode === 'list' ? '!p-0' : '' }"
           >
             <template #header>
               <div class="flex items-center justify-between">
