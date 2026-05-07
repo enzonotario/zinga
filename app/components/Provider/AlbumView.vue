@@ -415,13 +415,6 @@ watch(albumCover, (cover) => setPageBackground(cover), { immediate: true });
         </template>
       </UCard>
       <div v-if="albumTracks.length > 0" class="flex flex-col gap-3">
-        <div
-          v-if="loadingCredits"
-          class="flex items-center gap-2 text-sm text-muted leading-normal py-1"
-        >
-          <UIcon name="i-heroicons-arrow-path" class="w-4 h-4 animate-spin shrink-0" />
-          <span class="leading-normal">{{ t('album.loadingCredits') }}</span>
-        </div>
         <div class="flex items-center justify-end py-2">
           <div class="flex items-center gap-1 bg-neutral-100 dark:bg-neutral-800 rounded-lg p-1">
             <UButton
@@ -517,10 +510,10 @@ watch(albumCover, (cover) => setPageBackground(cover), { immediate: true });
         </div>
         <UCard
           v-else
-          :ui="{ body: 'p-0' }"
+          :ui="{ body: '!p-0' }"
           class="overflow-hidden"
         >
-          <div class="flex flex-col divide-y divide-border">
+          <div class="flex flex-col divide-y divide-(--ui-border)">
             <div
               v-for="(track, index) in albumTracks"
               :key="track.id"

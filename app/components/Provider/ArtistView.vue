@@ -415,7 +415,7 @@ onUnmounted(() => clearPageBackground());
                 </div>
               </NuxtLink>
             </div>
-            <div v-else class="flex flex-col divide-y divide-border">
+            <div v-else class="flex flex-col divide-y divide-(--ui-border)">
               <NuxtLink
                 v-for="album in group.albums"
                 :key="album.id"
