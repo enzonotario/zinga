@@ -313,6 +313,7 @@
     "play": "Play",
     "removeFavorite": "Remove from favorites",
     "addFavorite": "Add to favorites",
+    "loadingFavorite": "Loading favorites",
     "addToQueue": "Add to queue",
     "credits": "Credits",
     "songCount": "{count} song | {count} songs",

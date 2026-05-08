@@ -48,6 +48,7 @@ const addingToQueue = ref(false);
 const mopidyError = ref<string | null>(null);
 const isAlbumFav = ref(false);
 const loadingAlbumFav = ref(false);
+const loadingFavoriteStatus = ref(false);
 const favoriteTrackIds = ref<Set<string>>(new Set());
 const loadingTrackFavIds = ref<Set<string>>(new Set());
 const showLoginModal = ref(false);
@@ -85,13 +86,24 @@ const albumTracks = computed(() => {
   }));
 });
 async function loadFavoritesStatus() {
-  if (!provider.isUserLoggedIn.value) return;
+  if (!provider.isUserLoggedIn.value) {
+    isAlbumFav.value = false;
+    favoriteTrackIds.value = new Set();
+    loadingFavoriteStatus.value = false;
+    return;
+  }
+  loadingFavoriteStatus.value = true;
   try {
-    isAlbumFav.value = await provider.isAlbumFavorite(props.albumId, props.countryCode);
-    const favTrackIds = await provider.getFavoriteTrackIds(props.countryCode);
+    const [favAlbumIds, favTrackIds] = await Promise.all([
+      provider.getFavoriteAlbumIds(props.countryCode),
+      provider.getFavoriteTrackIds(props.countryCode),
+    ]);
+    isAlbumFav.value = favAlbumIds.includes(props.albumId);
     favoriteTrackIds.value = new Set(favTrackIds);
   } catch (err) {
     console.error('Error loading favorites status:', err);
+  } finally {
+    loadingFavoriteStatus.value = false;
   }
 }
 async function toggleAlbumFavorite() {
@@ -99,7 +111,7 @@ async function toggleAlbumFavorite() {
     showLoginModal.value = true;
     return;
   }
-  if (loadingAlbumFav.value) return;
+  if (loadingAlbumFav.value || loadingFavoriteStatus.value) return;
   loadingAlbumFav.value = true;
   try {
     if (isAlbumFav.value) {
@@ -195,6 +207,10 @@ const albumReleaseDate = computed(() => album.value?.releaseDate);
 const albumNumberOfItems = computed(() => album.value?.numberOfTracks);
 const albumCover = computed(() => album.value?.coverUrl);
 const albumArtists = computed(() => album.value?.artists || []);
+const albumFavoriteLabel = computed(() => {
+  if (loadingFavoriteStatus.value) return t('album.loadingFavorite');
+  return isAlbumFav.value ? t('album.removeFavorite') : t('album.addFavorite');
+});
 const currentPlayingTrackId = computed(() => {
   if (!mopidy.currentTrack.value?.track?.uri) return null;
   const parts = mopidy.currentTrack.value.track.uri.split(':');
@@ -262,6 +278,8 @@ async function loadAlbum() {
   loading.value = true;
   error.value = null;
   primaryArtistPicture.value = null;
+  isAlbumFav.value = false;
+  favoriteTrackIds.value = new Set();
   try {
     const [albumData, albumTracks] = await Promise.all([
       provider.getAlbum(props.albumId, props.countryCode),
@@ -433,14 +451,15 @@ watch(albumCover, (cover) => setPageBackground(cover), { immediate: true });
 
             <span class="flex-1" />
             <UButton
-              :label="isAlbumFav ? t('album.removeFavorite') : t('album.addFavorite')"
+              :label="albumFavoriteLabel"
               :icon="isAlbumFav ? 'i-heroicons-heart-solid' : 'i-heroicons-heart'"
               :color="isAlbumFav ? 'error' : 'neutral'"
               variant="ghost"
               size="sm"
-              :loading="loadingAlbumFav"
+              :loading="loadingAlbumFav || loadingFavoriteStatus"
+              :disabled="loadingFavoriteStatus"
               :class="isAlbumFav ? 'text-red-500' : ''"
-              :aria-label="isAlbumFav ? t('album.removeFavorite') : t('album.addFavorite')"
+              :aria-label="albumFavoriteLabel"
               @click="toggleAlbumFavorite"
             />
           </div>

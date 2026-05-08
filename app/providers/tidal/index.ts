@@ -357,19 +357,35 @@ export function createTidalProvider(): MusicProvider {
       if (response.error) throw new Error(`Error getting credits: ${JSON.stringify(response.error)}`);
       return (response.data?.included?.filter((item: any) => item.type === 'credits') || []).map(normalizeCredit);
     },
-    async isAlbumFavorite(id: string, countryCode = 'US'): Promise<boolean> {
+    async getFavoriteAlbumIds(countryCode = 'US'): Promise<string[]> {
+      if (!isInitialized.value) await provider.init();
+      const cacheKey = `favoriteAlbumIds:${countryCode}`;
+      const cached = getCached(cacheKey);
+      if (cached !== null) return cached;
       try {
         const user = await getCurrentUser();
         const userId = user?.data?.id;
-        if (!userId) return false;
+        if (!userId) return [];
         const client = getAPIClient();
-        const response = await client.GET('/userCollections/{id}/relationships/albums', {
-          params: { path: { id: userId }, query: { locale: 'en-US', countryCode, include: ['albums'] } },
-        });
-        return response.data?.data?.map((item: any) => item.id).includes(id) || false;
+        const albumIds: string[] = [];
+        let nextCursor: string | undefined;
+        do {
+          const response = await client.GET('/userCollections/{id}/relationships/albums', {
+            params: { path: { id: userId }, query: { locale: 'en-US', countryCode, include: ['albums'], ...cursorParam(nextCursor) } },
+          });
+          if (response.error) break;
+          albumIds.push(...(response.data?.data?.map((item: any) => item.id) || []));
+          nextCursor = (response.data?.links as any)?.meta?.nextCursor;
+        } while (nextCursor);
+        setCached(cacheKey, albumIds);
+        return albumIds;
       } catch {
-        return false;
+        return [];
       }
+    },
+    async isAlbumFavorite(id: string, countryCode = 'US'): Promise<boolean> {
+      const albumIds = await provider.getFavoriteAlbumIds(countryCode);
+      return albumIds.includes(id);
     },
     async addAlbumToFavorites(id: string, countryCode = 'US'): Promise<void> {
       if (!isInitialized.value) await provider.init();
@@ -395,6 +411,7 @@ export function createTidalProvider(): MusicProvider {
         body: { data: [{ id, type: 'albums' }] },
       });
       if (response.error) throw new Error(`Error removing album from favorites: ${JSON.stringify(response.error)}`);
+      clearTidalCache();
     },
     async isArtistFollowed(id: string, countryCode = 'US'): Promise<boolean> {
       try {

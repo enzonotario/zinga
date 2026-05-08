@@ -34,6 +34,9 @@ const showLoginModal = ref(false);
 const isFollowing = ref(false);
 const loadingFollow = ref(false);
 const loadingFollowStatus = ref(false);
+const favoriteAlbumIds = ref<Set<string>>(new Set());
+const loadingAlbumFavorites = ref<Set<string>>(new Set());
+const loadingAlbumFavoriteIds = ref(false);
 const albumsLoading = ref(false);
 const albumsError = ref<string | null>(null);
 const viewMode = useLocalStorage<'grid' | 'list'>('zinga:artist-view-mode', 'grid');
@@ -95,19 +98,72 @@ const similarArtistsWithPictures = computed(() =>
     picture: a.picture || similarArtistsPictures.value[a.id] || undefined,
   })),
 );
+function favoriteAlbumIcon(albumId: string) {
+  return favoriteAlbumIds.value.has(albumId) ? 'i-heroicons-heart-solid' : 'i-heroicons-heart';
+}
+function favoriteAlbumColor(albumId: string) {
+  return favoriteAlbumIds.value.has(albumId) ? 'error' : 'neutral';
+}
+function favoriteAlbumLabel(albumId: string) {
+  return favoriteAlbumIds.value.has(albumId) ? t('album.removeFavorite') : t('album.addFavorite');
+}
 async function loadAlbums() {
   albumsLoading.value = true;
   albumsError.value = null;
   albums.value = [];
   albumCovers.value = {};
+  favoriteAlbumIds.value = new Set();
+  loadingAlbumFavorites.value = new Set();
   try {
     albums.value = await provider.getAlbumsByArtist(props.artistId, props.countryCode);
+    loadAlbumFavoriteIds();
     loadAlbumCovers();
   } catch (err) {
     albumsError.value = err instanceof Error ? err.message : t('artist.errorLoadingAlbums');
     console.error('Error loading albums:', err);
   } finally {
     albumsLoading.value = false;
+  }
+}
+async function loadAlbumFavoriteIds() {
+  if (!provider.isUserLoggedIn.value) {
+    favoriteAlbumIds.value = new Set();
+    loadingAlbumFavoriteIds.value = false;
+    return;
+  }
+  loadingAlbumFavoriteIds.value = true;
+  try {
+    const ids = await provider.getFavoriteAlbumIds(props.countryCode);
+    favoriteAlbumIds.value = new Set(ids);
+  } catch (err) {
+    console.error('Error loading favorite albums:', err);
+  } finally {
+    loadingAlbumFavoriteIds.value = false;
+  }
+}
+async function toggleAlbumFavorite(albumId: string) {
+  if (!provider.isUserLoggedIn.value) {
+    showLoginModal.value = true;
+    return;
+  }
+  if (loadingAlbumFavoriteIds.value || loadingAlbumFavorites.value.has(albumId)) return;
+  loadingAlbumFavorites.value = new Set(loadingAlbumFavorites.value).add(albumId);
+  try {
+    const nextFavorites = new Set(favoriteAlbumIds.value);
+    if (nextFavorites.has(albumId)) {
+      await provider.removeAlbumFromFavorites(albumId, props.countryCode);
+      nextFavorites.delete(albumId);
+    } else {
+      await provider.addAlbumToFavorites(albumId, props.countryCode);
+      nextFavorites.add(albumId);
+    }
+    favoriteAlbumIds.value = nextFavorites;
+  } catch (err) {
+    console.error('Error toggling album favorite:', err);
+  } finally {
+    const nextLoading = new Set(loadingAlbumFavorites.value);
+    nextLoading.delete(albumId);
+    loadingAlbumFavorites.value = nextLoading;
   }
 }
 function loadAlbumCovers() {
@@ -217,6 +273,7 @@ function formatDuration(seconds: number) {
 function onLoginSuccess() {
   showLoginModal.value = false;
   loadFollowStatus();
+  loadAlbumFavoriteIds();
 }
 onMounted(() => loadArtist());
 watch(() => props.artistId, () => loadArtist());
@@ -360,116 +417,148 @@ onUnmounted(() => clearPageBackground());
               </div>
             </template>
             <div v-if="viewMode === 'grid'" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-              <NuxtLink
+              <div
                 v-for="album in group.albums"
                 :key="album.id"
-                :to="`/album/${album.id}`"
-                class="flex flex-col gap-2 p-3 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group"
+                class="relative"
               >
-                <div class="relative aspect-square w-full rounded-lg overflow-hidden bg-neutral-200 dark:bg-neutral-800">
-                  <img
-                    v-if="album.coverUrl"
-                    :src="album.coverUrl"
-                    :alt="album.title"
-                    class="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                  >
-                  <div
-                    v-else
-                    class="w-full h-full flex items-center justify-center"
-                  >
-                    <UIcon name="i-heroicons-musical-note" class="w-12 h-12 text-neutral-400" />
+                <NuxtLink
+                  :to="`/album/${album.id}`"
+                  class="flex flex-col gap-2 p-3 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group"
+                >
+                  <div class="relative aspect-square w-full rounded-lg overflow-hidden bg-neutral-200 dark:bg-neutral-800">
+                    <img
+                      v-if="album.coverUrl"
+                      :src="album.coverUrl"
+                      :alt="album.title"
+                      class="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                    >
+                    <div
+                      v-else
+                      class="w-full h-full flex items-center justify-center"
+                    >
+                      <UIcon name="i-heroicons-musical-note" class="w-12 h-12 text-neutral-400" />
+                    </div>
                   </div>
-                </div>
-                <div class="min-h-0 space-y-1">
-                  <div class="font-medium text-sm leading-snug flex items-center gap-1.5" :title="album.title">
-                    <span class="truncate">{{ album.title }}</span>
-                    <UIcon
-                      v-if="album.explicit && showExplicitIndicator"
-                      name="i-heroicons-exclamation-circle"
-                      class="w-3.5 h-3.5 text-error shrink-0"
-                    />
+                  <div class="min-h-0 space-y-1">
+                    <div class="font-medium text-sm leading-snug flex items-center gap-1.5" :title="album.title">
+                      <span class="truncate">{{ album.title }}</span>
+                      <UIcon
+                        v-if="album.explicit && showExplicitIndicator"
+                        name="i-heroicons-exclamation-circle"
+                        class="w-3.5 h-3.5 text-error shrink-0"
+                      />
+                    </div>
+                    <div v-if="album.label" class="text-xs text-muted leading-tight" :title="album.label">
+                      {{ album.label }}
+                    </div>
+                    <div class="flex items-center gap-1 flex-wrap">
+                      <span v-if="album.releaseDate" class="text-xs text-muted">
+                        {{ new Date(album.releaseDate).getFullYear() }}
+                      </span>
+                      <span v-if="album.duration" class="text-xs text-muted">
+                        · {{ formatDuration(album.duration) }}
+                      </span>
+                      <UBadge
+                        v-if="album.mediaTags?.includes('HIRES_LOSSLESS')"
+                        label="Hi-Res"
+                        variant="subtle"
+                        size="xs"
+                      />
+                      <UBadge
+                        v-else-if="album.mediaTags?.includes('LOSSLESS')"
+                        label="Lossless"
+                        variant="subtle"
+                        size="xs"
+                      />
+                    </div>
                   </div>
-                  <div v-if="album.label" class="text-xs text-muted leading-tight" :title="album.label">
-                    {{ album.label }}
-                  </div>
-                  <div class="flex items-center gap-1 flex-wrap">
-                    <span v-if="album.releaseDate" class="text-xs text-muted">
-                      {{ new Date(album.releaseDate).getFullYear() }}
-                    </span>
-                    <span v-if="album.duration" class="text-xs text-muted">
-                      · {{ formatDuration(album.duration) }}
-                    </span>
-                    <UBadge
-                      v-if="album.mediaTags?.includes('HIRES_LOSSLESS')"
-                      label="Hi-Res"
-                      variant="subtle"
-                      size="xs"
-                    />
-                    <UBadge
-                      v-else-if="album.mediaTags?.includes('LOSSLESS')"
-                      label="Lossless"
-                      variant="subtle"
-                      size="xs"
-                    />
-                  </div>
-                </div>
-              </NuxtLink>
+                </NuxtLink>
+                <UButton
+                  :icon="favoriteAlbumIcon(album.id)"
+                  :color="favoriteAlbumColor(album.id)"
+                  variant="ghost"
+                  size="xs"
+                  :loading="loadingAlbumFavoriteIds || loadingAlbumFavorites.has(album.id)"
+                  :disabled="loadingAlbumFavoriteIds"
+                  class="absolute top-5 right-5 z-10 rounded-full bg-elevated/90 backdrop-blur shadow ring ring-default pointer-events-auto"
+                  :class="favoriteAlbumIds.has(album.id) ? 'text-red-500' : ''"
+                  :aria-label="favoriteAlbumLabel(album.id)"
+                  @click.prevent.stop="toggleAlbumFavorite(album.id)"
+                />
+              </div>
             </div>
             <div v-else class="flex flex-col divide-y divide-(--ui-border)">
-              <NuxtLink
+              <div
                 v-for="album in group.albums"
                 :key="album.id"
-                :to="`/album/${album.id}`"
-                class="flex items-center gap-4 px-4 py-3 hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-colors group"
+                class="relative"
               >
-                <div class="w-12 h-12 shrink-0 rounded overflow-hidden bg-neutral-200 dark:bg-neutral-800">
-                  <img
-                    v-if="album.coverUrl"
-                    :src="album.coverUrl"
-                    :alt="album.title"
-                    class="w-full h-full object-cover"
-                  >
-                  <div v-else class="w-full h-full flex items-center justify-center">
-                    <UIcon name="i-heroicons-musical-note" class="w-6 h-6 text-neutral-400" />
+                <NuxtLink
+                  :to="`/album/${album.id}`"
+                  class="flex items-center gap-4 px-4 py-3 hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-colors group"
+                >
+                  <div class="w-12 h-12 shrink-0 rounded overflow-hidden bg-neutral-200 dark:bg-neutral-800">
+                    <img
+                      v-if="album.coverUrl"
+                      :src="album.coverUrl"
+                      :alt="album.title"
+                      class="w-full h-full object-cover"
+                    >
+                    <div v-else class="w-full h-full flex items-center justify-center">
+                      <UIcon name="i-heroicons-musical-note" class="w-6 h-6 text-neutral-400" />
+                    </div>
                   </div>
-                </div>
-                <div class="flex-1 min-w-0">
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                      <span class="font-medium truncate group-hover:text-primary transition-colors">
+                        {{ album.title }}
+                      </span>
+                      <UIcon
+                        v-if="album.explicit && showExplicitIndicator"
+                        name="i-heroicons-exclamation-circle"
+                        class="w-3.5 h-3.5 text-error shrink-0"
+                      />
+                    </div>
+                    <div v-if="album.label" class="text-xs text-muted truncate">
+                      {{ album.label }}
+                    </div>
+                    <div class="flex items-center gap-2 text-xs text-muted mt-0.5">
+                      <span v-if="album.releaseDate">
+                        {{ new Date(album.releaseDate).getFullYear() }}
+                      </span>
+                      <span v-if="album.duration">· {{ formatDuration(album.duration) }}</span>
+                      <UBadge
+                        v-if="album.mediaTags?.includes('HIRES_LOSSLESS')"
+                        label="Hi-Res"
+                        variant="subtle"
+                        size="xs"
+                      />
+                      <UBadge
+                        v-else-if="album.mediaTags?.includes('LOSSLESS')"
+                        label="Lossless"
+                        variant="subtle"
+                        size="xs"
+                      />
+                    </div>
+                  </div>
                   <div class="flex items-center gap-2">
-                    <span class="font-medium truncate group-hover:text-primary transition-colors">
-                      {{ album.title }}
-                    </span>
-                    <UIcon
-                      v-if="album.explicit && showExplicitIndicator"
-                      name="i-heroicons-exclamation-circle"
-                      class="w-3.5 h-3.5 text-error shrink-0"
-                    />
+                    <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-muted" />
                   </div>
-                  <div v-if="album.label" class="text-xs text-muted truncate">
-                    {{ album.label }}
-                  </div>
-                  <div class="flex items-center gap-2 text-xs text-muted mt-0.5">
-                    <span v-if="album.releaseDate">
-                      {{ new Date(album.releaseDate).getFullYear() }}
-                    </span>
-                    <span v-if="album.duration">· {{ formatDuration(album.duration) }}</span>
-                    <UBadge
-                      v-if="album.mediaTags?.includes('HIRES_LOSSLESS')"
-                      label="Hi-Res"
-                      variant="subtle"
-                      size="xs"
-                    />
-                    <UBadge
-                      v-else-if="album.mediaTags?.includes('LOSSLESS')"
-                      label="Lossless"
-                      variant="subtle"
-                      size="xs"
-                    />
-                  </div>
-                </div>
-                <div class="flex items-center gap-2">
-                  <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-muted" />
-                </div>
-              </NuxtLink>
+                </NuxtLink>
+                <UButton
+                  :icon="favoriteAlbumIcon(album.id)"
+                  :color="favoriteAlbumColor(album.id)"
+                  variant="ghost"
+                  size="xs"
+                  :loading="loadingAlbumFavoriteIds || loadingAlbumFavorites.has(album.id)"
+                  :disabled="loadingAlbumFavoriteIds"
+                  class="absolute top-3 left-11 z-10 rounded-full bg-elevated/90 backdrop-blur shadow ring ring-default pointer-events-auto"
+                  :class="favoriteAlbumIds.has(album.id) ? 'text-red-500' : ''"
+                  :aria-label="favoriteAlbumLabel(album.id)"
+                  @click.prevent.stop="toggleAlbumFavorite(album.id)"
+                />
+              </div>
             </div>
           </UCard>
         </template>

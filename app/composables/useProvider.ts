@@ -31,6 +31,8 @@ export default function useProvider() {
       provider.getAlbumsByArtist(id, countryCode),
     getTrackCredits: (id: string, countryCode?: string) =>
       provider.getTrackCredits(id, countryCode),
+    getFavoriteAlbumIds: (countryCode?: string) =>
+      provider.getFavoriteAlbumIds(countryCode),
     isAlbumFavorite: (id: string, countryCode?: string) =>
       provider.isAlbumFavorite(id, countryCode),
     addAlbumToFavorites: (id: string, countryCode?: string) =>

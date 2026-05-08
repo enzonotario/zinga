@@ -92,6 +92,7 @@ export interface MusicProvider {
   getAlbumTracks: (id: string, countryCode?: string) => Promise<NormalizedTrack[]>
   getAlbumsByArtist: (id: string, countryCode?: string) => Promise<NormalizedAlbum[]>
   getTrackCredits: (id: string, countryCode?: string) => Promise<NormalizedCredit[]>
+  getFavoriteAlbumIds: (countryCode?: string) => Promise<string[]>
   isAlbumFavorite: (id: string, countryCode?: string) => Promise<boolean>
   addAlbumToFavorites: (id: string, countryCode?: string) => Promise<void>
   removeAlbumFromFavorites: (id: string, countryCode?: string) => Promise<void>
