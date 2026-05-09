@@ -311,6 +311,8 @@
     "explicit": "Explícito",
     "unknown": "Álbum desconocido",
     "play": "Reproducir",
+    "playDisc": "Reproducir CD {number}",
+    "playFromDisc": "Reproducir desde CD {number}",
     "removeFavorite": "Quitar de favoritos",
     "addFavorite": "Añadir a favoritos",
     "loadingFavorite": "Cargando favoritos",

@@ -311,6 +311,8 @@
     "explicit": "Explicit",
     "unknown": "Unknown album",
     "play": "Play",
+    "playDisc": "Play CD {number}",
+    "playFromDisc": "Play from CD {number}",
     "removeFavorite": "Remove from favorites",
     "addFavorite": "Add to favorites",
     "loadingFavorite": "Loading favorites",

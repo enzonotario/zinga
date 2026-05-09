@@ -14,6 +14,15 @@ interface Props {
   albumId: string
   countryCode?: string
 }
+type AlbumTrack = NormalizedTrack & {
+  creditsByRole: Record<string, string[]>
+  durationFormatted: string
+};
+interface AlbumDisc {
+  number: number
+  tracks: AlbumTrack[]
+  durationFormatted: string
+}
 const props = withDefaults(defineProps<Props>(), {
   countryCode: 'US',
 });
@@ -44,7 +53,9 @@ const error = ref<string | null>(null);
 const album = ref<NormalizedAlbum | null>(null);
 const tracks = ref<NormalizedTrack[]>([]);
 const playingUpnp = ref(false);
+const playingDiscNumber = ref<number | null>(null);
 const addingToQueue = ref(false);
+const playingFromDiscNumber = ref<number | null>(null);
 const mopidyError = ref<string | null>(null);
 const isAlbumFav = ref(false);
 const loadingAlbumFav = ref(false);
@@ -84,6 +95,42 @@ const albumTracks = computed(() => {
       ? (track.duration >= 3600 ? formatTimeHHMMSS(track.duration) : formatTime(track.duration))
       : '--:--',
   }));
+});
+function formatDuration(seconds: number) {
+  return seconds >= 3600 ? formatTimeHHMMSS(seconds) : formatTime(seconds);
+}
+const albumDiscs = computed<AlbumDisc[]>(() => {
+  const discs = new Map<number, AlbumTrack[]>();
+  let fallbackDiscNumber = 1;
+  let previousTrackNumber = 0;
+  for (const track of albumTracks.value) {
+    const trackNumber = track.trackNumber || previousTrackNumber + 1;
+    if (!track.volumeNumber && previousTrackNumber > 0 && trackNumber <= previousTrackNumber) {
+      fallbackDiscNumber += 1;
+    }
+    const discNumber = track.volumeNumber || fallbackDiscNumber;
+    const discTracks = discs.get(discNumber);
+    if (discTracks) {
+      discTracks.push(track);
+    } else {
+      discs.set(discNumber, [track]);
+    }
+    previousTrackNumber = trackNumber;
+  }
+  return Array.from(discs.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([number, discTracks]) => {
+      const durationSeconds = discTracks.reduce((acc, track) => acc + (track.duration || 0), 0);
+      return {
+        number,
+        tracks: discTracks,
+        durationFormatted: formatDuration(durationSeconds),
+      };
+    });
+});
+const hasMultipleDiscs = computed(() => {
+  const albumVolumeCount = album.value?.numberOfVolumes || 0;
+  return albumVolumeCount > 1 || albumDiscs.value.length > 1;
 });
 async function loadFavoritesStatus() {
   if (!provider.isUserLoggedIn.value) {
@@ -157,20 +204,21 @@ function onLoginSuccess() {
   loadFavoritesStatus();
 }
 const player = usePlayer();
-async function playAlbum() {
+async function playTracks(trackList: NormalizedTrack[], setLoading: (loading: boolean) => void) {
   if (!selectedDeviceId.value) {
     mopidyError.value = t('album.noPlaybackDevice');
     return;
   }
+  if (trackList.length === 0) return;
   try {
-    playingUpnp.value = true;
+    setLoading(true);
     mopidyError.value = null;
     const connected = await mopidy.mopidyRpc('core.get_version').then(() => true).catch(() => false);
     if (!connected) {
       throw new Error(t('album.mopidyUnavailable'));
     }
     await mopidy.clear();
-    const trackUris = tracks.value.map((t) => t.uri || `tidal:track:${t.id}`);
+    const trackUris = trackList.map((t) => t.uri || `tidal:track:${t.id}`);
     await mopidy.add(trackUris);
     await player.play();
     await navigateTo('/');
@@ -178,8 +226,26 @@ async function playAlbum() {
     mopidyError.value = err instanceof Error ? err.message : t('album.playbackError');
     console.error('Playback error:', err);
   } finally {
-    playingUpnp.value = false;
+    setLoading(false);
   }
+}
+async function playAlbum() {
+  await playTracks(tracks.value, (value) => {
+    playingUpnp.value = value;
+  });
+}
+async function playDisc(disc: AlbumDisc) {
+  await playTracks(disc.tracks, (value) => {
+    playingDiscNumber.value = value ? disc.number : null;
+  });
+}
+async function playFromDisc(disc: AlbumDisc) {
+  const discIndex = albumDiscs.value.findIndex((d) => d.number === disc.number);
+  if (discIndex === -1) return;
+  const tracksFromDisc = albumDiscs.value.slice(discIndex).flatMap((d) => d.tracks);
+  await playTracks(tracksFromDisc, (value) => {
+    playingFromDiscNumber.value = value ? disc.number : null;
+  });
 }
 async function addAlbumToQueue() {
   if (!selectedDeviceId.value) {
@@ -431,7 +497,7 @@ watch(albumCover, (cover) => setPageBackground(cover), { immediate: true });
           <div class="flex flex-wrap items-center gap-3">
             <UButton
               :loading="playingUpnp"
-              :disabled="!selectedDeviceId || playingUpnp"
+              :disabled="!selectedDeviceId || playingUpnp || playingDiscNumber !== null || playingFromDiscNumber !== null"
               icon="i-heroicons-play"
               size="lg"
               class="rounded-full"
@@ -484,148 +550,226 @@ watch(albumCover, (cover) => setPageBackground(cover), { immediate: true });
             />
           </div>
         </div>
-        <div v-if="viewMode === 'grid'" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-          <UCard
-            v-for="(track, index) in albumTracks"
-            :key="track.id"
-            :class="currentPlayingTrackId === track.id ? 'ring-2 ring-primary' : ''"
+        <div v-if="viewMode === 'grid'" class="flex flex-col gap-6">
+          <section
+            v-for="disc in albumDiscs"
+            :key="`grid-disc-${disc.number}`"
+            class="flex flex-col gap-3"
           >
-            <div class="flex flex-col gap-3">
-              <div class="flex items-start gap-3">
-                <div class="flex items-center justify-center w-8 h-8 shrink-0 rounded-full bg-neutral-100 dark:bg-neutral-800">
-                  <UIcon
-                    v-if="currentPlayingTrackId === track.id && mopidy.isPlaying.value"
-                    name="i-heroicons-play"
-                    class="w-4 h-4 text-primary animate-pulse"
+            <div v-if="hasMultipleDiscs" class="flex flex-wrap items-center justify-between gap-3 bg-neutral-100/80 dark:bg-neutral-800/80 backdrop-blur-sm rounded-lg px-4 py-3">
+              <div class="flex flex-col">
+                <h2 class="text-xl font-semibold">
+                  CD {{ disc.number }}
+                </h2>
+                <span class="text-sm text-muted">
+                  {{ t('album.songCount', disc.tracks.length) }} · {{ disc.durationFormatted }}
+                </span>
+              </div>
+              <div class="flex items-center gap-2">
+                <UButton
+                  :label="t('album.playDisc', { number: disc.number })"
+                  :loading="playingDiscNumber === disc.number"
+                  :disabled="!selectedDeviceId || playingUpnp || playingFromDiscNumber !== null || (playingDiscNumber !== null && playingDiscNumber !== disc.number)"
+                  icon="i-heroicons-play"
+                  variant="ghost"
+                  size="sm"
+                  @click="playDisc(disc)"
+                />
+                <UButton
+                  :label="t('album.playFromDisc', { number: disc.number })"
+                  :loading="playingFromDiscNumber === disc.number"
+                  :disabled="!selectedDeviceId || playingUpnp || playingDiscNumber !== null || (playingFromDiscNumber !== null && playingFromDiscNumber !== disc.number)"
+                  icon="i-heroicons-play"
+                  variant="ghost"
+                  size="sm"
+                  @click="playFromDisc(disc)"
+                />
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              <UCard
+                v-for="(track, index) in disc.tracks"
+                :key="track.id"
+                :class="currentPlayingTrackId === track.id ? 'ring-2 ring-primary' : ''"
+              >
+                <div class="flex flex-col gap-3">
+                  <div class="flex items-start gap-3">
+                    <div class="flex items-center justify-center w-8 h-8 shrink-0 rounded-full bg-neutral-100 dark:bg-neutral-800">
+                      <UIcon
+                        v-if="currentPlayingTrackId === track.id && mopidy.isPlaying.value"
+                        name="i-heroicons-play"
+                        class="w-4 h-4 text-primary animate-pulse"
+                      />
+                      <UIcon
+                        v-else-if="currentPlayingTrackId === track.id && mopidy.isPaused.value"
+                        name="i-heroicons-pause"
+                        class="w-4 h-4 text-primary"
+                      />
+                      <span v-else class="text-sm font-medium text-muted">
+                        {{ track.trackNumber || index + 1 }}
+                      </span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2 leading-normal">
+                        <h3
+                          class="font-semibold leading-normal flex items-center gap-2"
+                          :class="currentPlayingTrackId === track.id ? 'text-primary' : ''"
+                        >
+                          {{ track.title }}
+                          <UIcon
+                            v-if="track.explicit && showExplicitIndicator"
+                            name="i-heroicons-exclamation-circle"
+                            class="w-3.5 h-3.5 text-warning shrink-0"
+                          />
+                        </h3>
+                      </div>
+                      <div v-if="loadingCredits" class="flex items-center gap-1 leading-normal min-h-5">
+                        <USkeleton class="h-4 w-20" />
+                      </div>
+                      <p
+                        v-else-if="track.creditsByRole.Composer"
+                        class="text-sm text-muted leading-normal"
+                      >
+                        {{ track.creditsByRole.Composer.join(', ') }}
+                      </p>
+                      <p
+                        v-else
+                        class="text-sm text-muted leading-normal"
+                      >
+                        {{ albumArtists.map(a => a.name).join(', ') }}
+                      </p>
+                    </div>
+                    <div class="text-sm text-muted shrink-0 leading-normal">
+                      {{ track.durationFormatted }}
+                    </div>
+                    <div class="flex items-center gap-1 shrink-0">
+                      <UButton
+                        :icon="favoriteTrackIds.has(track.id) ? 'i-heroicons-heart-solid' : 'i-heroicons-heart'"
+                        :color="favoriteTrackIds.has(track.id) ? 'error' : 'neutral'"
+                        variant="ghost"
+                        size="xs"
+                        :loading="loadingTrackFavIds.has(track.id)"
+                        :class="favoriteTrackIds.has(track.id) ? 'text-red-500' : ''"
+                        @click="toggleTrackFavorite(track.id)"
+                      />
+                    </div>
+                  </div>
+                  <UiTrackCredits
+                    :loading="loadingCredits"
+                    :credits-by-role="track.creditsByRole"
                   />
-                  <UIcon
-                    v-else-if="currentPlayingTrackId === track.id && mopidy.isPaused.value"
-                    name="i-heroicons-pause"
-                    class="w-4 h-4 text-primary"
-                  />
-                  <span v-else class="text-sm font-medium text-muted">
-                    {{ track.trackNumber || index + 1 }}
-                  </span>
                 </div>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2 leading-normal">
-                    <h3
-                      class="font-semibold leading-normal flex items-center gap-2"
-                      :class="currentPlayingTrackId === track.id ? 'text-primary' : ''"
-                    >
-                      {{ track.title }}
+              </UCard>
+            </div>
+          </section>
+        </div>
+        <div
+          v-else
+          class="flex flex-col gap-6"
+        >
+          <section
+            v-for="disc in albumDiscs"
+            :key="`list-disc-${disc.number}`"
+            class="flex flex-col gap-3"
+          >
+            <div v-if="hasMultipleDiscs" class="flex flex-wrap items-center justify-between gap-3 bg-neutral-100/80 dark:bg-neutral-800/80 backdrop-blur-sm rounded-lg px-4 py-3">
+              <div class="flex flex-col">
+                <h2 class="text-xl font-semibold">
+                  CD {{ disc.number }}
+                </h2>
+                <span class="text-sm text-muted">
+                  {{ t('album.songCount', disc.tracks.length) }} · {{ disc.durationFormatted }}
+                </span>
+              </div>
+              <div class="flex items-center gap-2">
+                <UButton
+                  :label="t('album.playDisc', { number: disc.number })"
+                  :loading="playingDiscNumber === disc.number"
+                  :disabled="!selectedDeviceId || playingUpnp || playingFromDiscNumber !== null || (playingDiscNumber !== null && playingDiscNumber !== disc.number)"
+                  icon="i-heroicons-play"
+                  variant="ghost"
+                  size="sm"
+                  @click="playDisc(disc)"
+                />
+                <UButton
+                  :label="t('album.playFromDisc', { number: disc.number })"
+                  :loading="playingFromDiscNumber === disc.number"
+                  :disabled="!selectedDeviceId || playingUpnp || playingDiscNumber !== null || (playingFromDiscNumber !== null && playingFromDiscNumber !== disc.number)"
+                  icon="i-heroicons-play"
+                  variant="ghost"
+                  size="sm"
+                  @click="playFromDisc(disc)"
+                />
+              </div>
+            </div>
+            <UCard
+              :ui="{ body: '!p-0' }"
+              class="overflow-hidden"
+            >
+              <div class="flex flex-col divide-y divide-(--ui-border)">
+                <div
+                  v-for="(track, index) in disc.tracks"
+                  :key="track.id"
+                  class="flex items-center gap-4 px-4 py-3 hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-colors"
+                  :class="currentPlayingTrackId === track.id ? 'bg-primary/5' : ''"
+                >
+                  <div class="flex items-center justify-center w-8 h-8 shrink-0 rounded-full bg-neutral-100 dark:bg-neutral-800">
+                    <UIcon
+                      v-if="currentPlayingTrackId === track.id && mopidy.isPlaying.value"
+                      name="i-heroicons-play"
+                      class="w-4 h-4 text-primary animate-pulse"
+                    />
+                    <UIcon
+                      v-else-if="currentPlayingTrackId === track.id && mopidy.isPaused.value"
+                      name="i-heroicons-pause"
+                      class="w-4 h-4 text-primary"
+                    />
+                    <span v-else class="text-sm font-medium text-muted">
+                      {{ track.trackNumber || index + 1 }}
+                    </span>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                      <span
+                        class="font-semibold truncate"
+                        :class="currentPlayingTrackId === track.id ? 'text-primary' : ''"
+                      >
+                        {{ track.title }}
+                      </span>
                       <UIcon
                         v-if="track.explicit && showExplicitIndicator"
                         name="i-heroicons-exclamation-circle"
                         class="w-3.5 h-3.5 text-warning shrink-0"
                       />
-                    </h3>
+                    </div>
+                    <p class="text-sm text-muted truncate">
+                      {{ track.creditsByRole.Composer?.join(', ') || albumArtists.map(a => a.name).join(', ') }}
+                    </p>
+                    <UiTrackCredits
+                      :loading="loadingCredits"
+                      :credits-by-role="track.creditsByRole"
+                      class="mt-1"
+                    />
                   </div>
-                  <div v-if="loadingCredits" class="flex items-center gap-1 leading-normal min-h-5">
-                    <USkeleton class="h-4 w-20" />
+                  <div class="text-sm text-muted shrink-0 w-16 text-right">
+                    {{ track.durationFormatted }}
                   </div>
-                  <p
-                    v-else-if="track.creditsByRole.Composer"
-                    class="text-sm text-muted leading-normal"
-                  >
-                    {{ track.creditsByRole.Composer.join(', ') }}
-                  </p>
-                  <p
-                    v-else
-                    class="text-sm text-muted leading-normal"
-                  >
-                    {{ albumArtists.map(a => a.name).join(', ') }}
-                  </p>
-                </div>
-                <div class="text-sm text-muted shrink-0 leading-normal">
-                  {{ track.durationFormatted }}
-                </div>
-                <div class="flex items-center gap-1 shrink-0">
-                  <UButton
-                    :icon="favoriteTrackIds.has(track.id) ? 'i-heroicons-heart-solid' : 'i-heroicons-heart'"
-                    :color="favoriteTrackIds.has(track.id) ? 'error' : 'neutral'"
-                    variant="ghost"
-                    size="xs"
-                    :loading="loadingTrackFavIds.has(track.id)"
-                    :class="favoriteTrackIds.has(track.id) ? 'text-red-500' : ''"
-                    @click="toggleTrackFavorite(track.id)"
-                  />
+                  <div class="flex items-center gap-1 shrink-0">
+                    <UButton
+                      :icon="favoriteTrackIds.has(track.id) ? 'i-heroicons-heart-solid' : 'i-heroicons-heart'"
+                      :color="favoriteTrackIds.has(track.id) ? 'error' : 'neutral'"
+                      variant="ghost"
+                      size="xs"
+                      :loading="loadingTrackFavIds.has(track.id)"
+                      :class="favoriteTrackIds.has(track.id) ? 'text-red-500' : ''"
+                      @click="toggleTrackFavorite(track.id)"
+                    />
+                  </div>
                 </div>
               </div>
-              <UiTrackCredits
-                :loading="loadingCredits"
-                :credits-by-role="track.creditsByRole"
-              />
-            </div>
-          </UCard>
+            </UCard>
+          </section>
         </div>
-        <UCard
-          v-else
-          :ui="{ body: '!p-0' }"
-          class="overflow-hidden"
-        >
-          <div class="flex flex-col divide-y divide-(--ui-border)">
-            <div
-              v-for="(track, index) in albumTracks"
-              :key="track.id"
-              class="flex items-center gap-4 px-4 py-3 hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-colors"
-              :class="currentPlayingTrackId === track.id ? 'bg-primary/5' : ''"
-            >
-              <div class="flex items-center justify-center w-8 h-8 shrink-0 rounded-full bg-neutral-100 dark:bg-neutral-800">
-                <UIcon
-                  v-if="currentPlayingTrackId === track.id && mopidy.isPlaying.value"
-                  name="i-heroicons-play"
-                  class="w-4 h-4 text-primary animate-pulse"
-                />
-                <UIcon
-                  v-else-if="currentPlayingTrackId === track.id && mopidy.isPaused.value"
-                  name="i-heroicons-pause"
-                  class="w-4 h-4 text-primary"
-                />
-                <span v-else class="text-sm font-medium text-muted">
-                  {{ track.trackNumber || index + 1 }}
-                </span>
-              </div>
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2">
-                  <span
-                    class="font-semibold truncate"
-                    :class="currentPlayingTrackId === track.id ? 'text-primary' : ''"
-                  >
-                    {{ track.title }}
-                  </span>
-                  <UIcon
-                    v-if="track.explicit && showExplicitIndicator"
-                    name="i-heroicons-exclamation-circle"
-                    class="w-3.5 h-3.5 text-warning shrink-0"
-                  />
-                </div>
-                <p class="text-sm text-muted truncate">
-                  {{ track.creditsByRole.Composer?.join(', ') || albumArtists.map(a => a.name).join(', ') }}
-                </p>
-                <UiTrackCredits
-                  :loading="loadingCredits"
-                  :credits-by-role="track.creditsByRole"
-                  class="mt-1"
-                />
-              </div>
-              <div class="text-sm text-muted shrink-0 w-16 text-right">
-                {{ track.durationFormatted }}
-              </div>
-              <div class="flex items-center gap-1 shrink-0">
-                <UButton
-                  :icon="favoriteTrackIds.has(track.id) ? 'i-heroicons-heart-solid' : 'i-heroicons-heart'"
-                  :color="favoriteTrackIds.has(track.id) ? 'error' : 'neutral'"
-                  variant="ghost"
-                  size="xs"
-                  :loading="loadingTrackFavIds.has(track.id)"
-                  :class="favoriteTrackIds.has(track.id) ? 'text-red-500' : ''"
-                  @click="toggleTrackFavorite(track.id)"
-                />
-              </div>
-            </div>
-          </div>
-        </UCard>
       </div>
     </div>
     <UEmpty

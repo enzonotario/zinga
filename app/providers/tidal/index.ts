@@ -250,7 +250,7 @@ export function createTidalProvider(): MusicProvider {
     },
     async getAlbumTracks(id: string, countryCode = 'US'): Promise<NormalizedTrack[]> {
       if (!isInitialized.value) await provider.init();
-      const cacheKey = `albumTracks:v2:${id}:${countryCode}`;
+      const cacheKey = `albumTracks:v3:${id}:${countryCode}`;
       const cached = getCached(cacheKey);
       if (cached !== null) return cached;
       const client = getAPIClient();
@@ -307,8 +307,14 @@ export function createTidalProvider(): MusicProvider {
         }
       }
       const tracks = Array.from(tracksMap.values())
-        .map((t) => normalizeTrack(t, t.meta))
-        .sort((a, b) => (a.volumeNumber || 1) !== (b.volumeNumber || 1) ? (a.volumeNumber || 1) - (b.volumeNumber || 1) : (a.trackNumber || 0) - (b.trackNumber || 0));
+        .map((t, index) => ({ index, track: normalizeTrack(t, t.meta) }))
+        .sort((a, b) => {
+          if (!a.track.volumeNumber && !b.track.volumeNumber) return a.index - b.index;
+          const volumeDiff = (a.track.volumeNumber || 1) - (b.track.volumeNumber || 1);
+          if (volumeDiff !== 0) return volumeDiff;
+          return (a.track.trackNumber || 0) - (b.track.trackNumber || 0);
+        })
+        .map(({ track }) => track);
       setCached(cacheKey, tracks);
       return tracks;
     },
