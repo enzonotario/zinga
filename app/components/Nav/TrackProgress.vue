@@ -25,6 +25,9 @@ const handleChange = (value: number) => {
       :disabled="disabled"
       size="xs"
       class="cursor-pointer"
+      :ui="{
+        track: 'bg-gray-400 dark:bg-gray-600',
+      }"
       @update:model-value="handleChange"
     />
   </div>

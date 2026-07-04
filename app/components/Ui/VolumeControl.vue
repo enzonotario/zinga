@@ -151,6 +151,9 @@ onUnmounted(() => {
         size="sm"
         class="flex-1"
         :disabled="controlsDisabled"
+        :ui="{
+          track: 'bg-gray-400 dark:bg-gray-600',
+        }"
         @update:model-value="handleVolumeChange"
       />
     </div>
