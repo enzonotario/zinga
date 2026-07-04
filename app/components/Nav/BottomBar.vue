@@ -40,6 +40,7 @@ async function clearQueue() {
   }
 }
 const isPlaying = computed(() => player.isPlaying.value);
+const pauseAtEndOfTrack = computed(() => player.pauseAtEndOfTrack.value);
 const formattedPosition = computed(() => {
   const posSeconds = mopidy.position.value / 1000;
   return formatTime(posSeconds);
@@ -59,6 +60,9 @@ const handleNext = async () => {
 };
 const handlePrevious = async () => {
   await player.previous();
+};
+const handleTogglePauseAtEnd = () => {
+  player.togglePauseAtEndOfTrack();
 };
 const { t } = useI18n();
 const queuePopoverOpen = ref(false);
@@ -89,11 +93,13 @@ async function onQueuePopoverOpen() {
       <div class="flex flex-row justify-center items-center">
         <PlaybackControls
           :is-playing="isPlaying"
+          :pause-at-end-of-track="pauseAtEndOfTrack"
           :selected-device-id="selectedDeviceId"
           :has-track="hasTrack"
           class="py-3"
           @previous="handlePrevious"
           @toggle-play-pause="handleTogglePlayPause"
+          @toggle-pause-at-end="handleTogglePauseAtEnd"
           @next="handleNext"
         />
       </div>

@@ -1,12 +1,19 @@
 import type { TrackInfo } from '~/types/track';
 import { invoke } from '@tauri-apps/api/core';
-import { computed, watch } from 'vue';
+import { computed, readonly, watch } from 'vue';
+import { timeToSeconds } from '~/utils/time';
 import useDevices from './useDevices';
 import useMopidy from './useMopidy';
 import useRemoteClient from './useRemoteClient';
 import useUpnpPlayer from './useUpnpPlayer';
 
+const PAUSE_AT_END_POLL_MS = 250;
+const PAUSE_AT_END_THRESHOLD_MS = 500;
+
 let playerGlobalWatchersRegistered = false;
+let pauseAtEndPollId: ReturnType<typeof setInterval> | null = null;
+const pauseAtEndOfTrack = ref(false);
+const pauseAtEndTlid = ref<number | null>(null);
 
 export default function usePlayer() {
   const { t } = useI18n();
@@ -63,6 +70,7 @@ export default function usePlayer() {
   }
   async function playUris(uris: string[]) {
     try {
+      clearPauseAtEndOfTrack();
       await mopidy.clear();
       await mopidy.add(uris);
       await play();
@@ -70,8 +78,35 @@ export default function usePlayer() {
       console.error('Play URIs Error:', err);
     }
   }
-  async function pause() {
-    if (remote.isRemoteMode.value) return mopidy.pause();
+  function clearPauseAtEndOfTrack() {
+    pauseAtEndOfTrack.value = false;
+    pauseAtEndTlid.value = null;
+    if (pauseAtEndPollId) {
+      clearInterval(pauseAtEndPollId);
+      pauseAtEndPollId = null;
+    }
+  }
+  function cancelPauseAtEndOfTrack() {
+    clearPauseAtEndOfTrack();
+  }
+  async function getPlaybackPositionMs(): Promise<number> {
+    if (isUpnpMode.value && selectedDeviceId.value) {
+      await upnp.refreshStatus(selectedDeviceId.value);
+      const upnpState = upnp.currentUpnpState.value;
+      if (upnpState === 'PLAYING' || upnpState === 'TRANSITIONING') {
+        const upnpPosSec = timeToSeconds(upnp.positionInfo.value.rel_time);
+        if (upnpPosSec > 0) {
+          return upnpPosSec * 1000;
+        }
+      }
+    }
+    return mopidy.position.value;
+  }
+  async function executePausePlayback() {
+    if (remote.isRemoteMode.value) {
+      await mopidy.pause();
+      return;
+    }
     await mopidy.pause();
     if (isLocalPlayback.value) {
       await stopTestSound();
@@ -79,14 +114,76 @@ export default function usePlayer() {
       await upnp.pause(selectedDeviceId.value);
     }
   }
+  async function checkPauseAtEnd() {
+    if (!pauseAtEndOfTrack.value || pauseAtEndTlid.value == null) return;
+
+    await mopidy.refreshState();
+
+    const track = mopidy.currentTrack.value;
+    if (!track) return;
+
+    if (track.tlid !== pauseAtEndTlid.value) {
+      clearPauseAtEndOfTrack();
+      await executePausePlayback();
+      return;
+    }
+
+    const length = track.track?.length ?? 0;
+    const positionMs = await getPlaybackPositionMs();
+    let effectiveLengthMs = length;
+
+    if (effectiveLengthMs <= 0 && isUpnpMode.value) {
+      const durationSec = timeToSeconds(upnp.positionInfo.value.track_duration);
+      if (durationSec > 0) {
+        effectiveLengthMs = durationSec * 1000;
+      }
+    }
+
+    if (effectiveLengthMs > 0 && positionMs >= effectiveLengthMs - PAUSE_AT_END_THRESHOLD_MS) {
+      clearPauseAtEndOfTrack();
+      await executePausePlayback();
+      return;
+    }
+
+    if (mopidy.currentState.value.state === 'stopped') {
+      clearPauseAtEndOfTrack();
+      await executePausePlayback();
+    }
+  }
+  function startPauseAtEndPolling() {
+    if (pauseAtEndPollId) return;
+    void checkPauseAtEnd();
+    pauseAtEndPollId = setInterval(() => {
+      void checkPauseAtEnd();
+    }, PAUSE_AT_END_POLL_MS);
+  }
+  function togglePauseAtEndOfTrack() {
+    if (pauseAtEndOfTrack.value) {
+      cancelPauseAtEndOfTrack();
+      return;
+    }
+
+    const tlid = mopidy.currentTrack.value?.tlid;
+    if (tlid == null) return;
+
+    pauseAtEndOfTrack.value = true;
+    pauseAtEndTlid.value = tlid;
+    startPauseAtEndPolling();
+  }
+  async function pause() {
+    clearPauseAtEndOfTrack();
+    await executePausePlayback();
+  }
   async function togglePlayPause() {
     if (isPlaying.value) await pause();
     else await play();
   }
   async function next() {
+    clearPauseAtEndOfTrack();
     await mopidy.next();
   }
   async function previous() {
+    clearPauseAtEndOfTrack();
     await mopidy.previous();
   }
   async function testSound() {
@@ -123,6 +220,7 @@ export default function usePlayer() {
     }
   }
   async function clear() {
+    clearPauseAtEndOfTrack();
     await mopidy.clear();
     await stop();
   }
@@ -189,6 +287,9 @@ export default function usePlayer() {
     previous,
     seek,
     clear,
+    pauseAtEndOfTrack: readonly(pauseAtEndOfTrack),
+    togglePauseAtEndOfTrack,
+    cancelPauseAtEndOfTrack,
     refresh: mopidy.refreshState,
   };
 }

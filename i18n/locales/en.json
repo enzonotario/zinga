@@ -367,7 +367,9 @@
     "showLyrics": "Show lyrics",
     "noTrack": "No track",
     "soundTestStarted": "Sound test (loop) started",
-    "soundTestError": "Sound test error"
+    "soundTestError": "Sound test error",
+    "pauseAtEnd": "Pause at end of track",
+    "pauseAtEndActive": "Pause scheduled — click to cancel"
   },
   "auth": {
     "login": "Log in",

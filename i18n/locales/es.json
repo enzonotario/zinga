@@ -367,7 +367,9 @@
     "showLyrics": "Mostrar letras",
     "noTrack": "Sin tema",
     "soundTestStarted": "Prueba de sonido (loop) iniciada",
-    "soundTestError": "Error en la prueba de sonido"
+    "soundTestError": "Error en la prueba de sonido",
+    "pauseAtEnd": "Pausar al finalizar tema",
+    "pauseAtEndActive": "Pausa programada — clic para cancelar"
   },
   "auth": {
     "login": "Iniciar sesión",
