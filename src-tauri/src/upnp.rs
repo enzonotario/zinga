@@ -774,16 +774,15 @@ pub fn upnp_pause(device_id: String, state: tauri::State<AppState>) -> Result<()
 }
 
 #[tauri::command]
-pub fn upnp_get_transport_info(state: tauri::State<AppState>) -> Result<TransportInfo, String> {
+pub fn upnp_get_transport_info(
+    device_id: String,
+    state: tauri::State<AppState>,
+) -> Result<TransportInfo, String> {
     let inner = state.inner.lock().map_err(|_| "state poisoned")?;
-    let dev_id = inner
-        .connected_device_id
-        .clone()
-        .ok_or("no connected device")?;
     let dev = inner
         .devices
-        .get(&dev_id)
-        .ok_or("connected device not found")?;
+        .get(&device_id)
+        .ok_or("device not found")?;
     let av_url = dev
         .av_transport_url
         .clone()
@@ -844,16 +843,15 @@ pub fn upnp_get_transport_info(state: tauri::State<AppState>) -> Result<Transpor
 }
 
 #[tauri::command]
-pub fn upnp_get_position_info(state: tauri::State<AppState>) -> Result<PositionInfo, String> {
+pub fn upnp_get_position_info(
+    device_id: String,
+    state: tauri::State<AppState>,
+) -> Result<PositionInfo, String> {
     let inner = state.inner.lock().map_err(|_| "state poisoned")?;
-    let dev_id = inner
-        .connected_device_id
-        .clone()
-        .ok_or("no connected device")?;
     let dev = inner
         .devices
-        .get(&dev_id)
-        .ok_or("connected device not found")?;
+        .get(&device_id)
+        .ok_or("device not found")?;
     let av_url = dev
         .av_transport_url
         .clone()

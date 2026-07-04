@@ -42,8 +42,7 @@ async function clearQueue() {
 const isPlaying = computed(() => player.isPlaying.value);
 const pauseAtEndOfTrack = computed(() => player.pauseAtEndOfTrack.value);
 const formattedPosition = computed(() => {
-  const posSeconds = mopidy.position.value / 1000;
-  return formatTime(posSeconds);
+  return formatTime(currentTrack.value?.position ?? 0);
 });
 const formattedDuration = computed(() => {
   if (mopidy.currentTrack.value?.track) {

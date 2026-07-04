@@ -35,7 +35,7 @@ const {
 } = useLyricsFontSize();
 const { lyricsPanelMode } = useLyricsPanelMode();
 const provider = getCurrentProvider();
-const isPlaying = computed(() => player.isPlaying.value);
+const isPlaying = computed(() => player.isDevicePlaying.value);
 const tidalAlbum = computed(() => {
   const album = currentTrack.value?.tidalData?.album;
   if (album) {

@@ -102,6 +102,7 @@ export default function useDevices() {
       devices.value = await invoke<Device[]>('upnp_discover');
       autoSearchCompleted.value = true;
       syncSelectionWithDevices(devices.value);
+      await connectSelectedDevice();
       if (devices.value.length === 1 && !selectedDeviceId.value) {
         await select(devices.value[0].id);
       }
@@ -109,6 +110,16 @@ export default function useDevices() {
       error.value = (e as Error).message || t('devices.errorDiscoveringUpnp');
     } finally {
       loading.value = false;
+    }
+  }
+  async function connectSelectedDevice() {
+    const deviceId = selectedDeviceId.value;
+    if (!deviceId || deviceId === LOCAL_DEVICE_ID) return;
+    if (!devices.value.some((device) => device.id === deviceId)) return;
+    try {
+      await invoke('upnp_connect', { deviceId });
+    } catch (e) {
+      console.error('Failed to connect UPnP device:', e);
     }
   }
   async function select(deviceId: string | null) {

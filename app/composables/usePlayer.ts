@@ -23,8 +23,15 @@ export default function usePlayer() {
   const remote = useRemoteClient();
   const isUpnpMode = computed(() => !isLocalPlayback.value && !!selectedDeviceId.value);
   const isPlaying = computed(() => mopidy.isPlaying.value);
+  const isDevicePlaying = computed(() => {
+    if (isUpnpMode.value) return upnp.isDevicePlaying.value;
+    return mopidy.isPlaying.value;
+  });
   const isPaused = computed(() => mopidy.isPaused.value);
-  const position = computed(() => mopidy.position.value / 1000);
+  const position = computed(() => {
+    if (isUpnpMode.value) return upnp.displayPositionSec.value;
+    return mopidy.position.value / 1000;
+  });
   const duration = computed(() => (mopidy.currentTrack.value?.track?.length || 0) / 1000);
   const currentTrack = computed<TrackInfo | null>(() => {
     const track = mopidy.currentTrack.value?.track;
@@ -92,13 +99,11 @@ export default function usePlayer() {
   async function getPlaybackPositionMs(): Promise<number> {
     if (isUpnpMode.value && selectedDeviceId.value) {
       await upnp.refreshStatus(selectedDeviceId.value);
-      const upnpState = upnp.currentUpnpState.value;
-      if (upnpState === 'PLAYING' || upnpState === 'TRANSITIONING') {
-        const upnpPosSec = timeToSeconds(upnp.positionInfo.value.rel_time);
-        if (upnpPosSec > 0) {
-          return upnpPosSec * 1000;
-        }
+      const state = upnp.currentUpnpState.value;
+      if (state === 'PLAYING' || state === 'PAUSED_PLAYBACK') {
+        return upnp.displayPositionSec.value * 1000;
       }
+      return 0;
     }
     return mopidy.position.value;
   }
@@ -133,7 +138,7 @@ export default function usePlayer() {
     let effectiveLengthMs = length;
 
     if (effectiveLengthMs <= 0 && isUpnpMode.value) {
-      const durationSec = timeToSeconds(upnp.positionInfo.value.track_duration);
+      const durationSec = timeToSeconds(upnp.positionInfo.value.trackDuration);
       if (durationSec > 0) {
         effectiveLengthMs = durationSec * 1000;
       }
@@ -272,6 +277,7 @@ export default function usePlayer() {
   }
   return {
     isPlaying,
+    isDevicePlaying,
     isPaused,
     currentTrack,
     position,

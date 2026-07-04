@@ -1,6 +1,5 @@
 import { computed, ref, watch } from 'vue';
 import { fetchTidalMetadata } from '~/utils/tidalMetadata';
-import { timeToSeconds } from '~/utils/time';
 import useDevices from './useDevices';
 import useMopidy from './useMopidy';
 import usePlayer from './usePlayer';
@@ -54,20 +53,12 @@ export default function useBottomBar() {
     };
   }
   const currentTrack = computed(() => {
-    if (mopidy.currentTrack.value?.track) {
-      const track = mopidy.currentTrack.value.track;
-      let posSeconds = mopidy.position.value / 1000;
-
-      if (!isLocalPlayback.value && selectedDeviceId.value && upnp.currentUpnpState.value === 'PLAYING') {
-        const upnpPos = timeToSeconds(upnp.positionInfo.value.rel_time);
-        if (upnpPos > 0) {
-          posSeconds = upnpPos;
-        }
-      }
-
-      return buildTrackFromMopidy(track, posSeconds);
-    }
-    return null;
+    if (!mopidy.currentTrack.value?.track) return null;
+    const track = mopidy.currentTrack.value.track;
+    const positionSeconds = !isLocalPlayback.value && selectedDeviceId.value
+      ? upnp.displayPositionSec.value
+      : mopidy.position.value / 1000;
+    return buildTrackFromMopidy(track, positionSeconds);
   });
   const progress = computed(() => {
     const track = currentTrack.value;
@@ -101,6 +92,15 @@ export default function useBottomBar() {
       mopidy.refresh();
     }
   });
+  watch(
+    () => [mopidy.isPlaying.value, selectedDeviceId.value, isLocalPlayback.value] as const,
+    ([playing, deviceId, local]) => {
+      if (!local && deviceId && playing) {
+        upnp.ensureStatusPolling(deviceId);
+      }
+    },
+    { immediate: true },
+  );
   watch(
     () => mopidy.currentTrack.value?.track?.uri,
     (uri, oldUri) => {

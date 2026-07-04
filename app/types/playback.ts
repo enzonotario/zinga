@@ -17,6 +17,24 @@ export interface PlaybackStatus {
   isMuted: boolean
 }
 export type PlaybackMode = 'local' | 'upnp';
+
+export interface UpnpTransportInfo {
+  currentTransportState: string
+  currentTransportStatus: string
+  currentSpeed: string
+}
+
+export interface UpnpPositionInfo {
+  track: number
+  trackDuration: string
+  trackMetaData?: string | null
+  trackUri?: string | null
+  relTime: string
+  absTime: string
+  relCount: number
+  absCount: number
+}
+
 export interface PlaybackEngine {
   name: string
   init: () => Promise<void>
