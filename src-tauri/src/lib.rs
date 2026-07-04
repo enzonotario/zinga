@@ -18,6 +18,7 @@ use upnp::{
 mod library;
 mod remote;
 mod setup;
+mod window_shortcuts;
 
 #[tauri::command]
 async fn mopidy_rpc(
@@ -572,6 +573,12 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(err) = window_shortcuts::register(&window) {
+                    eprintln!("[Window] Failed to register Linux window shortcuts: {err}");
+                }
+            }
+
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&quit_i])?;
 
