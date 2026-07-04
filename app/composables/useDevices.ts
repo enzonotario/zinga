@@ -17,6 +17,7 @@ const autoSearchCompleted = ref(false);
 const volumePollingInterval = ref<ReturnType<typeof setInterval> | null>(null);
 const isUpdatingVolumeFromDevice = ref(false);
 const isPollingPaused = ref(false);
+const isVolumeSyncing = ref(false);
 let upnpVolumePollInFlight = false;
 if (import.meta.client) {
   const lastDeviceId = localStorage.getItem('lastSelectedDevice');
@@ -185,6 +186,31 @@ export default function useDevices() {
     const newVol = Math.min(100, currentVol + 1);
     setVolume(newVol);
   }
+  async function syncVolumeFromDevice() {
+    if (!selectedDeviceId.value || isVolumeSyncing.value || remote.isRemoteMode.value) return;
+
+    isVolumeSyncing.value = true;
+    isPollingPaused.value = true;
+
+    try {
+      if (isLocalPlayback.value) {
+        const mopidyVolume = await invoke<number>('mopidy_rpc', {
+          method: 'core.mixer.get_volume',
+          params: {},
+        });
+        volume.value = mopidyVolume;
+        return;
+      }
+
+      await invoke('upnp_connect', { deviceId: selectedDeviceId.value });
+      volume.value = await invoke<number>('upnp_get_volume', { deviceId: selectedDeviceId.value });
+    } catch (e) {
+      console.error('Failed to sync volume from device:', e);
+    } finally {
+      isVolumeSyncing.value = false;
+      isPollingPaused.value = false;
+    }
+  }
   return {
     loading,
     devices,
@@ -202,6 +228,8 @@ export default function useDevices() {
     setVolume,
     decreaseVolume,
     increaseVolume,
+    isVolumeSyncing,
+    syncVolumeFromDevice,
     pauseVolumePolling: () => (isPollingPaused.value = true),
     resumeVolumePolling: () => (isPollingPaused.value = false),
   };

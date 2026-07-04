@@ -11,7 +11,7 @@ import useUpnpPlayer from './useUpnpPlayer';
 const mopidyTidalData = ref<any>(null);
 export default function useBottomBar() {
   const { t } = useI18n();
-  const { selectedDeviceId, volume, setVolume, pauseVolumePolling, resumeVolumePolling } = useDevices();
+  const { selectedDeviceId, volume, setVolume, pauseVolumePolling, resumeVolumePolling, syncVolumeFromDevice, isVolumeSyncing } = useDevices();
   const player = usePlayer();
   const mopidy = useMopidy();
   const tidalArtwork = useTidalArtwork();
@@ -130,6 +130,8 @@ export default function useBottomBar() {
     increaseVolume,
     pauseVolumePolling,
     resumeVolumePolling,
+    syncVolumeFromDevice,
+    isVolumeSyncing,
     isUsingMopidy,
   };
 }

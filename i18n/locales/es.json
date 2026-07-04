@@ -44,7 +44,9 @@
     "configureMopidy": "Configurar Mopidy",
     "diagnoseTerminal": "Diagnosticar terminal",
     "selectMusicFolder": "Seleccionar carpeta de música",
-    "volume": "Volumen: {volume}%"
+    "volume": "Volumen: {volume}%",
+    "syncVolume": "Sincronizar volumen con el dispositivo",
+    "syncingVolume": "Sincronizando volumen..."
   },
   "nav": {
     "queue": "Cola",

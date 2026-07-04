@@ -44,7 +44,9 @@
     "configureMopidy": "Configure Mopidy",
     "diagnoseTerminal": "Diagnose terminal",
     "selectMusicFolder": "Select music folder",
-    "volume": "Volume: {volume}%"
+    "volume": "Volume: {volume}%",
+    "syncVolume": "Sync volume from device",
+    "syncingVolume": "Syncing volume..."
   },
   "nav": {
     "queue": "Queue",

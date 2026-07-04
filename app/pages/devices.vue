@@ -28,6 +28,8 @@ const {
   increaseVolume,
   pauseVolumePolling,
   resumeVolumePolling,
+  syncVolumeFromDevice,
+  isVolumeSyncing,
 } = useDevices();
 const { testSound, pause } = usePlayer();
 const { debugMode } = useSettings();
@@ -229,11 +231,13 @@ onMounted(() => {
               <UiVolumeControl
                 :volume="volume"
                 :selected-device-id="selectedDeviceId"
+                :syncing="isVolumeSyncing"
                 @update:volume="setVolume"
                 @decrease="decreaseVolume"
                 @increase="increaseVolume"
                 @pause-polling="pauseVolumePolling"
                 @resume-polling="resumeVolumePolling"
+                @sync="syncVolumeFromDevice"
               />
             </div>
             <div v-else-if="!isLocalPlayback" class="flex items-center gap-4 bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg text-sm text-neutral-500">

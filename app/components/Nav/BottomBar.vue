@@ -24,6 +24,8 @@ const {
   increaseVolume,
   pauseVolumePolling,
   resumeVolumePolling,
+  syncVolumeFromDevice,
+  isVolumeSyncing,
 } = useBottomBar();
 const { selectedDeviceId, volume } = useDevices();
 const player = usePlayer();
@@ -204,11 +206,13 @@ async function onQueuePopoverOpen() {
           <UiVolumeControl
             :volume="volume"
             :selected-device-id="selectedDeviceId"
+            :syncing="isVolumeSyncing"
             @update:volume="handleVolumeChange"
             @decrease="decreaseVolume"
             @increase="increaseVolume"
             @pause-polling="pauseVolumePolling"
             @resume-polling="resumeVolumePolling"
+            @sync="syncVolumeFromDevice"
           />
         </div>
       </div>

@@ -5,6 +5,7 @@ import { POLLING_RESUME_DELAY } from '~/constants/polling';
 interface Props {
   volume: number | null
   selectedDeviceId: string | null
+  syncing?: boolean
 }
 interface Emits {
   (e: 'update:volume', value: number): void
@@ -12,11 +13,16 @@ interface Emits {
   (e: 'increase'): void
   (e: 'pausePolling'): void
   (e: 'resumePolling'): void
+  (e: 'sync'): void
 }
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+  syncing: false,
+});
 const emit = defineEmits<Emits>();
+const { t } = useI18n();
 const containerRef = ref<HTMLElement | null>(null);
 const volumeDisplay = computed(() => props.volume ?? 0);
+const controlsDisabled = computed(() => !props.selectedDeviceId || props.syncing);
 const resumePollingTimeout = ref<ReturnType<typeof setTimeout> | null>(null);
 const pausePolling = () => {
   emit('pausePolling');
@@ -34,24 +40,26 @@ const scheduleResumePolling = () => {
   }, POLLING_RESUME_DELAY);
 };
 const handleVolumeChange = (value: number | undefined) => {
-  if (value !== undefined) {
+  if (value !== undefined && !controlsDisabled.value) {
     pausePolling();
     emit('update:volume', value);
     scheduleResumePolling();
   }
 };
 const handleDecrease = () => {
+  if (controlsDisabled.value) return;
   pausePolling();
   emit('decrease');
   scheduleResumePolling();
 };
 const handleIncrease = () => {
+  if (controlsDisabled.value) return;
   pausePolling();
   emit('increase');
   scheduleResumePolling();
 };
 const adjustVolume = (delta: number) => {
-  if (!props.selectedDeviceId) return;
+  if (controlsDisabled.value) return;
   pausePolling();
   const currentVol = props.volume ?? 0;
   const newVol = Math.max(0, Math.min(100, currentVol + delta));
@@ -61,14 +69,14 @@ const adjustVolume = (delta: number) => {
   scheduleResumePolling();
 };
 const handleWheel = (event: WheelEvent) => {
-  if (!props.selectedDeviceId) return;
+  if (controlsDisabled.value) return;
   event.preventDefault();
   event.stopPropagation();
   const delta = event.deltaY > 0 ? -1 : 1;
   adjustVolume(delta);
 };
 const handleKeyDown = (event: KeyboardEvent) => {
-  if (!props.selectedDeviceId) return;
+  if (controlsDisabled.value) return;
   const isFocused = document.activeElement === containerRef.value;
   if (!isFocused) return;
   switch (event.key) {
@@ -85,6 +93,10 @@ const handleKeyDown = (event: KeyboardEvent) => {
     adjustVolume(-1);
     break;
   }
+};
+const handleSync = () => {
+  if (controlsDisabled.value) return;
+  emit('sync');
 };
 onMounted(() => {
   if (containerRef.value) {
@@ -113,8 +125,19 @@ onUnmounted(() => {
     :aria-valuemax="100"
     :aria-valuenow="volumeDisplay"
     :aria-label="$t('common.volume', { volume: volumeDisplay })"
+    :aria-busy="syncing"
     class="flex items-center gap-1 self-stretch rounded bg-neutral-100 dark:bg-neutral-800 px-2 h-full focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:ring-offset-2 dark:focus:ring-offset-neutral-900 cursor-pointer transition-all"
+    :class="syncing ? 'opacity-70' : ''"
   >
+    <UButton
+      icon="i-heroicons-arrow-path"
+      variant="ghost"
+      size="xs"
+      :loading="syncing"
+      :disabled="!selectedDeviceId"
+      :aria-label="syncing ? t('common.syncingVolume') : t('common.syncVolume')"
+      @click="handleSync"
+    />
     <div class="flex items-center gap-2 min-w-28 flex-1">
       <UIcon
         name="i-heroicons-speaker-wave"
@@ -127,7 +150,7 @@ onUnmounted(() => {
         :step="1"
         size="sm"
         class="flex-1"
-        :disabled="!selectedDeviceId"
+        :disabled="controlsDisabled"
         @update:model-value="handleVolumeChange"
       />
     </div>
@@ -136,14 +159,14 @@ onUnmounted(() => {
         icon="i-heroicons-minus"
         variant="ghost"
         size="xs"
-        :disabled="!selectedDeviceId"
+        :disabled="controlsDisabled"
         @click="handleDecrease"
       />
       <UButton
         icon="i-heroicons-plus"
         variant="ghost"
         size="xs"
-        :disabled="!selectedDeviceId"
+        :disabled="controlsDisabled"
         @click="handleIncrease"
       />
     </UFieldGroup>
