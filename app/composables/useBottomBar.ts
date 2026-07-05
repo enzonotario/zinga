@@ -52,13 +52,23 @@ export default function useBottomBar() {
         : undefined,
     };
   }
+  const playbackPositionSec = computed(() => {
+    let sec: number;
+    if (!isLocalPlayback.value && selectedDeviceId.value) {
+      sec = upnp.displayPositionSec.value;
+    } else {
+      sec = mopidy.position.value / 1000;
+    }
+    const durationSec = (mopidy.currentTrack.value?.track?.length || 0) / 1000;
+    if (durationSec > 0) {
+      sec = Math.min(sec, durationSec);
+    }
+    return Math.max(0, sec);
+  });
   const currentTrack = computed(() => {
     if (!mopidy.currentTrack.value?.track) return null;
     const track = mopidy.currentTrack.value.track;
-    const positionSeconds = !isLocalPlayback.value && selectedDeviceId.value
-      ? upnp.displayPositionSec.value
-      : mopidy.position.value / 1000;
-    return buildTrackFromMopidy(track, positionSeconds);
+    return buildTrackFromMopidy(track, playbackPositionSec.value);
   });
   const progress = computed(() => {
     const track = currentTrack.value;
@@ -93,9 +103,17 @@ export default function useBottomBar() {
     }
   });
   watch(
-    () => [mopidy.isPlaying.value, selectedDeviceId.value, isLocalPlayback.value] as const,
-    ([playing, deviceId, local]) => {
-      if (!local && deviceId && playing) {
+    () => [mopidy.isPlaying.value, mopidy.isPaused.value, selectedDeviceId.value, isLocalPlayback.value] as const,
+    async ([playing, paused, deviceId, local]) => {
+      if (local || !deviceId) return;
+      if (!playing && !paused) return;
+
+      if (upnp.needsMopidyCalibration.value) {
+        await upnp.resyncWithMopidy(deviceId, mopidy.position.value / 1000);
+        return;
+      }
+
+      if (playing) {
         upnp.ensureStatusPolling(deviceId);
       }
     },
@@ -122,6 +140,7 @@ export default function useBottomBar() {
     volume,
     currentTrack,
     hasTrack,
+    playbackPositionSec,
     volumeDisplay,
     progress,
     handleProgressChange,

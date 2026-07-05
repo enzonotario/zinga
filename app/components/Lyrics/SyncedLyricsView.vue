@@ -63,6 +63,8 @@ const activeIndex = computed(() => {
   const arr = lines.value;
   if (arr.length === 0) return -1;
   const t = Math.max(0, props.currentTimeSec * 1000);
+  if (t < arr[0].timeMs) return -1;
+
   let idx = 0;
   for (let i = 0; i < arr.length; i++) {
     if (arr[i].timeMs <= t) idx = i;

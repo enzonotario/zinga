@@ -19,7 +19,7 @@ const { t } = useI18n();
 definePageMeta({
   fixedLayout: true,
 });
-const { currentTrack, isUsingMopidy, progress } = useBottomBar();
+const { currentTrack, isUsingMopidy, progress, playbackPositionSec } = useBottomBar();
 const { mopidy } = useMopidyPolling();
 const player = usePlayer();
 const { albumRoute } = useProviderNavigation();
@@ -199,7 +199,7 @@ const albumCover = computed(() => {
 });
 const currentTrackTitle = computed(() => currentTrack.value?.title || '');
 const currentTrackArtist = computed(() => currentTrack.value?.artist || '');
-const lyricsCurrentTimeSec = computed(() => currentTrack.value?.position ?? 0);
+const lyricsCurrentTimeSec = playbackPositionSec;
 const lyricsToolbarTrackTitle = computed(() => currentTrack.value?.title?.trim() || t('player.noTrack'));
 const lyricsIdleNoTrack = computed(() => !currentTrack.value);
 const showLyricsPanel = computed(() => lyricsPanelMode.value === 'fullscreen');

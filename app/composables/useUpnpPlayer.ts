@@ -1,10 +1,8 @@
 import type { UpnpPositionInfo, UpnpTransportInfo } from '~/types/playback';
 import { invoke } from '@tauri-apps/api/core';
 import { computed, onUnmounted, ref } from 'vue';
-import { PLAYER_POLLING_INTERVAL, UPNP_FAST_POLLING_INTERVAL } from '~/constants/polling';
+import { PLAYER_POLLING_INTERVAL, POSITION_UI_TICK_INTERVAL, UPNP_FAST_POLLING_INTERVAL } from '~/constants/polling';
 import { timeToSeconds } from '~/utils/time';
-
-const PENDING_PLAYBACK_GRACE_MS = 2000;
 
 const currentUpnpState = ref<string>('STOPPED');
 const currentVolume = ref<number>(0);
@@ -18,15 +16,20 @@ const positionInfo = ref<UpnpPositionInfo>({
 });
 const playbackPendingDeviceId = ref<string | null>(null);
 const sessionDeviceId = ref<string | null>(null);
-const playbackSyncAnchorMs = ref<number | null>(null);
+const devicePlaybackConfirmed = ref(false);
 const frozenPositionSec = ref(0);
-const wallClockPositionSec = ref(0);
+const trackBaselineRelSec = ref(0);
+const resumeOffsetSec = ref(0);
+const needsMopidyCalibration = ref(true);
+const lastReportedRelSec = ref(0);
+const lastReportedRelAt = ref(0);
+const uiTick = ref(0);
 
 let pollingId: ReturnType<typeof setInterval> | null = null;
+let uiTickId: ReturnType<typeof setInterval> | null = null;
 let pollingDeviceId: string | null = null;
 let pollingIntervalMs = PLAYER_POLLING_INTERVAL;
-let positionTickId: ReturnType<typeof setInterval> | null = null;
-let pendingSinceMs: number | null = null;
+let lastRelTimeSec = 0;
 let statusRefreshInFlight = false;
 
 function normalizeUpnpState(state: string) {
@@ -35,12 +38,12 @@ function normalizeUpnpState(state: string) {
   return normalized;
 }
 
-function isUpnpPlayingState(state: string) {
-  return normalizeUpnpState(state) === 'PLAYING';
-}
-
 function getRelTimeSec() {
   return timeToSeconds(positionInfo.value.relTime);
+}
+
+function getTrackRelativeSec(relSec = getRelTimeSec()) {
+  return Math.max(0, relSec - trackBaselineRelSec.value);
 }
 
 function hasActiveSession(deviceId: string) {
@@ -61,47 +64,117 @@ function resolvePollingIntervalMs(deviceId: string, state: string) {
   return PLAYER_POLLING_INTERVAL;
 }
 
-function updateWallClockPosition() {
-  if (playbackSyncAnchorMs.value == null) return;
-  wallClockPositionSec.value = Math.max(0, (Date.now() - playbackSyncAnchorMs.value) / 1000);
+function resetInterpolation() {
+  lastReportedRelSec.value = 0;
+  lastReportedRelAt.value = 0;
 }
 
-function startPositionTick() {
-  if (positionTickId) return;
-  updateWallClockPosition();
-  positionTickId = setInterval(updateWallClockPosition, UPNP_FAST_POLLING_INTERVAL);
+function resetDeviceSync(baselineRelSec = 0) {
+  trackBaselineRelSec.value = baselineRelSec;
+  devicePlaybackConfirmed.value = false;
+  lastRelTimeSec = baselineRelSec;
+  frozenPositionSec.value = 0;
+  resumeOffsetSec.value = 0;
+  resetInterpolation();
 }
 
-function stopPositionTick() {
-  if (positionTickId) {
-    clearInterval(positionTickId);
-    positionTickId = null;
+function resetDeviceSyncFull() {
+  resetDeviceSync(0);
+  needsMopidyCalibration.value = true;
+}
+
+function shouldInterpolatePosition() {
+  if (!devicePlaybackConfirmed.value) return false;
+  const state = normalizeUpnpState(currentUpnpState.value);
+  return state === 'PLAYING' || state === 'TRANSITIONING';
+}
+
+function noteRelTime(relSec: number) {
+  if (relSec !== lastReportedRelSec.value) {
+    lastReportedRelSec.value = relSec;
+    lastReportedRelAt.value = performance.now();
   }
 }
 
-function beginDevicePlayback(continueFromSec = 0) {
-  if (playbackSyncAnchorMs.value != null) return;
-  playbackSyncAnchorMs.value = Date.now() - continueFromSec * 1000;
-  updateWallClockPosition();
-  startPositionTick();
+function getEffectiveRelSec() {
+  if (!shouldInterpolatePosition() || lastReportedRelAt.value === 0) {
+    return getRelTimeSec();
+  }
+  void uiTick.value;
+  const elapsed = (performance.now() - lastReportedRelAt.value) / 1000;
+  return lastReportedRelSec.value + Math.max(0, elapsed);
 }
 
-function freezeCurrentPosition() {
-  const relSec = getRelTimeSec();
-  if (relSec > 0) {
-    frozenPositionSec.value = relSec;
+function stopUiTick() {
+  if (uiTickId) {
+    clearInterval(uiTickId);
+    uiTickId = null;
+  }
+}
+
+function ensureUiTick() {
+  if (!shouldInterpolatePosition()) {
+    stopUiTick();
     return;
   }
-  if (playbackSyncAnchorMs.value != null) {
-    frozenPositionSec.value = wallClockPositionSec.value;
-  }
+  if (uiTickId) return;
+  uiTickId = setInterval(() => {
+    uiTick.value++;
+  }, POSITION_UI_TICK_INTERVAL);
 }
 
-function clearPlaybackSync() {
-  playbackSyncAnchorMs.value = null;
-  frozenPositionSec.value = 0;
-  wallClockPositionSec.value = 0;
-  stopPositionTick();
+function getDisplayPositionSec() {
+  const state = normalizeUpnpState(currentUpnpState.value);
+  const relSec = shouldInterpolatePosition() ? getEffectiveRelSec() : getRelTimeSec();
+  const trackRelativeSec = getTrackRelativeSec(relSec);
+
+  if (state === 'PAUSED_PLAYBACK') {
+    if (!devicePlaybackConfirmed.value) {
+      return frozenPositionSec.value;
+    }
+    return trackRelativeSec > 0 ? resumeOffsetSec.value + trackRelativeSec : frozenPositionSec.value;
+  }
+
+  if (!devicePlaybackConfirmed.value) {
+    if (resumeOffsetSec.value > 0) {
+      return resumeOffsetSec.value;
+    }
+    return frozenPositionSec.value;
+  }
+
+  return resumeOffsetSec.value + trackRelativeSec;
+}
+
+function confirmDeviceSync(relSec = getRelTimeSec()) {
+  devicePlaybackConfirmed.value = true;
+  lastRelTimeSec = relSec;
+  clearPlaybackPending();
+  noteRelTime(relSec);
+  ensureUiTick();
+}
+
+function updateDeviceSync(relSec: number) {
+  if (devicePlaybackConfirmed.value) {
+    lastRelTimeSec = relSec;
+    noteRelTime(relSec);
+    return;
+  }
+
+  if (playbackPendingDeviceId.value != null) {
+    if (relSec < lastRelTimeSec - 1) {
+      trackBaselineRelSec.value = Math.max(0, relSec - frozenPositionSec.value);
+      lastRelTimeSec = relSec;
+      noteRelTime(relSec);
+      return;
+    }
+    if (relSec > lastRelTimeSec) {
+      confirmDeviceSync(relSec);
+      return;
+    }
+  }
+
+  lastRelTimeSec = relSec;
+  noteRelTime(relSec);
 }
 
 function beginUpnpSession(deviceId: string) {
@@ -112,16 +185,36 @@ function endUpnpSession() {
   sessionDeviceId.value = null;
 }
 
-function markPlaybackPending(deviceId: string) {
+function markPlaybackPending(deviceId: string, trackPositionSec = 0) {
+  const relSec = getRelTimeSec();
   playbackPendingDeviceId.value = deviceId;
-  pendingSinceMs = Date.now();
-  clearPlaybackSync();
+  resumeOffsetSec.value = 0;
+  trackBaselineRelSec.value = Math.max(0, relSec - trackPositionSec);
+  devicePlaybackConfirmed.value = false;
+  lastRelTimeSec = relSec;
+  frozenPositionSec.value = trackPositionSec;
+  resetInterpolation();
+  noteRelTime(relSec);
+  needsMopidyCalibration.value = false;
+  beginUpnpSession(deviceId);
+}
+
+function markResumePending(deviceId: string, positionSec: number) {
+  const relSec = getRelTimeSec();
+  playbackPendingDeviceId.value = deviceId;
+  resumeOffsetSec.value = positionSec;
+  trackBaselineRelSec.value = relSec;
+  devicePlaybackConfirmed.value = false;
+  lastRelTimeSec = relSec;
+  frozenPositionSec.value = positionSec;
+  resetInterpolation();
+  noteRelTime(relSec);
+  needsMopidyCalibration.value = false;
   beginUpnpSession(deviceId);
 }
 
 function clearPlaybackPending() {
   playbackPendingDeviceId.value = null;
-  pendingSinceMs = null;
 }
 
 function stopStatusPolling() {
@@ -130,69 +223,22 @@ function stopStatusPolling() {
     pollingId = null;
   }
   pollingDeviceId = null;
+  stopUiTick();
 }
 
-const displayPositionSec = computed(() => {
-  const tick = wallClockPositionSec.value;
-  const state = normalizeUpnpState(currentUpnpState.value);
-  const relSec = getRelTimeSec();
-
-  if (relSec > 0) {
-    return relSec;
-  }
-
-  if (state === 'PAUSED_PLAYBACK') {
-    return frozenPositionSec.value;
-  }
-
-  if (playbackSyncAnchorMs.value != null) {
-    return tick;
-  }
-
-  return 0;
-});
+const displayPositionSec = computed(() => getDisplayPositionSec());
 
 const isDevicePlaying = computed(() => {
+  if (!devicePlaybackConfirmed.value) return false;
   const state = normalizeUpnpState(currentUpnpState.value);
-  if (state === 'PLAYING') return true;
-  if (getRelTimeSec() > 0 && sessionDeviceId.value != null) return true;
-  return playbackSyncAnchorMs.value != null && (state === 'PLAYING' || state === 'TRANSITIONING');
+  return state === 'PLAYING' || state === 'TRANSITIONING';
 });
 
 const isDeviceBuffering = computed(() =>
-  sessionDeviceId.value != null
-  && playbackPendingDeviceId.value != null
-  && getRelTimeSec() <= 0
-  && playbackSyncAnchorMs.value == null,
+  sessionDeviceId.value != null && !devicePlaybackConfirmed.value,
 );
 
 const hasActiveUpnpSession = computed(() => sessionDeviceId.value != null);
-
-function maybeBeginPlaybackFromStatus(state: string, deviceId: string) {
-  const relSec = getRelTimeSec();
-  if (relSec > 0) {
-    beginDevicePlayback(relSec);
-    clearPlaybackPending();
-    return;
-  }
-
-  if (playbackPendingDeviceId.value !== deviceId) return;
-
-  const normalized = normalizeUpnpState(state);
-  const pendingForMs = pendingSinceMs ? Date.now() - pendingSinceMs : 0;
-
-  if (normalized === 'PLAYING') {
-    beginDevicePlayback(0);
-    clearPlaybackPending();
-    return;
-  }
-
-  if ((normalized === 'TRANSITIONING' || normalized === 'STOPPED' || normalized === 'PAUSED_PLAYBACK')
-    && pendingForMs >= PENDING_PLAYBACK_GRACE_MS) {
-    beginDevicePlayback(0);
-    clearPlaybackPending();
-  }
-}
 
 function scheduleStatusPolling(deviceId: string) {
   const interval = resolvePollingIntervalMs(deviceId, currentUpnpState.value);
@@ -224,13 +270,10 @@ async function refreshStatus(deviceId: string) {
     const pos = await invoke<UpnpPositionInfo>('upnp_get_position_info', { deviceId });
     positionInfo.value = pos;
 
+    updateDeviceSync(getRelTimeSec());
+    ensureUiTick();
+
     const state = currentUpnpState.value;
-    maybeBeginPlaybackFromStatus(state, deviceId);
-
-    if (isUpnpPlayingState(state) && playbackSyncAnchorMs.value == null) {
-      beginDevicePlayback(getRelTimeSec());
-    }
-
     if (shouldKeepPolling(deviceId, state)) {
       const nextInterval = resolvePollingIntervalMs(deviceId, state);
       if (pollingId && nextInterval !== pollingIntervalMs) {
@@ -241,39 +284,72 @@ async function refreshStatus(deviceId: string) {
     } else {
       endUpnpSession();
       clearPlaybackPending();
-      clearPlaybackSync();
+      resetDeviceSyncFull();
       stopStatusPolling();
     }
   } catch {
     if (!hasActiveSession(deviceId) && playbackPendingDeviceId.value !== deviceId) {
       stopStatusPolling();
-      clearPlaybackSync();
+      resetDeviceSyncFull();
     }
   } finally {
     statusRefreshInFlight = false;
   }
 }
 
+async function resyncWithMopidy(deviceId: string, mopidyPositionSec: number) {
+  beginUpnpSession(deviceId);
+  await refreshStatus(deviceId);
+
+  const relSec = getRelTimeSec();
+  const state = normalizeUpnpState(currentUpnpState.value);
+  const baseline = Math.max(0, relSec - mopidyPositionSec);
+
+  trackBaselineRelSec.value = baseline;
+  lastRelTimeSec = relSec;
+  frozenPositionSec.value = mopidyPositionSec;
+  resumeOffsetSec.value = 0;
+
+  if (state === 'PAUSED_PLAYBACK' || state === 'PLAYING' || state === 'TRANSITIONING') {
+    confirmDeviceSync(relSec);
+  } else {
+    noteRelTime(relSec);
+  }
+
+  needsMopidyCalibration.value = false;
+  ensureStatusPolling(deviceId);
+}
+
 export default function useUpnpPlayer() {
-  async function setUriAndPlay(deviceId: string, uri: string) {
-    markPlaybackPending(deviceId);
+  async function setUriAndPlay(
+    deviceId: string,
+    uri: string,
+    options: { resumeFromSec?: number, trackPositionSec?: number } = {},
+  ) {
+    if (options.resumeFromSec != null && options.resumeFromSec > 0) {
+      markResumePending(deviceId, options.resumeFromSec);
+    } else {
+      markPlaybackPending(deviceId, options.trackPositionSec ?? 0);
+    }
     const result = await invoke('upnp_set_uri_and_play', { deviceId, uri });
     ensureStatusPolling(deviceId);
     return result;
   }
 
   async function play(deviceId: string) {
-    markPlaybackPending(deviceId);
     const result = await invoke('upnp_play', { deviceId });
     ensureStatusPolling(deviceId);
     return result;
   }
 
+  async function resume(deviceId: string) {
+    return play(deviceId);
+  }
+
   async function pause(deviceId: string) {
-    freezeCurrentPosition();
+    frozenPositionSec.value = displayPositionSec.value;
+    stopUiTick();
     clearPlaybackPending();
-    playbackSyncAnchorMs.value = null;
-    stopPositionTick();
     const result = await invoke('upnp_pause', { deviceId });
     ensureStatusPolling(deviceId);
     return result;
@@ -282,7 +358,7 @@ export default function useUpnpPlayer() {
   async function stop(deviceId: string) {
     endUpnpSession();
     clearPlaybackPending();
-    clearPlaybackSync();
+    resetDeviceSyncFull();
     const result = await invoke('upnp_stop', { deviceId });
     stopStatusPolling();
     return result;
@@ -302,10 +378,7 @@ export default function useUpnpPlayer() {
     ensureStatusPolling(deviceId);
   }
 
-  onUnmounted(() => {
-    stopStatusPolling();
-    stopPositionTick();
-  });
+  onUnmounted(() => stopStatusPolling());
 
   return {
     currentUpnpState,
@@ -315,8 +388,11 @@ export default function useUpnpPlayer() {
     isDevicePlaying,
     isDeviceBuffering,
     hasActiveUpnpSession,
+    needsMopidyCalibration,
+    resyncWithMopidy,
     setUriAndPlay,
     play,
+    resume,
     pause,
     stop,
     setVolume,

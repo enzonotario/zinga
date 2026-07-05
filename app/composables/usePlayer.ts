@@ -2,7 +2,7 @@ import type { TrackInfo } from '~/types/track';
 import { invoke } from '@tauri-apps/api/core';
 import { computed, readonly, watch } from 'vue';
 import { timeToSeconds } from '~/utils/time';
-import useDevices from './useDevices';
+import useDevices, { LOCAL_DEVICE_ID } from './useDevices';
 import useMopidy from './useMopidy';
 import useRemoteClient from './useRemoteClient';
 import useUpnpPlayer from './useUpnpPlayer';
@@ -45,27 +45,52 @@ export default function usePlayer() {
       uri: track.uri,
     };
   });
+  async function resolveUpnpStreamUri() {
+    const track = mopidy.currentTrack.value?.track;
+    if (track?.uri) {
+      const directUri = await mopidy.getStreamUri(track.uri);
+      if (directUri && (directUri.startsWith('http://') || directUri.startsWith('https://'))) {
+        return directUri;
+      }
+    }
+    const hostIp = await invoke<string>('get_host_ip').catch(() => 'localhost');
+    return `http://${hostIp}:8000/mopidy`;
+  }
+  async function pushCurrentTrackToUpnp(
+    deviceId: string,
+    options: { icecastDelay?: boolean, resumeFromSec?: number, trackPositionSec?: number } = {},
+  ) {
+    await mopidy.refreshState().catch(() => {});
+    const track = mopidy.currentTrack.value?.track;
+    let trackPositionSec = options.trackPositionSec ?? mopidy.position.value / 1000;
+    const durationSec = (track?.length ?? 0) / 1000;
+    if (durationSec > 0 && trackPositionSec > durationSec) {
+      trackPositionSec = 0;
+    }
+    const uri = await resolveUpnpStreamUri();
+    if (options.icecastDelay && uri.includes(':8000/mopidy')) {
+      await new Promise((r) => setTimeout(r, 450));
+    }
+    await upnp.setUriAndPlay(deviceId, uri, {
+      resumeFromSec: options.resumeFromSec,
+      trackPositionSec: options.resumeFromSec != null ? undefined : trackPositionSec,
+    });
+  }
   async function play() {
     if (remote.isRemoteMode.value) return mopidy.play();
     try {
       if (isUpnpMode.value && selectedDeviceId.value) {
         await invoke('set_local_loopback_mute', { mute: true }).catch((err) => console.warn('Failed to mute local loopback:', err));
-        const track = mopidy.currentTrack.value?.track;
-        if (track?.uri) {
-          const directUri = await mopidy.getStreamUri(track.uri);
-          if (directUri && (directUri.startsWith('http://') || directUri.startsWith('https://'))) {
-            console.log('[Player] Using Direct URI for UPnP:', directUri);
-            await mopidy.play();
-            await upnp.setUriAndPlay(selectedDeviceId.value, directUri);
-            return;
-          }
+
+        if (mopidy.isPaused.value && upnp.hasActiveUpnpSession.value) {
+          const resumeFromSec = upnp.displayPositionSec.value || mopidy.position.value / 1000;
+          await mopidy.play();
+          await pushCurrentTrackToUpnp(selectedDeviceId.value, { icecastDelay: true, resumeFromSec });
+          return;
         }
-        const hostIp = await invoke<string>('get_host_ip').catch(() => 'localhost');
-        const icecastUri = `http://${hostIp}:8000/mopidy`;
-        console.log('[Player] Using Icecast Fallback for UPnP:', icecastUri);
+
         await mopidy.play();
-        await new Promise((r) => setTimeout(r, 450));
-        await upnp.setUriAndPlay(selectedDeviceId.value, icecastUri);
+        await pushCurrentTrackToUpnp(selectedDeviceId.value, { icecastDelay: true });
         return;
       } else if (isLocalPlayback.value) {
         await invoke('set_local_loopback_mute', { mute: false }).catch((err) => console.warn('Failed to unmute local loopback:', err));
@@ -99,11 +124,7 @@ export default function usePlayer() {
   async function getPlaybackPositionMs(): Promise<number> {
     if (isUpnpMode.value && selectedDeviceId.value) {
       await upnp.refreshStatus(selectedDeviceId.value);
-      const state = upnp.currentUpnpState.value;
-      if (state === 'PLAYING' || state === 'PAUSED_PLAYBACK') {
-        return upnp.displayPositionSec.value * 1000;
-      }
-      return 0;
+      return upnp.displayPositionSec.value * 1000;
     }
     return mopidy.position.value;
   }
@@ -274,6 +295,22 @@ export default function usePlayer() {
         await upnp.stop(oldId);
       }
     });
+    watch(
+      () => mopidy.currentTrack.value?.tlid,
+      async (tlid, oldTlid) => {
+        if (tlid == null || oldTlid == null || tlid === oldTlid) return;
+        if (!selectedDeviceId.value || selectedDeviceId.value === LOCAL_DEVICE_ID) return;
+        if (!mopidy.isPlaying.value) return;
+
+        try {
+          await invoke('set_local_loopback_mute', { mute: true }).catch((err) => console.warn('Failed to mute local loopback:', err));
+          await mopidy.refreshState();
+          await pushCurrentTrackToUpnp(selectedDeviceId.value, { icecastDelay: true });
+        } catch (err) {
+          console.error('UPnP track change sync error:', err);
+        }
+      },
+    );
   }
   return {
     isPlaying,
