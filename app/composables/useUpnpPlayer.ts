@@ -320,6 +320,30 @@ async function resyncWithMopidy(deviceId: string, mopidyPositionSec: number) {
   ensureStatusPolling(deviceId);
 }
 
+async function recalibrateTrack(deviceId: string, trackPositionSec: number) {
+  beginUpnpSession(deviceId);
+  await refreshStatus(deviceId);
+
+  const relSec = getRelTimeSec();
+  const state = normalizeUpnpState(currentUpnpState.value);
+
+  trackBaselineRelSec.value = Math.max(0, relSec - trackPositionSec);
+  lastRelTimeSec = relSec;
+  frozenPositionSec.value = trackPositionSec;
+  resumeOffsetSec.value = 0;
+  clearPlaybackPending();
+  needsMopidyCalibration.value = false;
+
+  if (state === 'PAUSED_PLAYBACK' || state === 'PLAYING' || state === 'TRANSITIONING') {
+    confirmDeviceSync(relSec);
+  } else {
+    noteRelTime(relSec);
+  }
+
+  ensureStatusPolling(deviceId);
+  return state;
+}
+
 export default function useUpnpPlayer() {
   async function setUriAndPlay(
     deviceId: string,
@@ -390,6 +414,7 @@ export default function useUpnpPlayer() {
     hasActiveUpnpSession,
     needsMopidyCalibration,
     resyncWithMopidy,
+    recalibrateTrack,
     setUriAndPlay,
     play,
     resume,
