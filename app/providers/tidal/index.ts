@@ -250,7 +250,7 @@ export function createTidalProvider(): MusicProvider {
     },
     async getAlbumTracks(id: string, countryCode = 'US'): Promise<NormalizedTrack[]> {
       if (!isInitialized.value) await provider.init();
-      const cacheKey = `albumTracks:v3:${id}:${countryCode}`;
+      const cacheKey = `albumTracks:v4:${id}:${countryCode}`;
       const cached = getCached(cacheKey);
       if (cached !== null) return cached;
       const client = getAPIClient();
@@ -262,7 +262,7 @@ export function createTidalProvider(): MusicProvider {
         const response = await client.GET('/albums/{id}/relationships/items', {
           params: {
             path: { id },
-            query: { countryCode, include: ['tracks'], ...cursorParam(nextCursor) },
+            query: { countryCode, include: ['items'], ...cursorParam(nextCursor) },
           },
         });
         if (response.error) throw new Error(`Error getting album tracks: ${JSON.stringify(response.error)}`);
