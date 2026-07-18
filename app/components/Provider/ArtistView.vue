@@ -45,6 +45,7 @@ const sortOrder = ref<'asc' | 'desc'>('desc');
 const artistName = computed(() => artist.value?.name || t('artist.unknown'));
 const artistPicture = computed(() => artist.value?.picture);
 const artistBiography = computed(() => artist.value?.biography || null);
+const showBiographyReadMore = computed(() => (artistBiography.value?.length || 0) > 220);
 const artistAlbums = computed(() => {
   const sorted = [...albums.value];
   sorted.sort((a, b) => {
@@ -307,6 +308,20 @@ onUnmounted(() => clearPageBackground());
             <h1 class="text-3xl md:text-4xl xl:text-5xl font-bold leading-tight">
               {{ artistName }}
             </h1>
+            <div v-if="artistBiography" class="min-w-0 space-y-1">
+              <div class="text-sm text-muted leading-relaxed line-clamp-3 [&_p]:mb-0">
+                <UiWimpText :text="artistBiography" />
+              </div>
+              <UButton
+                v-if="showBiographyReadMore"
+                variant="link"
+                color="neutral"
+                size="sm"
+                class="px-0"
+                :label="t('artist.readMore')"
+                @click="showBiographyModal = true"
+              />
+            </div>
             <span class="flex-1" />
           </div>
         </div>

@@ -230,7 +230,7 @@ export default function useTidalAuth() {
       throw err;
     }
   };
-  const getArtist = async (artistId: string, countryCode = 'US', includes: string[] = ['biography', 'profileArt', 'providers', 'similarArtists']) => {
+  const getArtist = async (artistId: string, countryCode = 'US', includes: string[] = ['biography', 'profileArt', 'similarArtists']) => {
     try {
       const remote = useRemoteClient();
       if (remote.isRemoteMode.value) {
@@ -372,7 +372,7 @@ export default function useTidalAuth() {
       throw err;
     }
   };
-  const getTrack = async (trackId: string, countryCode = 'US', includes: string[] = ['artists', 'albums', 'coverArt', 'providers']) => {
+  const getTrack = async (trackId: string, countryCode = 'US', includes: string[] = ['artists', 'albums', 'providers']) => {
     try {
       const remote = useRemoteClient();
       if (remote.isRemoteMode.value) {

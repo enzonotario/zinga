@@ -6,15 +6,26 @@ import type {
   NormalizedTrack,
 } from '../types';
 
-export function normalizeArtist(data: any, included: any[] = [], meta?: { addedAt?: string }): NormalizedArtist {
-  const biographyRef = data?.relationships?.biography?.data;
-  let biography: string | undefined;
-  if (biographyRef && included.length > 0) {
-    const biographyItem = included.find(
-      (item: any) => item.type === 'artistBiographies' && item.id === biographyRef.id,
+function extractBiographyText(data: any, included: any[] = []): string | undefined {
+  const raw = data?.relationships?.biography?.data;
+  const refs = raw ? (Array.isArray(raw) ? raw : [raw]) : [];
+  for (const ref of refs) {
+    if (ref?.attributes?.text) return ref.attributes.text;
+    if (!ref?.id) continue;
+    const item = included.find((entry: any) =>
+      entry.id === ref.id && (entry.type === 'artistBiographies' || entry.type === ref.type),
     );
-    biography = biographyItem?.attributes?.text;
+    const text = item?.attributes?.text;
+    if (text) return text;
   }
+  const orphan = included.find((entry: any) =>
+    entry.type === 'artistBiographies' && entry.attributes?.text,
+  );
+  return orphan?.attributes?.text;
+}
+
+export function normalizeArtist(data: any, included: any[] = [], meta?: { addedAt?: string }): NormalizedArtist {
+  const biography = extractBiographyText(data, included);
   const picture = extractArtworkUrl(data, included, 'profileArt', 640);
   const tidalUrl = extractTidalUrl(data.attributes?.externalLinks);
   return {

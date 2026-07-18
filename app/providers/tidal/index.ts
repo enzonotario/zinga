@@ -191,7 +191,7 @@ export function createTidalProvider(): MusicProvider {
       const response = await client.GET('/artists/{id}', {
         params: {
           path: { id },
-          query: { countryCode, include: ['biography', 'profileArt', 'providers'] },
+          query: { countryCode, include: ['biography', 'profileArt'] },
         },
       });
       if (response.error) {
@@ -208,14 +208,14 @@ export function createTidalProvider(): MusicProvider {
       similarArtists: NormalizedSimilarArtist[]
     }> {
       if (!isInitialized.value) await provider.init();
-      const cacheKey = `artistWithDetails:${id}:${countryCode}`;
+      const cacheKey = `artistWithDetails:v2:${id}:${countryCode}`;
       const cached = getCached(cacheKey);
       if (cached !== null) return cached;
       const client = getAPIClient();
       const response = await client.GET('/artists/{id}', {
         params: {
           path: { id },
-          query: { countryCode, include: ['biography', 'profileArt', 'providers', 'similarArtists'] },
+          query: { countryCode, include: ['biography', 'profileArt', 'similarArtists'] },
         },
       });
       if (response.error) {
@@ -225,7 +225,27 @@ export function createTidalProvider(): MusicProvider {
       }
       const data = response.data?.data;
       const included = response.data?.included || [];
-      const artist = normalizeArtist(data, included);
+      let artist = normalizeArtist(data, included);
+      if (!artist.biography) {
+        try {
+          const bioResponse = await client.GET('/artists/{id}/relationships/biography', {
+            params: {
+              path: { id },
+              query: { countryCode, include: ['biography'] },
+            },
+          });
+          if (!bioResponse.error && bioResponse.data) {
+            artist = {
+              ...artist,
+              biography: normalizeArtist(
+                { ...data, relationships: { ...data?.relationships, biography: { data: bioResponse.data.data } } },
+                [...included, ...(bioResponse.data.included || [])],
+              ).biography,
+            };
+          }
+        } catch {
+        }
+      }
       const similarArtists = (data?.relationships?.similarArtists?.data || []).map((ref: any) => normalizeSimilarArtist(ref, included));
       const result = { artist, similarArtists };
       setCached(cacheKey, result);

@@ -32,26 +32,30 @@ export async function getTidalTrackInfo(uriOrStreamServiceId?: string, countryCo
       const artistRef = trackData?.relationships?.artists?.data?.[0];
       let album = null;
       let artist = null;
-      if (albumRef) {
+      if (albumRef?.id) {
         const albumIncluded = trackIncluded.find(
           (item: any) => item.type === 'albums' && item.id === albumRef.id,
         );
-        if (albumIncluded) {
-          album = {
-            data: albumIncluded,
-            included: trackIncluded,
-          };
-        } else if (albumRef.id) {
-          try {
-            const albumResult = await tidalAuth.getAlbum(albumRef.id, countryCode, ['coverArt']);
-            if (albumResult?.data) {
-              album = {
-                data: albumResult.data,
-                included: [...trackIncluded, ...(albumResult.included || [])],
-              };
-            }
-          } catch (error) {
-            console.error('Error obteniendo álbum:', error);
+        try {
+          const albumResult = await tidalAuth.getAlbum(albumRef.id, countryCode, ['coverArt', 'artists']);
+          if (albumResult?.data) {
+            album = {
+              data: albumResult.data,
+              included: [...trackIncluded, ...(albumResult.included || [])],
+            };
+          } else if (albumIncluded) {
+            album = {
+              data: albumIncluded,
+              included: trackIncluded,
+            };
+          }
+        } catch (error) {
+          console.error('Error obteniendo álbum:', error);
+          if (albumIncluded) {
+            album = {
+              data: albumIncluded,
+              included: trackIncluded,
+            };
           }
         }
       }
