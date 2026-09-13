@@ -159,16 +159,37 @@ EOF
   systemctl --user enable mopidy.service
 }
 
+parse_args() {
+  SKIP_SYSTEMD_USER=false
+  for arg in "$@"; do
+    case "$arg" in
+      --skip-sudo)
+        log_warn "--skip-sudo is ignored: apt/icecast still require sudo. Enter your password when prompted."
+        ;;
+      --skip-systemd-user)
+        SKIP_SYSTEMD_USER=true
+        ;;
+    esac
+  done
+}
+
 main() {
+  parse_args "$@"
   require_non_root
   require_cmd apt
   install_packages
   configure_icecast
   install_mopidy_venv
   write_mopidy_config
-  configure_systemd_user
+  if [[ "$SKIP_SYSTEMD_USER" != true ]]; then
+    configure_systemd_user
+    systemctl --user disable mopidy.service 2>/dev/null || true
+    systemctl --user stop mopidy.service 2>/dev/null || true
+    log_info "mopidy.service user unit written but left disabled (Zinga starts Mopidy via start.sh)."
+  fi
   log_title "Setup completed"
   echo "Run: bash $SCRIPT_DIR/start.sh"
+  echo "Log dir: $(zinga_log_dir)"
 }
 
 main "$@"

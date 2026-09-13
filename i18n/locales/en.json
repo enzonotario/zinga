@@ -186,7 +186,13 @@
       "uninstall": "Uninstall",
       "debugDetails": "Debug details",
       "errorDetails": "Error details",
-      "scriptOutput": "Script output"
+      "scriptOutput": "Script output",
+      "ensurePipeline": "Ensure pipeline",
+      "pipelineReady": "Audio pipeline ready",
+      "pipelineNotReady": "Audio pipeline incomplete",
+      "openLog": "Open log",
+      "logPath": "Log",
+      "scriptSucceeded": "Script completed successfully"
     },
     "settings": {
       "name": "Settings",
@@ -369,7 +375,8 @@
     "soundTestStarted": "Sound test (loop) started",
     "soundTestError": "Sound test error",
     "pauseAtEnd": "Pause at end of track",
-    "pauseAtEndActive": "Pause scheduled — click to cancel"
+    "pauseAtEndActive": "Pause scheduled — click to cancel",
+    "pipelineNotReady": "Audio pipeline is not ready. Try Restart services."
   },
   "auth": {
     "login": "Log in",

@@ -5,6 +5,7 @@ import { timeToSeconds } from '~/utils/time';
 import useDevices, { LOCAL_DEVICE_ID } from './useDevices';
 import useMopidy from './useMopidy';
 import useRemoteClient from './useRemoteClient';
+import useSystemSetup from './useSystemSetup';
 import useUpnpPlayer from './useUpnpPlayer';
 
 const PAUSE_AT_END_POLL_MS = 250;
@@ -21,6 +22,7 @@ export default function usePlayer() {
   const mopidy = useMopidy();
   const upnp = useUpnpPlayer();
   const remote = useRemoteClient();
+  const { ensurePipeline, pipelineReady } = useSystemSetup();
   const isUpnpMode = computed(() => !isLocalPlayback.value && !!selectedDeviceId.value);
   const isPlaying = computed(() => mopidy.isPlaying.value);
   const isDevicePlaying = computed(() => {
@@ -96,24 +98,55 @@ export default function usePlayer() {
 
     await pushCurrentTrackToUpnp(deviceId, { icecastDelay: isContinuousIcecast });
   }
+  async function ensureUpnpPipeline(force = false) {
+    if (!force && pipelineReady.value) return true;
+    const result = await ensurePipeline(force);
+    return result.ready;
+  }
+  async function playOnUpnp(deviceId: string) {
+    const toast = useToast();
+    await invoke('set_local_loopback_mute', { mute: true }).catch((err) => console.warn('Failed to mute local loopback:', err));
+
+    let ready = await ensureUpnpPipeline(false);
+    if (!ready) {
+      ready = await ensureUpnpPipeline(true);
+    }
+    if (!ready) {
+      toast.add({
+        title: t('player.pipelineNotReady'),
+        color: 'error',
+        duration: 5000,
+      });
+      throw new Error(t('player.pipelineNotReady'));
+    }
+
+    if (mopidy.isPaused.value && upnp.hasActiveUpnpSession.value) {
+      const resumeFromSec = upnp.displayPositionSec.value || mopidy.position.value / 1000;
+      await mopidy.play();
+      await pushCurrentTrackToUpnp(deviceId, { icecastDelay: true, resumeFromSec });
+      return;
+    }
+
+    await mopidy.play();
+    try {
+      await pushCurrentTrackToUpnp(deviceId, { icecastDelay: true });
+    } catch (err) {
+      const recovered = await ensureUpnpPipeline(true);
+      if (!recovered) throw err;
+      await pushCurrentTrackToUpnp(deviceId, { icecastDelay: true });
+    }
+  }
   async function play() {
     if (remote.isRemoteMode.value) return mopidy.play();
     try {
       if (isUpnpMode.value && selectedDeviceId.value) {
-        await invoke('set_local_loopback_mute', { mute: true }).catch((err) => console.warn('Failed to mute local loopback:', err));
-
-        if (mopidy.isPaused.value && upnp.hasActiveUpnpSession.value) {
-          const resumeFromSec = upnp.displayPositionSec.value || mopidy.position.value / 1000;
-          await mopidy.play();
-          await pushCurrentTrackToUpnp(selectedDeviceId.value, { icecastDelay: true, resumeFromSec });
-          return;
-        }
-
-        await mopidy.play();
-        await pushCurrentTrackToUpnp(selectedDeviceId.value, { icecastDelay: true });
+        await playOnUpnp(selectedDeviceId.value);
         return;
       } else if (isLocalPlayback.value) {
         await invoke('set_local_loopback_mute', { mute: false }).catch((err) => console.warn('Failed to unmute local loopback:', err));
+        if (!pipelineReady.value) {
+          await ensureUpnpPipeline(false).catch(() => {});
+        }
       }
       await mopidy.play();
     } catch (err) {
@@ -307,9 +340,11 @@ export default function usePlayer() {
     });
     watch(selectedDeviceId, async (newId, oldId) => {
       if (isPlaying.value && newId && newId !== 'local') {
-        await invoke('set_local_loopback_mute', { mute: true }).catch((err) => console.warn('Failed to mute local loopback:', err));
-        const hostIp = await invoke<string>('get_host_ip').catch(() => 'localhost');
-        await upnp.setUriAndPlay(newId, `http://${hostIp}:8000/mopidy`);
+        try {
+          await playOnUpnp(newId);
+        } catch (err) {
+          console.error('UPnP device switch error:', err);
+        }
       } else if (newId === 'local' && oldId) {
         await invoke('set_local_loopback_mute', { mute: false }).catch((err) => console.warn('Failed to unmute local loopback:', err));
         await upnp.stop(oldId);
@@ -324,6 +359,10 @@ export default function usePlayer() {
 
         try {
           await invoke('set_local_loopback_mute', { mute: true }).catch((err) => console.warn('Failed to mute local loopback:', err));
+          const ready = await ensureUpnpPipeline(false);
+          if (!ready) {
+            await ensureUpnpPipeline(true);
+          }
           await syncUpnpOnTrackChange(selectedDeviceId.value);
         } catch (err) {
           console.error('UPnP track change sync error:', err);

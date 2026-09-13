@@ -1,6 +1,9 @@
 use serde::Serialize;
+use std::fs;
+use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::Duration;
 use tauri::AppHandle;
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
@@ -21,6 +24,9 @@ pub struct SystemStatus {
     pub ffmpeg: ServiceStatus,
     pub mopidy_config_exists: bool,
     pub icecast_config_exists: bool,
+    pub pipeline_ready: bool,
+    pub pulse_sink_ready: bool,
+    pub last_log_path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -28,6 +34,16 @@ pub struct SystemStatus {
 pub struct ScriptSession {
     pub session_name: Option<String>,
     pub has_tmux: bool,
+    pub log_path: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnsureResult {
+    pub ready: bool,
+    pub started: bool,
+    pub log_path: Option<String>,
+    pub message: String,
 }
 
 fn is_command_found(name: &str) -> bool {
@@ -81,6 +97,101 @@ fn is_systemd_active(service: &str) -> bool {
 
 fn home_dir() -> Option<PathBuf> {
     std::env::var("HOME").ok().map(PathBuf::from)
+}
+
+fn mopidy_venv_bin() -> Option<PathBuf> {
+    home_dir().map(|h| h.join("mopidy-env/bin/mopidy"))
+}
+
+fn is_mopidy_installed() -> bool {
+    if let Some(bin) = mopidy_venv_bin() {
+        if bin.exists() {
+            return true;
+        }
+    }
+    is_command_found("mopidy")
+}
+
+fn mopidy_version() -> Option<String> {
+    if let Some(bin) = mopidy_venv_bin() {
+        if bin.exists() {
+            return get_command_version(bin.to_str()?, &["--version"]);
+        }
+    }
+    get_command_version("mopidy", &["--version"])
+}
+
+fn is_tcp_open(host: &str, port: u16) -> bool {
+    let Ok(addr) = format!("{host}:{port}").parse() else {
+        return false;
+    };
+    TcpStream::connect_timeout(&addr, Duration::from_millis(400)).is_ok()
+}
+
+fn is_pulse_sink_ready() -> bool {
+    let output = Command::new("pactl")
+        .args(["list", "sources", "short"])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            String::from_utf8_lossy(&o.stdout).contains("mopidy_null.monitor")
+        }
+        Ok(_) => false,
+        Err(_) => true,
+    }
+}
+
+fn log_dir() -> Option<PathBuf> {
+    let base = std::env::var("XDG_DATA_HOME")
+        .ok()
+        .map(PathBuf::from)
+        .or_else(|| home_dir().map(|h| h.join(".local/share")))?;
+    Some(base.join("zinga/logs"))
+}
+
+fn ensure_log_dir() -> Result<PathBuf, String> {
+    let dir = log_dir().ok_or_else(|| "HOME not set".to_string())?;
+    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create log dir: {}", e))?;
+    Ok(dir)
+}
+
+fn script_base_name(name: &str) -> String {
+    name.trim_end_matches(".sh").to_string()
+}
+
+fn log_path_for(name: &str) -> Option<PathBuf> {
+    log_dir().map(|d| d.join(format!("{}.log", script_base_name(name))))
+}
+
+fn exit_code_path_for(name: &str) -> Option<PathBuf> {
+    log_dir().map(|d| d.join(format!("{}.exitcode", script_base_name(name))))
+}
+
+fn read_exit_code(name: &str) -> Option<i32> {
+    let path = exit_code_path_for(name)?;
+    let content = fs::read_to_string(path).ok()?;
+    content.trim().parse().ok()
+}
+
+fn latest_log_path() -> Option<String> {
+    let dir = log_dir()?;
+    let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
+    let entries = fs::read_dir(&dir).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("log") {
+            continue;
+        }
+        let modified = entry.metadata().ok()?.modified().ok()?;
+        if newest
+            .as_ref()
+            .map(|(t, _)| modified > *t)
+            .unwrap_or(true)
+        {
+            newest = Some((modified, path));
+        }
+    }
+    newest.map(|(_, p)| p.display().to_string())
 }
 
 fn find_script(app_handle: &AppHandle, name: &str) -> Result<PathBuf, String> {
@@ -175,6 +286,39 @@ fn sanitize_external_env(command: &mut Command) {
     }
 }
 
+fn build_logged_command(script_path: &PathBuf, extra_args: &[&str]) -> Result<(String, PathBuf), String> {
+    let base = script_base_name(
+        script_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("script"),
+    );
+    let dir = ensure_log_dir()?;
+    let log_path = dir.join(format!("{}.log", base));
+    let exit_path = dir.join(format!("{}.exitcode", base));
+
+    let mut shell = String::from("set -o pipefail; ");
+    shell.push_str(&format!(
+        "bash {} ",
+        shell_quote(&script_path.to_string_lossy())
+    ));
+    for arg in extra_args {
+        shell.push_str(&shell_quote(arg));
+        shell.push(' ');
+    }
+    shell.push_str(&format!(
+        "2>&1 | tee {}; code=${{PIPESTATUS[0]}}; echo \"$code\" > {}; exit \"$code\"",
+        shell_quote(&log_path.to_string_lossy()),
+        shell_quote(&exit_path.to_string_lossy()),
+    ));
+
+    Ok((shell, log_path))
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
 fn run_script(
     app_handle: &AppHandle,
     name: &str,
@@ -186,30 +330,31 @@ fn run_script(
         .args(["+x", &script_path.to_string_lossy()])
         .output();
 
-    let script_str = script_path.to_string_lossy().to_string();
+    let (shell_cmd, log_path) = build_logged_command(&script_path, extra_args)?;
     let has_tmux = is_command_found("tmux");
+    let log_path_str = Some(log_path.display().to_string());
+
+    if let Some(exit_path) = exit_code_path_for(name) {
+        let _ = fs::remove_file(exit_path);
+    }
 
     if has_tmux {
-        let session_name = format!("zinga-{}", name.trim_end_matches(".sh"));
+        let session_name = format!("zinga-{}", script_base_name(name));
 
         let _ = Command::new("tmux")
             .args(["kill-session", "-t", &session_name])
             .output();
 
-        let mut tmux_args = vec![
-            "new-session".to_string(),
-            "-d".to_string(),
-            "-s".to_string(),
-            session_name.clone(),
-            "bash".to_string(),
-            script_str,
-        ];
-        for arg in extra_args {
-            tmux_args.push(arg.to_string());
-        }
-
         let mut tmux_command = Command::new("tmux");
-        tmux_command.args(&tmux_args);
+        tmux_command.args([
+            "new-session",
+            "-d",
+            "-s",
+            &session_name,
+            "bash",
+            "-lc",
+            &shell_cmd,
+        ]);
         sanitize_external_env(&mut tmux_command);
         let tmux_result = tmux_command
             .output()
@@ -223,41 +368,70 @@ fn run_script(
         Ok(ScriptSession {
             session_name: Some(session_name),
             has_tmux: true,
+            log_path: log_path_str,
         })
     } else {
-        let mut terminal_args = vec!["bash", &script_str];
-        let extra_owned: Vec<String> = extra_args.iter().map(|s| s.to_string()).collect();
-        for arg in &extra_owned {
-            terminal_args.push(arg);
-        }
-
-        spawn_terminal(&terminal_args)?;
+        spawn_terminal(&["bash", "-lc", &shell_cmd])?;
 
         Ok(ScriptSession {
             session_name: None,
             has_tmux: false,
+            log_path: log_path_str,
         })
     }
 }
 
+fn run_script_sync(
+    app_handle: &AppHandle,
+    name: &str,
+    extra_args: &[&str],
+) -> Result<(i32, PathBuf), String> {
+    let script_path = find_script(app_handle, name)?;
+    let _ = Command::new("chmod")
+        .args(["+x", &script_path.to_string_lossy()])
+        .output();
+
+    let (shell_cmd, log_path) = build_logged_command(&script_path, extra_args)?;
+
+    let mut command = Command::new("bash");
+    command.args(["-lc", &shell_cmd]);
+    sanitize_external_env(&mut command);
+    let output = command
+        .output()
+        .map_err(|e| format!("Failed to run {}: {}", name, e))?;
+
+    let code = read_exit_code(name).unwrap_or_else(|| {
+        if output.status.success() {
+            0
+        } else {
+            output.status.code().unwrap_or(1)
+        }
+    });
+
+    Ok((code, log_path))
+}
+
 #[tauri::command]
 pub fn system_check() -> SystemStatus {
+    let mopidy_running =
+        is_process_running("python.*mopidy") || is_tcp_open("127.0.0.1", 6680);
     let mopidy = ServiceStatus {
-        installed: is_command_found("mopidy"),
-        running: is_process_running("python.*mopidy"),
-        version: get_command_version("mopidy", &["--version"]),
+        installed: is_mopidy_installed(),
+        running: mopidy_running,
+        version: mopidy_version(),
     };
 
     let icecast = ServiceStatus {
         installed: is_dpkg_installed("icecast2"),
-        running: is_systemd_active("icecast2"),
+        running: is_systemd_active("icecast2") && is_tcp_open("127.0.0.1", 8000),
         version: get_command_version("icecast2", &["-v"]),
     };
 
     let ffmpeg = ServiceStatus {
         installed: is_command_found("ffmpeg"),
-        running: is_process_running("ffmpeg.*icecast"),
-        version: get_command_version("ffmpeg", &["-version"]),
+        running: is_process_running("ffmpeg.*icecast")
+            || is_process_running("ffmpeg.*pulse"),
+        version: get_command_version("ffmpeg", &["--version"]),
     };
 
     let mopidy_config_exists = home_dir()
@@ -265,6 +439,9 @@ pub fn system_check() -> SystemStatus {
         .unwrap_or(false);
 
     let icecast_config_exists = PathBuf::from("/etc/icecast2/icecast.xml").exists();
+    let pulse_sink_ready = is_pulse_sink_ready();
+    let pipeline_ready =
+        mopidy.running && icecast.running && ffmpeg.running && pulse_sink_ready;
 
     SystemStatus {
         mopidy,
@@ -272,12 +449,88 @@ pub fn system_check() -> SystemStatus {
         ffmpeg,
         mopidy_config_exists,
         icecast_config_exists,
+        pipeline_ready,
+        pulse_sink_ready,
+        last_log_path: latest_log_path(),
     }
 }
 
 #[tauri::command]
+pub async fn ensure_services(
+    app_handle: AppHandle,
+    force: Option<bool>,
+) -> Result<EnsureResult, String> {
+    tokio::task::spawn_blocking(move || ensure_services_sync(app_handle, force.unwrap_or(false)))
+        .await
+        .map_err(|e| format!("ensure_services join error: {}", e))?
+}
+
+fn ensure_services_sync(app_handle: AppHandle, force: bool) -> Result<EnsureResult, String> {
+    let status = system_check();
+
+    if !force && status.pipeline_ready {
+        return Ok(EnsureResult {
+            ready: true,
+            started: false,
+            log_path: status.last_log_path,
+            message: "Pipeline already ready".to_string(),
+        });
+    }
+
+    if !status.mopidy.installed || !status.mopidy_config_exists {
+        return Ok(EnsureResult {
+            ready: false,
+            started: false,
+            log_path: status.last_log_path,
+            message: "Mopidy is not installed. Run setup first.".to_string(),
+        });
+    }
+
+    if !status.icecast.installed {
+        return Ok(EnsureResult {
+            ready: false,
+            started: false,
+            log_path: status.last_log_path,
+            message: "Icecast2 is not installed. Run setup first.".to_string(),
+        });
+    }
+
+    let args: Vec<&str> = if force { vec!["--force"] } else { vec![] };
+    let (code, log_path) = run_script_sync(&app_handle, "ensure.sh", &args)?;
+    let after = system_check();
+
+    let message = if after.pipeline_ready {
+        "Pipeline ready".to_string()
+    } else {
+        format!(
+            "Pipeline not ready (exit {}). See log: {}",
+            code,
+            log_path.display()
+        )
+    };
+
+    Ok(EnsureResult {
+        ready: after.pipeline_ready,
+        started: true,
+        log_path: Some(log_path.display().to_string()),
+        message,
+    })
+}
+
+#[tauri::command]
+pub fn get_script_exit_code(script_name: String) -> Option<i32> {
+    read_exit_code(&script_name)
+}
+
+#[tauri::command]
+pub fn get_script_log(script_name: String) -> Result<String, String> {
+    let path = log_path_for(&script_name).ok_or_else(|| "Log path unavailable".to_string())?;
+    fs::read_to_string(&path).map_err(|e| format!("Failed to read log {}: {}", path.display(), e))
+}
+
+#[tauri::command]
 pub fn run_setup_script(app_handle: AppHandle) -> Result<ScriptSession, String> {
-    run_script(&app_handle, "setup.sh", &["--skip-sudo"])
+    run_script(&app_handle, "setup.sh", &[])
 }
 
 #[tauri::command]
@@ -425,7 +678,7 @@ pub fn kill_tmux_session(session_name: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn run_uninstall(app_handle: AppHandle) -> Result<ScriptSession, String> {
-    run_script(&app_handle, "uninstall.sh", &[])
+    run_script(&app_handle, "uninstall.sh", &["--yes"])
 }
 
 #[tauri::command]
@@ -475,6 +728,10 @@ pub fn debug_terminal(app_handle: AppHandle) -> Result<String, String> {
         }
     } else {
         info.push("resource_dir: error".to_string());
+    }
+
+    if let Some(dir) = log_dir() {
+        info.push(format!("zinga_log_dir={}", dir.display()));
     }
 
     for term in ["gnome-terminal", "xfce4-terminal", "konsole", "xterm"] {

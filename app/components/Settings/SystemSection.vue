@@ -1,8 +1,30 @@
 <script lang="ts" setup>
 const { t } = useI18n();
 const { debugMode } = useSettings();
-const { status, loading, scriptRunning, error, activeSession, checkSystem, runSetup, startServices, stopServices, restartServices, verify, runUninstall, openTerminal } = useSystemSetup();
+const {
+  status,
+  loading,
+  ensuring,
+  scriptRunning,
+  scriptOutput,
+  lastLogPath,
+  lastExitCode,
+  error,
+  activeSession,
+  pipelineReady,
+  checkSystem,
+  ensurePipeline,
+  runSetup,
+  startServices,
+  stopServices,
+  restartServices,
+  verify,
+  runUninstall,
+  openTerminal,
+  openLastLog,
+} = useSystemSetup();
 const terminalDiag = ref('');
+const showOutput = ref(false);
 onMounted(() => {
   if (!status.value) checkSystem();
 });
@@ -30,10 +52,10 @@ async function runTerminalDiag() {
 async function openMopidyConfig() {
   try {
     const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('shell_open', { path: 'http://localhost:8989' });
+    await invoke('shell_open', { path: 'http://localhost:6680/iris/' });
   } catch {
     if (typeof window !== 'undefined') {
-      window.open('http://localhost:8989', '_blank');
+      window.open('http://localhost:6680/iris/', '_blank');
     }
   }
 }
@@ -42,6 +64,13 @@ async function openMopidyConfig() {
 <template>
   <div class="flex flex-col gap-4">
     <div v-if="status" class="flex flex-col gap-2">
+      <div class="flex items-center gap-2 text-sm">
+        <span
+          class="w-2 h-2 rounded-full"
+          :class="pipelineReady ? 'bg-green-500' : 'bg-yellow-500'"
+        />
+        <span>{{ pipelineReady ? t('pages.setup.pipelineReady') : t('pages.setup.pipelineNotReady') }}</span>
+      </div>
       <div
         v-for="s in services"
         :key="s.name"
@@ -60,6 +89,16 @@ async function openMopidyConfig() {
       {{ t('pages.setup.checking') }}
     </div>
     <div class="flex flex-wrap gap-2">
+      <UButton
+        size="sm"
+        icon="i-heroicons-bolt"
+        variant="ghost"
+        color="success"
+        :loading="ensuring"
+        @click="ensurePipeline()"
+      >
+        {{ t('pages.setup.ensurePipeline') }}
+      </UButton>
       <UButton
         size="sm"
         icon="i-heroicons-play"
@@ -138,8 +177,40 @@ async function openMopidyConfig() {
       >
         {{ t('pages.setup.openTerminal') }}
       </UButton>
+      <UButton
+        v-if="lastLogPath"
+        size="sm"
+        icon="i-heroicons-document-text"
+        variant="ghost"
+        color="neutral"
+        @click="openLastLog()"
+      >
+        {{ t('pages.setup.openLog') }}
+      </UButton>
     </div>
     <UAlert v-if="error" color="error" :title="error" />
+    <UAlert
+      v-else-if="lastExitCode === 0"
+      color="success"
+      :title="t('pages.setup.scriptSucceeded')"
+    />
+    <div v-if="scriptOutput || scriptRunning" class="flex flex-col gap-1">
+      <button
+        class="flex items-center gap-1 text-sm text-(--ui-text-muted) cursor-pointer"
+        @click="showOutput = !showOutput"
+      >
+        <UIcon :name="showOutput ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-4 h-4" />
+        {{ t('pages.setup.output') }}
+        <UIcon v-if="scriptRunning" name="i-heroicons-arrow-path" class="w-3 h-3 animate-spin ml-1" />
+      </button>
+      <pre
+        v-if="showOutput"
+        class="bg-(--ui-bg-elevated) text-xs p-3 rounded-lg overflow-x-auto max-h-64 overflow-y-auto font-mono whitespace-pre-wrap"
+      >{{ scriptOutput }}</pre>
+    </div>
+    <p v-if="lastLogPath" class="text-xs text-(--ui-text-muted) truncate">
+      {{ t('pages.setup.logPath') }}: {{ lastLogPath }}
+    </p>
     <div v-if="debugMode" class="flex flex-col gap-2">
       <UCollapsible>
         <UButton

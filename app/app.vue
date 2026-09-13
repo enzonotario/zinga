@@ -2,12 +2,16 @@
 import { onMounted } from 'vue';
 import useDevices from '~/composables/useDevices';
 import useFeedSync from '~/composables/useFeedSync';
+import useSystemSetup from '~/composables/useSystemSetup';
 
 const { autoDiscover } = useDevices();
 const { loadLastSyncTimes } = useFeedSync();
+const { ensurePipeline, checkSystem } = useSystemSetup();
 onMounted(async () => {
   await autoDiscover();
   await loadLastSyncTimes();
+  await checkSystem();
+  await ensurePipeline(false).catch(() => {});
 });
 </script>
 

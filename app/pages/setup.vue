@@ -9,7 +9,23 @@ definePageMeta({
   descriptionKey: 'pages.setup.description',
 });
 const { t } = useI18n();
-const { status, loading, scriptRunning, scriptOutput, error, activeSession, allInstalled, allRunning, checkSystem, restartServices, openTerminal } = useSystemSetup();
+const {
+  status,
+  loading,
+  ensuring,
+  scriptRunning,
+  scriptOutput,
+  lastLogPath,
+  error,
+  activeSession,
+  allInstalled,
+  pipelineReady,
+  checkSystem,
+  ensurePipeline,
+  restartServices,
+  openTerminal,
+  openLastLog,
+} = useSystemSetup();
 const showOutput = ref(false);
 onMounted(() => {
   checkSystem();
@@ -35,7 +51,7 @@ function serviceLabel(service: { installed: boolean, running: boolean }) {
             {{ t('pages.setup.title') }}
           </h1>
           <div v-if="status">
-            <UBadge v-if="allInstalled && allRunning" color="success" variant="subtle">
+            <UBadge v-if="allInstalled && pipelineReady" color="success" variant="subtle">
               {{ t('pages.setup.allGood') }}
             </UBadge>
             <UBadge v-else color="warning" variant="subtle">
@@ -83,6 +99,15 @@ function serviceLabel(service: { installed: boolean, running: boolean }) {
             @click="checkSystem"
           >
             {{ loading ? t('pages.setup.checking') : t('pages.setup.checkSystem') }}
+          </UButton>
+          <UButton
+            icon="i-heroicons-bolt"
+            variant="ghost"
+            color="success"
+            :loading="ensuring"
+            @click="ensurePipeline()"
+          >
+            {{ t('pages.setup.ensurePipeline') }}
           </UButton>
           <UButton
             icon="i-heroicons-play"
@@ -138,10 +163,22 @@ function serviceLabel(service: { installed: boolean, running: boolean }) {
           >
             {{ t('pages.setup.openTerminal') }}
           </UButton>
+          <UButton
+            v-if="lastLogPath"
+            icon="i-heroicons-document-text"
+            variant="ghost"
+            color="neutral"
+            @click="openLastLog()"
+          >
+            {{ t('pages.setup.openLog') }}
+          </UButton>
         </div>
         <div v-if="error" class="text-sm text-(--ui-error)">
           {{ error }}
         </div>
+        <p v-if="lastLogPath" class="text-xs text-(--ui-text-muted) truncate">
+          {{ t('pages.setup.logPath') }}: {{ lastLogPath }}
+        </p>
         <div v-if="scriptOutput || scriptRunning">
           <button
             class="flex items-center gap-1 text-sm text-(--ui-text-muted) cursor-pointer mb-2"

@@ -58,11 +58,29 @@ ensure_prerequisites() {
 start_icecast() {
   log_title "Step 1/3 - Icecast2"
   zinga_icecast2_repair_if_needed || true
-  if sudo systemctl restart icecast2 2>/dev/null && systemctl is-active --quiet icecast2; then
-    log_ok "Icecast2 is running"
-  else
-    log_warn "Could not restart Icecast2 automatically. Run: sudo systemctl restart icecast2"
+
+  if systemctl is-active --quiet icecast2 && wait_for_tcp 127.0.0.1 8000 5; then
+    log_ok "Icecast2 already running"
+    return
   fi
+
+  if sudo -n systemctl restart icecast2 2>/dev/null && wait_for_tcp 127.0.0.1 8000 20; then
+    log_ok "Icecast2 restarted"
+    return
+  fi
+
+  if [[ -t 0 ]] && sudo systemctl restart icecast2 2>/dev/null && wait_for_tcp 127.0.0.1 8000 20; then
+    log_ok "Icecast2 restarted"
+    return
+  fi
+
+  if systemctl is-active --quiet icecast2; then
+    log_warn "Icecast2 is active but port 8000 is not ready yet"
+    return
+  fi
+
+  log_error "Could not start Icecast2. Run: sudo systemctl restart icecast2"
+  exit 1
 }
 
 start_mopidy() {

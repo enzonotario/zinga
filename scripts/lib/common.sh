@@ -37,3 +37,27 @@ read_secret_file() {
     echo -n "$fallback"
   fi
 }
+
+zinga_log_dir() {
+  echo "${XDG_DATA_HOME:-$HOME/.local/share}/zinga/logs"
+}
+
+zinga_ensure_log_dir() {
+  mkdir -p "$(zinga_log_dir)"
+}
+
+zinga_write_exit_code() {
+  local name="$1" code="$2"
+  zinga_ensure_log_dir
+  echo "$code" >"$(zinga_log_dir)/${name}.exitcode"
+}
+
+zinga_log_path() {
+  local name="$1"
+  echo "$(zinga_log_dir)/${name}.log"
+}
+
+is_tcp_open() {
+  local host="$1" port="$2"
+  bash -c "echo >/dev/tcp/$host/$port" 2>/dev/null
+}

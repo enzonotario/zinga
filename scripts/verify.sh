@@ -58,6 +58,22 @@ main() {
   check_port 6680
   check_port 8000
 
+  if pgrep -f "ffmpeg.*(icecast|pulse)" >/dev/null 2>&1; then
+    log_ok "ffmpeg stream is running"
+  else
+    log_warn "ffmpeg stream is not running"
+    issues=$((issues + 1))
+  fi
+
+  if command -v pactl >/dev/null 2>&1; then
+    if pactl list sources short 2>/dev/null | grep -q "mopidy_null.monitor"; then
+      log_ok "Pulse sink mopidy_null.monitor ready"
+    else
+      log_warn "Pulse sink mopidy_null.monitor missing"
+      issues=$((issues + 1))
+    fi
+  fi
+
   if [[ "$issues" -gt 0 ]]; then
     log_warn "Verification completed with $issues issue(s)"
     exit 1
