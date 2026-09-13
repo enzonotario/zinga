@@ -36,6 +36,7 @@ function clearInvalidSelection() {
 function syncSelectionWithDevices(availableDevices: Device[]) {
   const currentId = selectedDeviceId.value;
   if (!currentId || currentId === LOCAL_DEVICE_ID) return;
+  if (availableDevices.length === 0) return;
   const exists = availableDevices.some((device) => device.id === currentId);
   if (!exists) {
     clearInvalidSelection();

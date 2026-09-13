@@ -86,6 +86,12 @@ start_icecast() {
 start_mopidy() {
   log_title "Step 2/3 - Mopidy"
   sanitize_runtime_env
+
+  if pgrep -f "python.*mopidy" >/dev/null 2>&1 && wait_for_tcp 127.0.0.1 6680 5; then
+    log_ok "Mopidy already running"
+    return
+  fi
+
   pkill -f "python.*mopidy" 2>/dev/null || true
   source "$VENV_DIR/bin/activate"
   nohup python3 -m mopidy >"$MOPIDY_LOG" 2>&1 &
@@ -117,7 +123,12 @@ ensure_audio_pipeline() {
 
 start_stream() {
   log_title "Step 3/3 - ffmpeg stream"
-  pkill -f "ffmpeg.*(icecast|pulse)" 2>/dev/null || true
+
+  if pgrep -f "ffmpeg.*(icecast|pulse)" >/dev/null 2>&1; then
+    log_ok "ffmpeg stream already running"
+    return
+  fi
+
   local icecast_password
   icecast_password="$(read_secret_file "$HOME/.icecast_password" "hackme")"
   if ! wait_for_tcp 127.0.0.1 8000 45; then
