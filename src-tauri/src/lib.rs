@@ -1,11 +1,32 @@
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{
     menu::{Menu, MenuItem},
-    tray::TrayIconBuilder,
-    Manager,
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Manager, WindowEvent,
 };
 use tauri_plugin_sql::{Migration, MigrationKind};
+
+struct CloseToTray(AtomicBool);
+
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+#[tauri::command]
+fn set_close_to_tray(enabled: bool, state: tauri::State<CloseToTray>) {
+    state.0.store(enabled, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn get_close_to_tray(state: tauri::State<CloseToTray>) -> bool {
+    state.0.load(Ordering::Relaxed)
+}
 
 mod upnp;
 use upnp::{
@@ -572,6 +593,18 @@ pub fn run() {
                 .add_migrations("sqlite:zinga.db", migrations)
                 .build(),
         )
+        .manage(CloseToTray(AtomicBool::new(true)))
+        .manage(AppState::default())
+        .manage(remote::state::RemoteState::new())
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let close_to_tray = window.app_handle().state::<CloseToTray>();
+                if close_to_tray.0.load(Ordering::Relaxed) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
                 if let Err(err) = window_shortcuts::register(&window) {
@@ -579,14 +612,17 @@ pub fn run() {
                 }
             }
 
-            let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&quit_i])?;
+            let show_i = MenuItem::with_id(app, "show", "Mostrar", true, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "quit", "Salir", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
 
             let _tray = TrayIconBuilder::new()
                 .menu(&menu)
-                .show_menu_on_left_click(true)
+                .show_menu_on_left_click(false)
+                .tooltip("Zinga")
                 .icon(app.default_window_icon().unwrap().clone())
                 .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => show_main_window(app),
                     "quit" => {
                         app.exit(0);
                     }
@@ -594,13 +630,23 @@ pub fn run() {
                         println!("menu item {} not handled", other);
                     }
                 })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        show_main_window(tray.app_handle());
+                    }
+                })
                 .build(app)?;
 
             Ok(())
         })
-        .manage(AppState::default())
-        .manage(remote::state::RemoteState::new())
         .invoke_handler(tauri::generate_handler![
+            set_close_to_tray,
+            get_close_to_tray,
             upnp_discover,
             upnp_get_services,
             upnp_get_volume,

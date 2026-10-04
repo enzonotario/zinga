@@ -208,6 +208,8 @@
       "themeDark": "Dark",
       "language": "Language",
       "advanced": "Advanced",
+      "closeToTray": "Close to tray",
+      "closeToTrayDescription": "When closing the window, Zinga stays in the system tray instead of quitting. Use Quit from the tray icon to exit fully.",
       "debugMode": "Debug mode",
       "debugModeDescription": "Show diagnostic pages and tools",
       "showExplicitIndicator": "Show explicit content indicators",

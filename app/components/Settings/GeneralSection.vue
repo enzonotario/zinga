@@ -1,7 +1,14 @@
 <script lang="ts" setup>
 const { t, locale, locales, setLocale } = useI18n();
 const colorMode = useColorMode();
-const { debugMode, setDebugMode, showExplicitIndicator, setShowExplicitIndicator } = useSettings();
+const {
+  debugMode,
+  setDebugMode,
+  showExplicitIndicator,
+  setShowExplicitIndicator,
+  closeToTray,
+  setCloseToTray,
+} = useSettings();
 const colorModeOptions = computed(() => [
   { value: 'system', label: t('pages.settings.themeSystem'), icon: 'i-heroicons-computer-desktop' },
   { value: 'light', label: t('pages.settings.themeLight'), icon: 'i-heroicons-sun' },
@@ -69,6 +76,15 @@ const availableLocales = computed(() =>
           </h3>
         </div>
       </template>
+      <UFormField
+        :label="t('pages.settings.closeToTray')"
+        :description="t('pages.settings.closeToTrayDescription')"
+      >
+        <USwitch
+          :model-value="closeToTray"
+          @update:model-value="setCloseToTray"
+        />
+      </UFormField>
       <UFormField
         :label="t('pages.settings.debugMode')"
         :description="t('pages.settings.debugModeDescription')"

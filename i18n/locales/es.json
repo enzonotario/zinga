@@ -208,6 +208,8 @@
       "themeDark": "Oscuro",
       "language": "Idioma",
       "advanced": "Avanzado",
+      "closeToTray": "Cerrar a la bandeja",
+      "closeToTrayDescription": "Al cerrar la ventana, Zinga queda en la barra de tareas en vez de salir. Usá Salir desde el ícono para cerrar del todo.",
       "debugMode": "Modo debug",
       "debugModeDescription": "Muestra páginas y herramientas de diagnóstico",
       "showExplicitIndicator": "Mostrar indicador de contenido explícito",

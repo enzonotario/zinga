@@ -7,7 +7,9 @@ import useSystemSetup from '~/composables/useSystemSetup';
 const { autoDiscover } = useDevices();
 const { loadLastSyncTimes } = useFeedSync();
 const { ensurePipeline, checkSystem } = useSystemSetup();
+const { closeToTray, setCloseToTray } = useSettings();
 onMounted(async () => {
+  setCloseToTray(closeToTray.value);
   await autoDiscover();
   await loadLastSyncTimes();
   await checkSystem();

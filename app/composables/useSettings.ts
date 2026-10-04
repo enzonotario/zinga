@@ -1,4 +1,15 @@
 export type PlayerDisplayMode = 'vinyl' | 'cover';
+
+async function syncCloseToTray(enabled: boolean) {
+  if (!import.meta.client) return;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('set_close_to_tray', { enabled });
+  } catch {
+    // Not running inside Tauri (web/dev preview).
+  }
+}
+
 export const useSettings = () => {
   const playerDisplayMode = useState<PlayerDisplayMode>('settings:playerDisplayMode', () => {
     if (import.meta.client) {
@@ -21,6 +32,12 @@ export const useSettings = () => {
     }
     return false;
   });
+  const closeToTray = useState<boolean>('settings:closeToTray', () => {
+    if (import.meta.client) {
+      return localStorage.getItem('settings:closeToTray') !== 'false';
+    }
+    return true;
+  });
   const setPlayerDisplayMode = (mode: PlayerDisplayMode) => {
     playerDisplayMode.value = mode;
     if (import.meta.client) {
@@ -39,6 +56,13 @@ export const useSettings = () => {
       localStorage.setItem('settings:showExplicitIndicator', String(enabled));
     }
   };
+  const setCloseToTray = (enabled: boolean) => {
+    closeToTray.value = enabled;
+    if (import.meta.client) {
+      localStorage.setItem('settings:closeToTray', String(enabled));
+    }
+    void syncCloseToTray(enabled);
+  };
 
   return {
     playerDisplayMode,
@@ -47,5 +71,7 @@ export const useSettings = () => {
     setDebugMode,
     showExplicitIndicator,
     setShowExplicitIndicator,
+    closeToTray,
+    setCloseToTray,
   };
 };
