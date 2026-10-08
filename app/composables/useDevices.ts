@@ -157,10 +157,6 @@ export default function useDevices() {
       } catch (e) {
         console.error('Failed to set local volume:', e);
       }
-      await invoke('mopidy_rpc', {
-        method: 'core.mixer.set_volume',
-        params: { volume: level },
-      }).catch(() => {});
       return;
     }
     try {

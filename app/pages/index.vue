@@ -9,8 +9,8 @@ import useBottomBar from '~/composables/useBottomBar';
 import useLyrics from '~/composables/useLyrics';
 import useLyricsFontSize from '~/composables/useLyricsFontSize';
 import useLyricsPanelMode from '~/composables/useLyricsPanelMode';
-import useMopidyPolling from '~/composables/useMopidyPolling';
 import usePlayer from '~/composables/usePlayer';
+import usePlayQueue from '~/composables/usePlayQueue';
 import useProviderNavigation from '~/composables/useProviderNavigation';
 import { getCurrentProvider } from '~/providers';
 
@@ -19,8 +19,8 @@ const { t } = useI18n();
 definePageMeta({
   fixedLayout: true,
 });
-const { currentTrack, isUsingMopidy, progress, playbackPositionSec } = useBottomBar();
-const { mopidy } = useMopidyPolling();
+const { currentTrack, hasQueue, progress, playbackPositionSec } = useBottomBar();
+const queue = usePlayQueue();
 const player = usePlayer();
 const { albumRoute } = useProviderNavigation();
 const lyricsState = useLyrics();
@@ -144,23 +144,17 @@ const albumInlineCredits = computed(() => {
   return { releaseDate, copyright, mediaTags: mediaTags.length ? mediaTags : undefined };
 });
 const trackNumber = computed(() => (currentTrack.value as any)?.trackNumber);
-function getMopidyCurrentTrackIndex(): number {
-  const currentTlid = mopidy.currentTrack.value?.tlid;
-  if (currentTlid && mopidy.tracklist.value?.length) {
-    const index = mopidy.tracklist.value.findIndex((t: any) => t.tlid === currentTlid);
-    if (index !== -1) return index + 1;
-  }
-  return 0;
+function getQueueCurrentTrackNumber(): number {
+  const currentTlid = player.currentItem.value?.tlid;
+  return queue.items.value.findIndex((item) => item.tlid === currentTlid) + 1;
 }
 const vinylTrackCount = computed(() => {
-  const mopidyLen = mopidy.tracklist.value?.length ?? 0;
-  if (isUsingMopidy.value) return mopidyLen;
-  return albumNumberOfItems.value || mopidyLen || 0;
+  const queueLength = queue.items.value.length;
+  if (hasQueue.value) return queueLength;
+  return albumNumberOfItems.value || queueLength;
 });
 const vinylCurrentTrackNumber = computed(() => {
-  if (isUsingMopidy.value) return getMopidyCurrentTrackIndex();
-  const mopidyLen = mopidy.tracklist.value?.length ?? 0;
-  if (mopidyLen > 0) return getMopidyCurrentTrackIndex();
+  if (hasQueue.value) return getQueueCurrentTrackNumber();
   return trackNumber.value || 0;
 });
 const artistName = computed(() => tidalArtist.value?.attributes?.name || currentTrack.value?.artist);

@@ -1,27 +1,26 @@
 import { computed } from 'vue';
 import { formatTime } from '~/utils/time';
+import usePlayer from './usePlayer';
+import usePlayQueue from './usePlayQueue';
 
-export default function useQueueProgress(mopidy: any) {
+export default function useQueueProgress() {
+  const queue = usePlayQueue();
+  const player = usePlayer();
+
   const totalDuration = computed(() => {
-    return (mopidy.tracklist.value || []).reduce((acc: number, tlTrack: any) => {
-      return acc + (tlTrack.track?.length || 0);
-    }, 0);
+    return queue.items.value.reduce((acc, item) => acc + (item.track.length || 0), 0);
   });
 
   const currentProgress = computed(() => {
-    if (!mopidy.tracklist.value || !mopidy.currentTrack.value) return 0;
-
-    const currentIndex = mopidy.tracklist.value.findIndex(
-      (t: any) => t.tlid === mopidy.currentTrack.value?.tlid,
-    );
-
+    const currentTlid = player.currentItem.value?.tlid;
+    const currentIndex = queue.items.value.findIndex((item) => item.tlid === currentTlid);
     if (currentIndex === -1) return 0;
 
-    const previousTracksDuration = mopidy.tracklist.value
+    const previousTracksDuration = queue.items.value
       .slice(0, currentIndex)
-      .reduce((acc: number, tlTrack: any) => acc + (tlTrack.track?.length || 0), 0);
+      .reduce((acc, item) => acc + (item.track.length || 0), 0);
 
-    return previousTracksDuration + (mopidy.currentState.value.time_position || 0);
+    return previousTracksDuration + player.position.value * 1000;
   });
 
   const progressPercentage = computed(() => {

@@ -3,8 +3,8 @@ import type { AccordionItem } from '@nuxt/ui';
 import type { NormalizedCredit } from '~/providers/types';
 import { computed, nextTick, ref, watch } from 'vue';
 import useBottomBar from '~/composables/useBottomBar';
-import useMopidyPolling from '~/composables/useMopidyPolling';
 import usePlayer from '~/composables/usePlayer';
+import usePlayQueue from '~/composables/usePlayQueue';
 import useProvider from '~/composables/useProvider';
 import useQueueProgress from '~/composables/useQueueProgress';
 import useTidalArtwork from '~/composables/useTidalArtwork';
@@ -22,14 +22,14 @@ const props = withDefaults(defineProps<Props>(), {
   maxItems: 0,
 });
 const { t } = useI18n();
-const { mopidy } = useMopidyPolling();
+const queue = usePlayQueue();
 const {
   totalDuration,
   progressPercentage,
   formattedCurrentProgress,
   formattedTotalDuration,
   formattedRemainingDuration,
-} = useQueueProgress(mopidy);
+} = useQueueProgress();
 useBottomBar();
 const player = usePlayer();
 const provider = useProvider();
@@ -94,12 +94,12 @@ async function loadTrackCredits(tlid: number, uri: string) {
 function getTrackCreditsForItem(item: any): TrackCreditsData | undefined {
   return trackCreditsByTlid.value[item.value];
 }
-const currentTrackTlid = computed(() => mopidy.currentTrack.value?.tlid);
+const currentTrackTlid = computed(() => player.currentItem.value?.tlid);
 const displayedTracks = computed(() => {
-  const tracks = (mopidy.tracklist.value || []).filter((t: any) => t && t.tlid !== undefined && t.track && (t.track.name || t.track.uri));
+  const tracks = queue.items.value;
   return props.maxItems > 0 && tracks.length > props.maxItems ? tracks.slice(0, props.maxItems) : tracks;
 });
-const validTracksCount = computed(() => (mopidy.tracklist.value || []).filter((t: any) => t && t.tlid !== undefined && t.track && (t.track.name || t.track.uri)).length);
+const validTracksCount = computed(() => queue.items.value.length);
 const hasMoreTracks = computed(() => props.maxItems > 0 && validTracksCount.value > props.maxItems);
 const remainingTracksCount = computed(() => props.maxItems > 0 ? validTracksCount.value - props.maxItems : 0);
 const accordionItems = computed<AccordionItem[]>(() => {
@@ -108,7 +108,7 @@ const accordionItems = computed<AccordionItem[]>(() => {
     return {
       value: String(tlTrack.tlid),
       label: tlTrack.track?.name || t('player.unknownTrack'),
-      icon: isCurrentTrack ? (mopidy.isPlaying.value ? 'i-heroicons-play-solid' : 'i-heroicons-pause-solid') : undefined,
+      icon: isCurrentTrack ? (player.isPlaying.value ? 'i-heroicons-play-solid' : 'i-heroicons-pause-solid') : undefined,
       tlTrack,
       index,
       artistName: tlTrack.track?.artists?.map((a: any) => a.name).join(', ') || t('player.unknownArtist'),
@@ -158,13 +158,8 @@ async function playTrack(tlid: number) {
     console.error('Error playing track:', err);
   }
 }
-async function removeTrack(tlid: number) {
-  try {
-    await mopidy.mopidyRpc('core.tracklist.remove', { criteria: { tlid: [tlid] } });
-    await mopidy.getTracklist();
-  } catch (err) {
-    console.error('Error removing track:', err);
-  }
+function removeTrack(tlid: number) {
+  queue.remove(tlid);
 }
 async function clearQueue() {
   try {
@@ -225,12 +220,12 @@ async function clearQueue() {
           <template #leading="{ item }">
             <div class="w-6 text-center shrink-0">
               <UIcon
-                v-if="(item as any).isCurrentTrack && mopidy.isPlaying.value"
+                v-if="(item as any).isCurrentTrack && player.isPlaying.value"
                 name="i-heroicons-play-solid"
                 class="w-4 h-4 text-primary animate-pulse"
               />
               <UIcon
-                v-else-if="(item as any).isCurrentTrack && mopidy.isPaused.value"
+                v-else-if="(item as any).isCurrentTrack && player.isPaused.value"
                 name="i-heroicons-pause-solid"
                 class="w-4 h-4 text-primary"
               />

@@ -1,10 +1,10 @@
 <script lang="ts" setup>
 import type { NormalizedAlbum, NormalizedCredit, NormalizedTrack } from '~/providers/types';
+import type { QueueTrack } from '~/utils/playQueue';
 import { useLocalStorage } from '@vueuse/core';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import useAppBackground from '~/composables/useAppBackground';
 import useDevices from '~/composables/useDevices';
-import useMopidy from '~/composables/useMopidy';
 import usePlayer from '~/composables/usePlayer';
 import useProvider from '~/composables/useProvider';
 import useProviderArtwork from '~/composables/useProviderArtwork';
@@ -29,23 +29,10 @@ const props = withDefaults(defineProps<Props>(), {
 const { t, locale } = useI18n();
 const provider = useProvider();
 const { getArtistPicture } = useProviderArtwork();
-const mopidy = useMopidy();
 const { selectedDeviceId } = useDevices();
 const { setPageBackground, clearPageBackground } = useAppBackground();
 const { showExplicitIndicator } = useSettings();
-let pollingInterval: ReturnType<typeof setInterval> | null = null;
-onMounted(() => {
-  pollingInterval = setInterval(async () => {
-    if (mopidy.isPlaying.value) {
-      await mopidy.refreshState();
-      await mopidy.getTracklist();
-    }
-  }, 2000);
-});
 onUnmounted(() => {
-  if (pollingInterval) {
-    clearInterval(pollingInterval);
-  }
   clearPageBackground();
 });
 const loading = ref(false);
@@ -54,9 +41,8 @@ const album = ref<NormalizedAlbum | null>(null);
 const tracks = ref<NormalizedTrack[]>([]);
 const playingUpnp = ref(false);
 const playingDiscNumber = ref<number | null>(null);
-const addingToQueue = ref(false);
 const playingFromDiscNumber = ref<number | null>(null);
-const mopidyError = ref<string | null>(null);
+const actionError = ref<string | null>(null);
 const isAlbumFav = ref(false);
 const loadingAlbumFav = ref(false);
 const loadingFavoriteStatus = ref(false);
@@ -170,7 +156,7 @@ async function toggleAlbumFavorite() {
     }
   } catch (err) {
     console.error('Error toggling album favorite:', err);
-    mopidyError.value = err instanceof Error ? err.message : t('album.errorFavorite');
+    actionError.value = err instanceof Error ? err.message : t('album.errorFavorite');
   } finally {
     loadingAlbumFav.value = false;
   }
@@ -204,26 +190,28 @@ function onLoginSuccess() {
   loadFavoritesStatus();
 }
 const player = usePlayer();
+function toQueueTrack(track: NormalizedTrack): QueueTrack {
+  return {
+    uri: `tidal:track:${track.id}`,
+    name: track.title,
+    artists: track.artists.map((artist) => ({ name: artist.name })),
+    album: album.value ? { name: album.value.title } : undefined,
+    length: track.duration ? Math.round(track.duration * 1000) : undefined,
+  };
+}
 async function playTracks(trackList: NormalizedTrack[], setLoading: (loading: boolean) => void) {
   if (!selectedDeviceId.value) {
-    mopidyError.value = t('album.noPlaybackDevice');
+    actionError.value = t('album.noPlaybackDevice');
     return;
   }
   if (trackList.length === 0) return;
   try {
     setLoading(true);
-    mopidyError.value = null;
-    const connected = await mopidy.mopidyRpc('core.get_version').then(() => true).catch(() => false);
-    if (!connected) {
-      throw new Error(t('album.mopidyUnavailable'));
-    }
-    await mopidy.clear();
-    const trackUris = trackList.map((t) => t.uri || `tidal:track:${t.id}`);
-    await mopidy.add(trackUris);
-    await player.play();
+    actionError.value = null;
+    await player.playTracks(trackList.map(toQueueTrack));
     await navigateTo('/');
   } catch (err) {
-    mopidyError.value = err instanceof Error ? err.message : t('album.playbackError');
+    actionError.value = err instanceof Error ? err.message : t('album.playbackError');
     console.error('Playback error:', err);
   } finally {
     setLoading(false);
@@ -247,26 +235,13 @@ async function playFromDisc(disc: AlbumDisc) {
     playingFromDiscNumber.value = value ? disc.number : null;
   });
 }
-async function addAlbumToQueue() {
+function addAlbumToQueue() {
   if (!selectedDeviceId.value) {
-    mopidyError.value = t('album.noPlaybackDevice');
+    actionError.value = t('album.noPlaybackDevice');
     return;
   }
-  try {
-    addingToQueue.value = true;
-    mopidyError.value = null;
-    const connected = await mopidy.mopidyRpc('core.get_version').then(() => true).catch(() => false);
-    if (!connected) {
-      throw new Error(t('album.mopidyUnavailable'));
-    }
-    const trackUris = tracks.value.map((t) => t.uri || `tidal:track:${t.id}`);
-    await mopidy.add(trackUris);
-  } catch (err) {
-    mopidyError.value = err instanceof Error ? err.message : t('album.playbackError');
-    console.error('Queue error:', err);
-  } finally {
-    addingToQueue.value = false;
-  }
+  actionError.value = null;
+  player.addTracks(tracks.value.map(toQueueTrack));
 }
 const albumTitle = computed(() => album.value?.title || t('album.unknown'));
 const albumReleaseDate = computed(() => album.value?.releaseDate);
@@ -278,9 +253,9 @@ const albumFavoriteLabel = computed(() => {
   return isAlbumFav.value ? t('album.removeFavorite') : t('album.addFavorite');
 });
 const currentPlayingTrackId = computed(() => {
-  if (!mopidy.currentTrack.value?.track?.uri) return null;
-  const parts = mopidy.currentTrack.value.track.uri.split(':');
-  return parts[parts.length - 1];
+  const uri = player.currentItem.value?.track.uri;
+  if (!uri?.startsWith('tidal:track:')) return null;
+  return uri.split(':').pop();
 });
 async function loadAllTrackCredits() {
   if (loadingCredits.value) return;
@@ -427,10 +402,10 @@ watch(albumCover, (cover) => setPageBackground(cover), { immediate: true });
               </UBadge>
             </h1>
             <UAlert
-              v-if="mopidyError"
+              v-if="actionError"
               color="error"
               variant="soft"
-              :title="mopidyError"
+              :title="actionError"
               icon="i-heroicons-exclamation-triangle"
             />
             <span class="flex-1" />
@@ -506,8 +481,7 @@ watch(albumCover, (cover) => setPageBackground(cover), { immediate: true });
               {{ t('album.play') }}
             </UButton>
             <UButton
-              :loading="addingToQueue"
-              :disabled="!selectedDeviceId || addingToQueue"
+              :disabled="!selectedDeviceId"
               :label="t('album.addToQueue')"
               icon="i-heroicons-queue-list"
               variant="ghost"
@@ -596,12 +570,12 @@ watch(albumCover, (cover) => setPageBackground(cover), { immediate: true });
                   <div class="flex items-start gap-3">
                     <div class="flex items-center justify-center w-8 h-8 shrink-0 rounded-full bg-neutral-100 dark:bg-neutral-800">
                       <UIcon
-                        v-if="currentPlayingTrackId === track.id && mopidy.isPlaying.value"
+                        v-if="currentPlayingTrackId === track.id && player.isPlaying.value"
                         name="i-heroicons-play"
                         class="w-4 h-4 text-primary animate-pulse"
                       />
                       <UIcon
-                        v-else-if="currentPlayingTrackId === track.id && mopidy.isPaused.value"
+                        v-else-if="currentPlayingTrackId === track.id && player.isPaused.value"
                         name="i-heroicons-pause"
                         class="w-4 h-4 text-primary"
                       />
@@ -715,12 +689,12 @@ watch(albumCover, (cover) => setPageBackground(cover), { immediate: true });
                 >
                   <div class="flex items-center justify-center w-8 h-8 shrink-0 rounded-full bg-neutral-100 dark:bg-neutral-800">
                     <UIcon
-                      v-if="currentPlayingTrackId === track.id && mopidy.isPlaying.value"
+                      v-if="currentPlayingTrackId === track.id && player.isPlaying.value"
                       name="i-heroicons-play"
                       class="w-4 h-4 text-primary animate-pulse"
                     />
                     <UIcon
-                      v-else-if="currentPlayingTrackId === track.id && mopidy.isPaused.value"
+                      v-else-if="currentPlayingTrackId === track.id && player.isPaused.value"
                       name="i-heroicons-pause"
                       class="w-4 h-4 text-primary"
                     />

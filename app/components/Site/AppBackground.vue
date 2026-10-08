@@ -2,16 +2,16 @@
 import { computed, watch } from 'vue';
 import useAppBackground from '~/composables/useAppBackground';
 import useBottomBar from '~/composables/useBottomBar';
-import useMopidy from '~/composables/useMopidy';
 import usePlayer from '~/composables/usePlayer';
+import usePlayQueue from '~/composables/usePlayQueue';
 
 const { currentTrack } = useBottomBar();
-const mopidy = useMopidy();
+const queue = usePlayQueue();
 const player = usePlayer();
 const colorMode = useColorMode();
 const { currentBackground, setPlaybackBackground } = useAppBackground();
 const hasValidPlayback = computed(() =>
-  mopidy.tracklist.value?.length || player.isPlaying.value,
+  queue.items.value.length > 0 || player.isPlaying.value,
 );
 const logoBackground = computed(() =>
   colorMode.value === 'dark' ? '/assets/logo-white.svg' : '/assets/logo-black.svg',

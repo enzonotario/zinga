@@ -1,78 +1,65 @@
+import type { QueueTrack } from '~/utils/playQueue';
 import { computed, ref, watch } from 'vue';
 import { fetchTidalMetadata } from '~/utils/tidalMetadata';
 import useDevices from './useDevices';
 import useDirectPlayer from './useDirectPlayer';
-import useMopidy from './useMopidy';
 import usePlayer from './usePlayer';
+import usePlayQueue from './usePlayQueue';
 import useTidalArtwork from './useTidalArtwork';
 import useTidalAuth from './useTidalAuth';
-import useUpnpPlayer from './useUpnpPlayer';
 
-const mopidyTidalData = ref<any>(null);
+const currentTidalData = ref<any>(null);
 export default function useBottomBar() {
   const { t } = useI18n();
   const { selectedDeviceId, volume, setVolume, pauseVolumePolling, resumeVolumePolling, syncVolumeFromDevice, isVolumeSyncing } = useDevices();
   const player = usePlayer();
-  const mopidy = useMopidy();
+  const queue = usePlayQueue();
+  const direct = useDirectPlayer();
   const tidalArtwork = useTidalArtwork();
   const tidalAuth = useTidalAuth();
-  const upnp = useUpnpPlayer();
-  const direct = useDirectPlayer();
-  const { isLocalPlayback } = useDevices();
-  const isUsingMopidy = computed(() => {
-    return mopidy.isPlaying.value
-      || mopidy.isPaused.value
-      || (mopidy.tracklist.value && mopidy.tracklist.value.length > 0);
-  });
-  async function fetchMopidyTidalData(uri?: string) {
+  const hasQueue = computed(() => queue.items.value.length > 0 || direct.isActive.value);
+  async function fetchCurrentTidalData(uri?: string) {
     if (!uri) {
-      mopidyTidalData.value = null;
+      currentTidalData.value = null;
       return;
     }
-    if (mopidyTidalData.value?.uri === uri) {
+    if (currentTidalData.value?.uri === uri) {
       return;
     }
-    mopidyTidalData.value = await fetchTidalMetadata(uri, tidalArtwork, tidalAuth);
+    currentTidalData.value = await fetchTidalMetadata(uri, tidalArtwork, tidalAuth);
   }
-  function buildTrackFromMopidy(track: { name?: string, artists?: { name: string }[], album?: { name: string }, length?: number, uri?: string }, positionSeconds: number) {
+  function buildTrack(track: QueueTrack, positionSeconds: number) {
     const duration = (track.length || 0) / 1000;
     return {
       title: track.name || t('player.unknownTitle'),
       artist: track.artists?.[0]?.name || t('player.unknownArtist'),
       album: track.album?.name || t('player.unknownAlbum'),
-      coverUrl: mopidyTidalData.value?.coverUrl || null,
-      artistPicture: mopidyTidalData.value?.artistPicture || null,
+      coverUrl: currentTidalData.value?.coverUrl || null,
+      artistPicture: currentTidalData.value?.artistPicture || null,
       duration,
       position: positionSeconds,
       uri: track.uri,
-      tidalData: mopidyTidalData.value
+      tidalData: currentTidalData.value
         ? {
-            track: mopidyTidalData.value.track,
-            album: mopidyTidalData.value.album,
-            artist: mopidyTidalData.value.artist,
+            track: currentTidalData.value.track,
+            album: currentTidalData.value.album,
+            artist: currentTidalData.value.artist,
           }
         : undefined,
     };
   }
   const playbackPositionSec = computed(() => {
-    let sec: number;
-    if (direct.isActive.value) {
-      sec = direct.positionSec.value;
-    } else if (!isLocalPlayback.value && selectedDeviceId.value) {
-      sec = upnp.displayPositionSec.value;
-    } else {
-      sec = mopidy.position.value / 1000;
-    }
-    const durationSec = (mopidy.currentTrack.value?.track?.length || 0) / 1000;
+    let sec = direct.positionSec.value;
+    const durationSec = (player.currentItem.value?.track.length || 0) / 1000;
     if (durationSec > 0) {
       sec = Math.min(sec, durationSec);
     }
     return Math.max(0, sec);
   });
   const currentTrack = computed(() => {
-    if (!mopidy.currentTrack.value?.track) return null;
-    const track = mopidy.currentTrack.value.track;
-    return buildTrackFromMopidy(track, playbackPositionSec.value);
+    const track = player.currentItem.value?.track;
+    if (!track) return null;
+    return buildTrack(track, playbackPositionSec.value);
   });
   const progress = computed(() => {
     const track = currentTrack.value;
@@ -101,41 +88,18 @@ export default function useBottomBar() {
     const newVol = Math.min(100, currentVol + 1);
     setVolume(newVol);
   };
-  watch(isUsingMopidy, (isUsing) => {
-    if (isUsing) {
-      mopidy.refresh();
-    }
-  });
   watch(
-    () => [mopidy.isPlaying.value, mopidy.isPaused.value, selectedDeviceId.value, isLocalPlayback.value] as const,
-    async ([playing, paused, deviceId, local]) => {
-      if (direct.isActive.value) return;
-      if (local || !deviceId) return;
-      if (!playing && !paused) return;
-
-      if (upnp.needsSessionAttach.value) {
-        await upnp.attachSession(deviceId);
-        return;
-      }
-
-      if (playing) {
-        upnp.ensureStatusPolling(deviceId);
-      }
-    },
-    { immediate: true },
-  );
-  watch(
-    () => mopidy.currentTrack.value?.track?.uri,
+    () => player.currentItem.value?.track.uri,
     (uri, oldUri) => {
       if (uri) {
         const uriChanged = uri !== oldUri;
-        const noCachedData = !mopidyTidalData.value || mopidyTidalData.value.uri !== uri;
+        const noCachedData = !currentTidalData.value || currentTidalData.value.uri !== uri;
         if (uriChanged || noCachedData) {
-          mopidyTidalData.value = null;
-          fetchMopidyTidalData(uri);
+          currentTidalData.value = null;
+          fetchCurrentTidalData(uri);
         }
       } else {
-        mopidyTidalData.value = null;
+        currentTidalData.value = null;
       }
     },
     { immediate: true },
@@ -156,6 +120,6 @@ export default function useBottomBar() {
     resumeVolumePolling,
     syncVolumeFromDevice,
     isVolumeSyncing,
-    isUsingMopidy,
+    hasQueue,
   };
 }

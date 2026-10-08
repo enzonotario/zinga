@@ -1,14 +1,14 @@
 import type { ComputedRef, Ref } from 'vue';
 import type { RendererStatus } from './useLocalRenderer';
-import type { MopidyTlTrack } from './useMopidy';
 import type { PreparedSource, StreamFormat, StreamSource } from '~/utils/directStream';
+import type { QueueItem } from '~/utils/playQueue';
 import { invoke } from '@tauri-apps/api/core';
-import { computed, ref, watch } from 'vue';
-import { buildStreamUrl, canPlayDirect, getStreamSource, parseStreamUri } from '~/utils/directStream';
+import { computed, effectScope, ref, shallowRef, watch } from 'vue';
+import { buildStreamUrl, getStreamSource, parseStreamUri } from '~/utils/directStream';
 import { timeToSeconds } from '~/utils/time';
 import { LOCAL_DEVICE_ID } from './useDevices';
 import useLocalRenderer from './useLocalRenderer';
-import useMopidy from './useMopidy';
+import usePlayQueue from './usePlayQueue';
 import useUpnpPlayer from './useUpnpPlayer';
 
 interface DirectTrackMeta {
@@ -29,7 +29,7 @@ interface RendererAdapter {
   ensurePolling: (deviceId: string) => void
 }
 
-type FailureHandler = (deviceId: string, tlid: number, startSec: number) => Promise<void>;
+export type PlaybackState = 'playing' | 'paused' | 'stopped';
 
 const DIRECT_START_TIMEOUT_MS = 15000;
 const NATURAL_END_MARGIN_SEC = 3;
@@ -37,24 +37,25 @@ const FORMAT_MIME: Record<StreamFormat, string> = { flac: 'audio/flac', mp3: 'au
 const FLAC_MIMES = ['audio/flac', 'audio/x-flac'];
 
 const directDeviceId = ref<string | null>(null);
-const currentTlid = ref<number | null>(null);
+const playingTlid = ref<number | null>(null);
+const playingItemCache = shallowRef<QueueItem | null>(null);
 const startOffsetSec = ref(0);
 const anchorAt = ref(Number.POSITIVE_INFINITY);
 const pending = ref<{ tlid: number, startSec: number, acked: boolean } | null>(null);
 const pausedAtSec = ref<number | null>(null);
+const stopAfterCurrent = ref(false);
+const lastError = ref<string | null>(null);
 let lastRelSec = -1;
 let lastTrackUri = '';
 let nextQueuedTlid: number | null | undefined;
 let baseUrl: string | null = null;
-let failureHandler: FailureHandler | null = null;
 let watchersRegistered = false;
 let startRequestId = 0;
 let currentIndexHint = -1;
-let currentTlTrackCache: MopidyTlTrack | null = null;
 const deviceFormats = new Map<string, StreamFormat>();
 
-function buildMeta(tlTrack: MopidyTlTrack, format: StreamFormat): DirectTrackMeta {
-  const track = tlTrack.track;
+function buildMeta(item: QueueItem, format: StreamFormat): DirectTrackMeta {
+  const track = item.track;
   return {
     title: track.name || 'Unknown',
     artist: track.artists?.[0]?.name,
@@ -62,6 +63,17 @@ function buildMeta(tlTrack: MopidyTlTrack, format: StreamFormat): DirectTrackMet
     durationSec: track.length ? track.length / 1000 : undefined,
     mime: FORMAT_MIME[format],
   };
+}
+
+function hasStreamSource(item?: QueueItem) {
+  return getStreamSource(item?.track.uri) != null;
+}
+
+function findPlayable(list: QueueItem[], fromIndex: number, step: 1 | -1) {
+  for (let index = fromIndex; index >= 0 && index < list.length; index += step) {
+    if (hasStreamSource(list[index])) return list[index];
+  }
+  return undefined;
 }
 
 async function getBaseUrl() {
@@ -94,7 +106,7 @@ async function getStreamFormat(deviceId: string): Promise<StreamFormat> {
 }
 
 export default function useDirectPlayer() {
-  const mopidy = useMopidy();
+  const queue = usePlayQueue();
   const upnp = useUpnpPlayer();
   const local = useLocalRenderer();
 
@@ -143,8 +155,13 @@ export default function useDirectPlayer() {
   const isDevicePlaying = computed(() =>
     isActive.value && !pending.value && !isPaused.value && adapter().status.value.state === 'PLAYING',
   );
+  const state = computed<PlaybackState>(() => {
+    if (!isActive.value) return 'stopped';
+    return isPaused.value ? 'paused' : 'playing';
+  });
 
   const positionSec = computed(() => {
+    if (!isActive.value) return 0;
     if (pending.value) return pending.value.startSec;
     if (pausedAtSec.value != null) return pausedAtSec.value;
     const renderer = adapter();
@@ -154,97 +171,84 @@ export default function useDirectPlayer() {
       return startOffsetSec.value + (performance.now() - anchorAt.value) / 1000;
     }
     const parsed = parseStreamUri(status.trackUri);
-    const matchesCurrent = parsed?.tlid === currentTlid.value
+    const matchesCurrent = parsed?.tlid === playingTlid.value
       && Math.abs(parsed.startSec - startOffsetSec.value) < 0.01;
     if (!matchesCurrent) return startOffsetSec.value;
     return startOffsetSec.value + status.positionSec;
   });
 
-  function findTlTrack(tlid: number | null) {
+  function findItem(tlid: number | null) {
     if (tlid == null) return undefined;
-    return mopidy.tracklist.value.find((item) => item.tlid === tlid);
+    return queue.items.value.find((item) => item.tlid === tlid);
   }
 
-  function resolveCurrentIndex(list: MopidyTlTrack[]) {
-    const index = list.findIndex((item) => item.tlid === currentTlid.value);
-    const item = list[index];
+  const playingItem = computed(() => {
+    if (!isActive.value) return null;
+    return findItem(playingTlid.value) ?? playingItemCache.value;
+  });
+
+  function resolveCurrentIndex() {
+    const index = queue.items.value.findIndex((item) => item.tlid === playingTlid.value);
+    const item = queue.items.value[index];
     if (item) {
       currentIndexHint = index;
-      currentTlTrackCache = item;
+      playingItemCache.value = item;
     }
     return index;
   }
 
-  function getNextItem(list: MopidyTlTrack[]) {
-    const index = resolveCurrentIndex(list);
-    if (index >= 0) return list[index + 1];
-    return currentIndexHint >= 0 ? list[currentIndexHint] : undefined;
+  function getNextItem() {
+    const list = queue.items.value;
+    const index = resolveCurrentIndex();
+    if (index >= 0) return findPlayable(list, index + 1, 1);
+    return currentIndexHint >= 0 ? findPlayable(list, currentIndexHint, 1) : undefined;
   }
 
-  function getPreviousItem(list: MopidyTlTrack[]) {
-    const index = resolveCurrentIndex(list);
-    if (index >= 0) return index > 0 ? list[index - 1] : list[index];
-    return list[currentIndexHint - 1] ?? list[0];
-  }
-
-  function publishState() {
-    if (!isActive.value) return;
-    mopidy.setPlaybackOverride({
-      state: isPaused.value ? 'paused' : 'playing',
-      time_position: Math.round(positionSec.value * 1000),
-      track: findTlTrack(currentTlid.value) ?? currentTlTrackCache,
-    });
+  function getPreviousItem() {
+    const list = queue.items.value;
+    const index = resolveCurrentIndex();
+    if (index >= 0) return findPlayable(list, index - 1, -1) ?? list[index];
+    return findPlayable(list, currentIndexHint - 1, -1) ?? findPlayable(list, 0, 1);
   }
 
   function endSession() {
     startRequestId++;
     directDeviceId.value = null;
-    currentTlid.value = null;
+    playingTlid.value = null;
+    playingItemCache.value = null;
     pending.value = null;
     pausedAtSec.value = null;
+    stopAfterCurrent.value = false;
     anchorAt.value = Number.POSITIVE_INFINITY;
     lastTrackUri = '';
     lastRelSec = -1;
     nextQueuedTlid = undefined;
     currentIndexHint = -1;
-    currentTlTrackCache = null;
-    mopidy.setPlaybackOverride(null);
-    void mopidy.refreshState();
   }
 
   async function stop() {
     const deviceId = directDeviceId.value;
     endSession();
-    if (deviceId) await adapterFor(deviceId).stop(deviceId);
-  }
-
-  function deactivate() {
-    endSession();
-  }
-
-  async function handleStartFailure() {
-    const deviceId = directDeviceId.value;
-    const tlid = pending.value?.tlid ?? currentTlid.value;
-    const startSec = pending.value?.startSec ?? pausedAtSec.value ?? positionSec.value;
-    endSession();
-    if (!deviceId || tlid == null) return;
+    if (!deviceId) return;
     try {
-      await failureHandler?.(deviceId, tlid, startSec);
+      await adapterFor(deviceId).stop(deviceId);
     } catch (err) {
-      console.error('Direct playback fallback error:', err);
+      console.error('Renderer stop error:', err);
     }
   }
 
-  function setFailureHandler(handler: FailureHandler | null) {
-    failureHandler = handler;
+  function fail(err: unknown) {
+    console.error('Direct playback error:', err);
+    lastError.value = err instanceof Error ? err.message : String(err);
+    stop().catch((stopErr) => console.error('Direct playback stop error:', stopErr));
   }
 
   async function queueNext() {
     const deviceId = directDeviceId.value;
     if (!deviceId) return;
     const renderer = adapterFor(deviceId);
-    const next = getNextItem(mopidy.tracklist.value);
-    const nextSource = getStreamSource(next?.track?.uri);
+    const next = stopAfterCurrent.value ? undefined : getNextItem();
+    const nextSource = getStreamSource(next?.track.uri);
     const targetTlid = next && nextSource ? next.tlid : null;
     if (targetTlid === nextQueuedTlid) return;
     nextQueuedTlid = targetTlid;
@@ -267,32 +271,25 @@ export default function useDirectPlayer() {
   }
 
   function handleDeviceStopped() {
-    const lengthMs = (findTlTrack(currentTlid.value) ?? currentTlTrackCache)?.track?.length;
+    const lengthMs = playingItem.value?.track.length;
     // Renderers often reset their position once stopped, so the anchored clock is the better end-of-track signal
     const clockSec = Number.isFinite(anchorAt.value)
       ? startOffsetSec.value + (performance.now() - anchorAt.value) / 1000
       : 0;
     const endedNaturally = !!lengthMs
       && Math.max(positionSec.value, clockSec) >= lengthMs / 1000 - NATURAL_END_MARGIN_SEC;
-    const nextItem = endedNaturally ? getNextItem(mopidy.tracklist.value) : undefined;
-    if (nextItem && getStreamSource(nextItem.track?.uri)) {
+    const nextItem = endedNaturally ? getNextItem() : undefined;
+    if (nextItem && !stopAfterCurrent.value) {
       void restartAt(nextItem, 0);
       return;
     }
-    const deviceId = directDeviceId.value;
-    if (!nextItem || !deviceId || !failureHandler) {
-      void stop();
-      return;
-    }
-    endSession();
-    void failureHandler(deviceId, nextItem.tlid, 0).catch((err) => {
-      console.error('Direct playback hand-off error:', err);
-    });
+    if (nextItem) queue.setCurrent(nextItem.tlid);
+    void stop();
   }
 
   function syncFromDevice() {
     if (!isActive.value) return;
-    const { state, trackUri, positionSec: rel } = adapter().status.value;
+    const { state: rendererState, trackUri, positionSec: rel } = adapter().status.value;
     const parsed = parseStreamUri(trackUri);
     const now = performance.now();
 
@@ -301,77 +298,73 @@ export default function useDirectPlayer() {
       const started = request.acked
         && parsed?.tlid === request.tlid
         && Math.abs(parsed.startSec - request.startSec) < 0.01
-        && state === 'PLAYING';
-      if (!started) {
-        publishState();
-        return;
-      }
+        && rendererState === 'PLAYING';
+      if (!started) return;
       pending.value = null;
     }
 
-    if (pausedAtSec.value != null) {
-      publishState();
-      return;
-    }
+    if (pausedAtSec.value != null) return;
 
-    if (state === 'STOPPED') {
+    if (rendererState === 'STOPPED') {
       handleDeviceStopped();
       return;
     }
 
-    if (!parsed) {
-      publishState();
-      return;
-    }
+    if (!parsed) return;
 
     if (trackUri !== lastTrackUri) {
+      if (stopAfterCurrent.value && lastTrackUri && parsed.tlid !== playingTlid.value) {
+        queue.setCurrent(parsed.tlid);
+        void stop();
+        return;
+      }
       lastTrackUri = trackUri;
-      currentTlid.value = parsed.tlid;
-      currentTlTrackCache = findTlTrack(parsed.tlid) ?? null;
-      resolveCurrentIndex(mopidy.tracklist.value);
+      playingTlid.value = parsed.tlid;
+      playingItemCache.value = findItem(parsed.tlid) ?? null;
+      queue.setCurrent(parsed.tlid);
+      resolveCurrentIndex();
       startOffsetSec.value = parsed.startSec;
       anchorAt.value = Number.POSITIVE_INFINITY;
       lastRelSec = rel;
       void queueNext();
     }
 
-    if (state === 'PLAYING' && rel !== lastRelSec && rel > 0) {
+    if (rendererState === 'PLAYING' && rel !== lastRelSec && rel > 0) {
       // Renderer positions may be coarse (UPnP RelTime is whole seconds), so each change only bounds the start from above
       anchorAt.value = Math.min(anchorAt.value, now - rel * 1000);
     }
     lastRelSec = rel;
-    publishState();
   }
 
-  async function startTrack(deviceId: string, tlTrack: MopidyTlTrack, startSec = 0) {
-    const source = getStreamSource(tlTrack.track?.uri);
-    if (!source) throw new Error(`No direct stream source: ${tlTrack.track?.uri}`);
+  async function startTrack(deviceId: string, item: QueueItem, startSec = 0) {
+    const source = getStreamSource(item.track.uri);
+    if (!source) throw new Error(`No direct stream source: ${item.track.uri}`);
 
     const renderer = adapterFor(deviceId);
     const requestId = ++startRequestId;
     const isCurrentRequest = () => requestId === startRequestId && pending.value != null;
     directDeviceId.value = deviceId;
-    currentTlid.value = tlTrack.tlid;
+    playingTlid.value = item.tlid;
+    playingItemCache.value = item;
+    queue.setCurrent(item.tlid);
     startOffsetSec.value = startSec;
-    pending.value = { tlid: tlTrack.tlid, startSec, acked: false };
+    pending.value = { tlid: item.tlid, startSec, acked: false };
     pausedAtSec.value = null;
     lastTrackUri = '';
     nextQueuedTlid = undefined;
     anchorAt.value = Number.POSITIVE_INFINITY;
-    currentTlTrackCache = tlTrack;
     currentIndexHint = -1;
-    resolveCurrentIndex(mopidy.tracklist.value);
-    publishState();
+    lastError.value = null;
+    resolveCurrentIndex();
 
     try {
-      await mopidy.mopidyRpc('core.playback.stop').catch(() => {});
       const [prepared, format, base] = await Promise.all([
         prepareSource(source),
         getStreamFormat(deviceId),
         getBaseUrl(),
       ]);
       if (!isCurrentRequest()) return;
-      await renderer.play(deviceId, buildStreamUrl(base, tlTrack.tlid, prepared, startSec, format), buildMeta(tlTrack, format));
+      await renderer.play(deviceId, buildStreamUrl(base, item.tlid, prepared, startSec, format), buildMeta(item, format));
       if (requestId !== startRequestId) {
         // The pause may have reached the renderer before this play
         if (pausedAtSec.value != null && directDeviceId.value === deviceId) await renderer.pause(deviceId);
@@ -382,7 +375,7 @@ export default function useDirectPlayer() {
       request.acked = true;
       renderer.ensurePolling(deviceId);
       setTimeout(() => {
-        if (requestId === startRequestId && pending.value === request) void handleStartFailure();
+        if (requestId === startRequestId && pending.value === request) fail(new Error('Playback start timed out'));
       }, DIRECT_START_TIMEOUT_MS);
     } catch (err) {
       if (requestId !== startRequestId) return;
@@ -390,15 +383,24 @@ export default function useDirectPlayer() {
     }
   }
 
-  async function restartAt(tlTrack: MopidyTlTrack, startSec: number) {
+  async function startItem(deviceId: string, item: QueueItem, startSec: number) {
+    try {
+      await startTrack(deviceId, item, startSec);
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  async function restartAt(item: QueueItem, startSec: number) {
     const deviceId = directDeviceId.value;
     if (!deviceId) return;
-    try {
-      await startTrack(deviceId, tlTrack, startSec);
-    } catch (err) {
-      console.error('Direct playback error:', err);
-      await handleStartFailure();
-    }
+    await startItem(deviceId, item, startSec);
+  }
+
+  async function start(deviceId: string, tlid: number, startSec = 0) {
+    const item = findItem(tlid);
+    if (!item) return;
+    await startItem(deviceId, item, startSec);
   }
 
   async function pause() {
@@ -407,36 +409,28 @@ export default function useDirectPlayer() {
     startRequestId++;
     pausedAtSec.value = positionSec.value;
     pending.value = null;
-    publishState();
     await adapterFor(deviceId).pause(deviceId);
   }
 
   async function resume() {
-    const tlTrack = findTlTrack(currentTlid.value);
-    if (!tlTrack) return;
-    await restartAt(tlTrack, pausedAtSec.value ?? 0);
+    const item = playingItem.value;
+    if (!item) return;
+    await restartAt(item, pausedAtSec.value ?? 0);
   }
 
   async function seek(sec: number) {
     const target = Math.max(0, sec);
     if (pausedAtSec.value != null) {
       pausedAtSec.value = target;
-      publishState();
       return;
     }
-    const tlTrack = findTlTrack(currentTlid.value);
-    if (!tlTrack) return;
-    await restartAt(tlTrack, target);
-  }
-
-  async function playTlid(tlid: number) {
-    const tlTrack = findTlTrack(tlid);
-    if (!tlTrack) return;
-    await restartAt(tlTrack, 0);
+    const item = playingItem.value;
+    if (!item) return;
+    await restartAt(item, target);
   }
 
   async function next() {
-    const target = getNextItem(mopidy.tracklist.value);
+    const target = getNextItem();
     if (!target) {
       await stop();
       return;
@@ -445,38 +439,40 @@ export default function useDirectPlayer() {
   }
 
   async function previous() {
-    const target = getPreviousItem(mopidy.tracklist.value);
+    const target = getPreviousItem();
     if (!target) return;
     await restartAt(target, 0);
   }
 
   if (import.meta.client && !watchersRegistered) {
     watchersRegistered = true;
-    watch([upnp.positionInfo, upnp.currentUpnpState, local.status], () => syncFromDevice(), { flush: 'sync' });
-    watch(
-      () => mopidy.tracklist.value.map((item) => item.tlid).join(','),
-      () => {
-        if (isActive.value && !pending.value) void queueNext();
-      },
-    );
+    effectScope(true).run(() => {
+      watch([upnp.positionInfo, upnp.currentUpnpState, local.status], () => syncFromDevice(), { flush: 'sync' });
+      watch(
+        [() => queue.items.value.map((item) => item.tlid).join(','), stopAfterCurrent],
+        () => {
+          if (isActive.value && !pending.value) void queueNext();
+        },
+      );
+    });
   }
 
   return {
+    deviceId: computed(() => directDeviceId.value),
     isActive,
     isPaused,
     isDevicePlaying,
+    state,
     positionSec,
-    currentTlid,
-    canPlayDirect,
-    startTrack,
+    playingItem,
+    stopAfterCurrent,
+    lastError,
+    start,
     pause,
     resume,
     seek,
-    playTlid,
     next,
     previous,
     stop,
-    deactivate,
-    setFailureHandler,
   };
 }

@@ -334,7 +334,6 @@
     "notFoundDescription": "Could not load album information",
     "login": "Log in",
     "noPlaybackDevice": "No playback device selected",
-    "mopidyUnavailable": "Mopidy is not available. Start Mopidy first.",
     "errorFavorite": "Error changing favorite",
     "playbackError": "Playback error",
     "creditsModal": {
@@ -385,8 +384,8 @@
     "soundTestError": "Sound test error",
     "pauseAtEnd": "Pause at end of track",
     "pauseAtEndActive": "Pause scheduled — click to cancel",
-    "pipelineNotReady": "Audio pipeline is not ready. Try Restart services.",
-    "tidalPlaybackNotConnected": "Connect TIDAL playback in Settings > Playback to play without Mopidy."
+    "playbackError": "Playback error",
+    "tidalPlaybackNotConnected": "Connect TIDAL playback in Settings > Playback to play TIDAL tracks."
   },
   "auth": {
     "login": "Log in",

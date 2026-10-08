@@ -334,7 +334,6 @@
     "notFoundDescription": "No se pudo cargar la información del álbum",
     "login": "Iniciar sesión",
     "noPlaybackDevice": "No hay dispositivo de reproducción seleccionado",
-    "mopidyUnavailable": "Mopidy no está disponible. Inicia Mopidy primero.",
     "errorFavorite": "Error al cambiar favorito",
     "playbackError": "Error de reproducción",
     "creditsModal": {
@@ -385,8 +384,8 @@
     "soundTestError": "Error en la prueba de sonido",
     "pauseAtEnd": "Pausar al finalizar tema",
     "pauseAtEndActive": "Pausa programada — clic para cancelar",
-    "pipelineNotReady": "El pipeline de audio no está listo. Probá Reiniciar servicios.",
-    "tidalPlaybackNotConnected": "Conectá la reproducción de TIDAL en Configuración > Reproducción para reproducir sin Mopidy."
+    "playbackError": "Error de reproducción",
+    "tidalPlaybackNotConnected": "Conectá la reproducción de TIDAL en Configuración > Reproducción para reproducir temas de TIDAL."
   },
   "auth": {
     "login": "Iniciar sesión",

@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import type { LocalTrack } from '~/composables/useLocalLibrary';
+import type { QueueTrack } from '~/utils/playQueue';
 import { computed, onMounted, ref } from 'vue';
 import useLocalLibrary from '~/composables/useLocalLibrary';
 
@@ -76,13 +77,23 @@ const groupedByAlbum = computed(() => {
   return sortedGroups;
 });
 
+function toQueueTrack(track: LocalTrack): QueueTrack {
+  return {
+    uri: track.uri,
+    name: track.title,
+    artists: [{ name: track.artist }],
+    album: { name: track.album },
+    length: Math.round(track.duration * 1000),
+  };
+}
+
 function playTrack(track: LocalTrack) {
-  player.playUris([track.uri]);
+  player.playTracks([toQueueTrack(track)]);
 }
 
 function playAll(tracksToPlay: LocalTrack[]) {
   if (tracksToPlay.length === 0) return;
-  player.playUris(tracksToPlay.map((t) => t.uri));
+  player.playTracks(tracksToPlay.map(toQueueTrack));
 }
 
 function getTotalDuration(tracksToSum: LocalTrack[]) {

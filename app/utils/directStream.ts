@@ -1,4 +1,4 @@
-import type { MopidyTlTrack } from '~/composables/useMopidy';
+import type { QueueTrack } from './playQueue';
 
 const STREAM_URI_PATTERN = /\/(?:stream|file)\/(\d+)\/[0-9a-f]+\.(?:flac|mp3)\?start=([\d.]+)/;
 const FILE_URI_PREFIX = 'file://';
@@ -10,7 +10,7 @@ export type StreamSource = { kind: 'tidal', id: string } | { kind: 'file', path:
 export type PreparedSource = { kind: 'tidal', id: string } | { kind: 'file', token: string };
 
 interface TrackUriItem {
-  track?: Partial<Pick<MopidyTlTrack['track'], 'uri'>>
+  track?: Partial<Pick<QueueTrack, 'uri'>>
 }
 
 function getTidalTrackId(uri: string) {

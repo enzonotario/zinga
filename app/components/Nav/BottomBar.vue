@@ -3,8 +3,8 @@ import { computed, ref } from 'vue';
 import useBottomBar from '~/composables/useBottomBar';
 import useDevices from '~/composables/useDevices';
 import useFeedSync from '~/composables/useFeedSync';
-import useMopidyPolling from '~/composables/useMopidyPolling';
 import usePlayer from '~/composables/usePlayer';
+import usePlayQueue from '~/composables/usePlayQueue';
 import useTerminalPanel from '~/composables/useTerminalPanel';
 import { formatTime } from '~/utils/time';
 import QueueList from '../Queue/QueueList.vue';
@@ -30,7 +30,7 @@ const {
 const { selectedDeviceId, volume } = useDevices();
 const player = usePlayer();
 const terminalPanel = useTerminalPanel();
-const { mopidy, refresh: refreshMopidy } = useMopidyPolling();
+const queue = usePlayQueue();
 const feedSync = useFeedSync();
 async function clearQueue() {
   try {
@@ -45,11 +45,8 @@ const formattedPosition = computed(() => {
   return formatTime(currentTrack.value?.position ?? 0);
 });
 const formattedDuration = computed(() => {
-  if (mopidy.currentTrack.value?.track) {
-    const durationSeconds = (mopidy.currentTrack.value.track.length || 0) / 1000;
-    return formatTime(durationSeconds);
-  }
-  return '00:00';
+  if (!player.currentItem.value) return '00:00';
+  return formatTime(player.duration.value);
 });
 const handleTogglePlayPause = async () => {
   await player.togglePlayPause();
@@ -65,9 +62,6 @@ const handleTogglePauseAtEnd = () => {
 };
 const { t } = useI18n();
 const queuePopoverOpen = ref(false);
-async function onQueuePopoverOpen() {
-  await refreshMopidy();
-}
 </script>
 
 <template>
@@ -139,7 +133,6 @@ async function onQueuePopoverOpen() {
           v-model:open="queuePopoverOpen"
           :content="{ side: 'top', align: 'end', sideOffset: 8 }"
           :ui="{ content: 'w-80 max-h-96 overflow-hidden' }"
-          @update:open="(open) => open && onQueuePopoverOpen()"
         >
           <UButton
             icon="i-heroicons-queue-list"
@@ -147,8 +140,8 @@ async function onQueuePopoverOpen() {
             size="sm"
           >
             <UBadge
-              v-if="mopidy.tracklist.value?.length"
-              :label="String(mopidy.tracklist.value.length)"
+              v-if="queue.items.value.length"
+              :label="String(queue.items.value.length)"
               size="xs"
               class="ml-1"
             />
@@ -159,11 +152,11 @@ async function onQueuePopoverOpen() {
                 <div class="flex items-center gap-2 min-w-0">
                   <UIcon name="i-heroicons-queue-list" class="w-5 h-5 text-primary shrink-0" />
                   <span class="font-semibold">{{ t('nav.queue') }}</span>
-                  <span class="text-sm text-muted">({{ mopidy.tracklist.value?.length || 0 }})</span>
+                  <span class="text-sm text-muted">({{ queue.items.value.length }})</span>
                 </div>
                 <div class="flex items-center gap-1">
                   <UButton
-                    v-if="mopidy.tracklist.value?.length"
+                    v-if="queue.items.value.length"
                     icon="i-heroicons-trash"
                     variant="ghost"
                     size="xs"
@@ -182,7 +175,7 @@ async function onQueuePopoverOpen() {
               <div class="overflow-y-auto flex-1 min-h-0">
                 <QueueList compact :max-items="5" />
               </div>
-              <div v-if="mopidy.tracklist.value?.length" class="p-2 border-t border-neutral-200 dark:border-neutral-700 shrink-0">
+              <div v-if="queue.items.value.length" class="p-2 border-t border-neutral-200 dark:border-neutral-700 shrink-0">
                 <NuxtLink to="/" class="block" @click="queuePopoverOpen = false">
                   <UButton
                     :label="t('nav.viewFullQueue')"
