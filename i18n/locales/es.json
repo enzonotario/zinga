@@ -184,7 +184,14 @@
       "searching": "Buscando...",
       "serversFound": "Servidores encontrados",
       "noServersFound": "No se encontraron servidores",
-      "orEnterManually": "o ingresá manualmente"
+      "orEnterManually": "o ingresá manualmente",
+      "playback": "Reproducción",
+      "tidalPlayback": "Cuenta de reproducción de TIDAL",
+      "tidalPlaybackDescription": "Zinga usa esta cuenta para reproducir temas de TIDAL directamente en tus dispositivos.",
+      "tidalPlaybackCountry": "País: {country}",
+      "tidalPlaybackConnect": "Conectar TIDAL",
+      "tidalPlaybackDisconnect": "Desconectar",
+      "tidalPlaybackLoginError": "No se pudo iniciar sesión en TIDAL"
     },
     "notFound": {
       "title": "Página no encontrada",
@@ -287,13 +294,6 @@
       "ALBUM": "Álbum",
       "EP": "EP",
       "SINGLE": "Single",
-      "playback": "Reproducción",
-      "tidalPlayback": "Cuenta de reproducción de TIDAL",
-      "tidalPlaybackDescription": "Zinga usa esta cuenta para reproducir temas de TIDAL directamente en tus dispositivos.",
-      "tidalPlaybackCountry": "País: {country}",
-      "tidalPlaybackConnect": "Conectar TIDAL",
-      "tidalPlaybackDisconnect": "Desconectar",
-      "tidalPlaybackLoginError": "No se pudo iniciar sesión en TIDAL",
       "COMPILATION": "Compilación"
     }
   },

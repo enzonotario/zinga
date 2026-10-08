@@ -184,7 +184,14 @@
       "searching": "Searching...",
       "serversFound": "Servers found",
       "noServersFound": "No servers found",
-      "orEnterManually": "or enter manually"
+      "orEnterManually": "or enter manually",
+      "playback": "Playback",
+      "tidalPlayback": "TIDAL playback account",
+      "tidalPlaybackDescription": "Zinga uses this account to play TIDAL tracks directly on your devices.",
+      "tidalPlaybackCountry": "Country: {country}",
+      "tidalPlaybackConnect": "Connect TIDAL",
+      "tidalPlaybackDisconnect": "Disconnect",
+      "tidalPlaybackLoginError": "Could not log in to TIDAL"
     },
     "notFound": {
       "title": "Page not found",
@@ -287,13 +294,6 @@
       "ALBUM": "Album",
       "EP": "EP",
       "SINGLE": "Single",
-      "playback": "Playback",
-      "tidalPlayback": "TIDAL playback account",
-      "tidalPlaybackDescription": "Zinga uses this account to play TIDAL tracks directly on your devices.",
-      "tidalPlaybackCountry": "Country: {country}",
-      "tidalPlaybackConnect": "Connect TIDAL",
-      "tidalPlaybackDisconnect": "Disconnect",
-      "tidalPlaybackLoginError": "Could not log in to TIDAL",
       "COMPILATION": "Compilation"
     }
   },
