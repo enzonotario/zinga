@@ -5,7 +5,6 @@ import useDevices from '~/composables/useDevices';
 import useFeedSync from '~/composables/useFeedSync';
 import usePlayer from '~/composables/usePlayer';
 import usePlayQueue from '~/composables/usePlayQueue';
-import useTerminalPanel from '~/composables/useTerminalPanel';
 import { formatTime } from '~/utils/time';
 import QueueList from '../Queue/QueueList.vue';
 import DeviceSelector from '../Upnp/DeviceSelector.vue';
@@ -29,7 +28,6 @@ const {
 } = useBottomBar();
 const { selectedDeviceId, volume } = useDevices();
 const player = usePlayer();
-const terminalPanel = useTerminalPanel();
 const queue = usePlayQueue();
 const feedSync = useFeedSync();
 async function clearQueue() {
@@ -188,15 +186,6 @@ const queuePopoverOpen = ref(false);
             </div>
           </template>
         </UPopover>
-        <UButton
-          v-if="terminalPanel.hasSession.value"
-          icon="i-heroicons-command-line"
-          variant="ghost"
-          size="sm"
-          :color="terminalPanel.isVisible.value ? 'primary' : 'neutral'"
-          :aria-label="terminalPanel.isVisible.value ? t('terminal.minimize') : t('terminal.open')"
-          @click="terminalPanel.toggle()"
-        />
         <div class="hidden md:flex items-center gap-2 min-w-0">
           <DeviceSelector />
         </div>

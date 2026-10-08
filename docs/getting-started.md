@@ -4,29 +4,23 @@
 
 <ReleaseDownloads />
 
-## 2. Instalar Mopidy
+## 2. Instalar dependencias
 
-Dentro de la app, abrí la sección de sistema y ejecutá la instalación de Mopidy.
+Zinga usa `ffmpeg` para transmitir audio a dispositivos UPnP y GStreamer para reproducir en este equipo. En Debian/Ubuntu:
 
-Esto prepara el entorno para reproducción local/UPnP y conexión con servicios.
+```bash
+sudo apt install ffmpeg gstreamer1.0-plugins-good gstreamer1.0-plugins-base
+```
 
-## 3. Configurar Mopidy + TIDAL
+Si falta algo, la app abre la página de verificación del sistema al iniciar. Ahí podés volver a verificar después de instalar.
 
-Configurá el plugin `mopidy-tidal` desde la interfaz web de Mopidy:
+## 3. Conectar TIDAL
 
-1. Abrí `http://localhost:8989`
-1. Iniciá el flujo de autenticación del plugin
-1. Guardá configuración y verificá que el plugin quede activo
-
-## 4. Iniciar sesión en TIDAL
-
-Si el flujo del plugin abre una pantalla de login:
-
-1. Iniciá el flujo de login
-1. Autorizá tu cuenta
+1. Abrí Configuración > Reproducción
+1. Elegí "Conectar TIDAL" y autorizá tu cuenta
 1. Volvé a Zinga y confirmá que TIDAL figura conectado
 
-## 5. Empezar a usar la app
+## 4. Empezar a usar la app
 
 - Elegí un dispositivo UPnP
 - Reproducí un álbum

@@ -146,7 +146,7 @@ export async function fetchTidalMetadata(uri: string, tidalArtwork: any, tidalAu
       artistPicture: artistPictureUrl,
     };
   } catch (error) {
-    console.error('Error obteniendo datos de TIDAL para Mopidy:', error);
+    console.error('Error fetching TIDAL metadata:', error);
     return null;
   }
 }

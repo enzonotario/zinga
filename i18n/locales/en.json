@@ -41,8 +41,6 @@
     "emptyLibraryDescription": "Add folders in Settings > Library to see your music here.",
     "localLibrary": "Local Library",
     "manageFolders": "Manage folders where your music is located.",
-    "configureMopidy": "Configure Mopidy",
-    "diagnoseTerminal": "Diagnose terminal",
     "selectMusicFolder": "Select music folder",
     "volume": "Volume: {volume}%",
     "syncVolume": "Sync volume from device",
@@ -51,11 +49,6 @@
   "nav": {
     "queue": "Queue",
     "viewFullQueue": "View full queue"
-  },
-  "terminal": {
-    "title": "Terminal",
-    "open": "Open terminal",
-    "minimize": "Minimize terminal"
   },
   "categories": {
     "main": "Main",
@@ -123,7 +116,7 @@
       "searching": "Searching...",
       "search": "Search",
       "localPlayback": "Local playback",
-      "localPlaybackDescription": "Play on this device via Mopidy",
+      "localPlaybackDescription": "Play on this device",
       "upnpDevices": "UPnP Devices",
       "noDevicesFound": "No devices found",
       "noDevicesDescription": "Click Search to scan the network.",
@@ -141,9 +134,7 @@
     "queue": {
       "title": "Playback queue",
       "songCount": "{count} songs",
-      "clearQueue": "Clear queue",
-      "mopidyNotConnected": "Mopidy not connected",
-      "mopidyNotConnectedDescription": "Make sure Mopidy is running to see the playback queue."
+      "clearQueue": "Clear queue"
     },
     "about": {
       "name": "About",
@@ -159,40 +150,20 @@
       "visitSite": "Visit site"
     },
     "setup": {
-      "name": "System setup",
-      "description": "Verify and configure services",
-      "title": "System setup",
-      "installed": "Installed",
-      "notInstalled": "Not installed",
-      "running": "Running",
-      "stopped": "Stopped",
-      "configFound": "Config found",
-      "configMissing": "Config not found",
-      "checkSystem": "Check system",
+      "name": "System check",
+      "description": "Check runtime dependencies",
+      "title": "System check",
+      "intro": "Zinga uses ffmpeg to stream to UPnP devices and GStreamer to play on this device.",
       "checking": "Checking...",
-      "startServices": "Start services",
-      "stopServices": "Stop services",
-      "restartServices": "Restart services",
-      "runSetup": "Run setup",
-      "setupWarning": "Setup requires admin permissions. If it fails, run the script manually in a terminal with sudo.",
-      "output": "Output",
-      "allGood": "All services are OK",
-      "issuesFound": "Issues found",
-      "goToSetup": "Go to system setup",
-      "mopidyConfig": "Mopidy config",
-      "icecastConfig": "Icecast config",
-      "openTerminal": "Open terminal",
-      "install": "Install",
-      "uninstall": "Uninstall",
-      "debugDetails": "Debug details",
-      "errorDetails": "Error details",
-      "scriptOutput": "Script output",
-      "ensurePipeline": "Ensure pipeline",
-      "pipelineReady": "Audio pipeline ready",
-      "pipelineNotReady": "Audio pipeline incomplete",
-      "openLog": "Open log",
-      "logPath": "Log",
-      "scriptSucceeded": "Script completed successfully"
+      "recheck": "Check again",
+      "allGood": "All dependencies found",
+      "issuesFound": "Missing dependencies",
+      "available": "Available",
+      "missing": "Missing",
+      "ffmpegDescription": "Streams audio to UPnP devices",
+      "gstreamerPluginDescription": "GStreamer plugin for local playback",
+      "installHint": "On Debian/Ubuntu, install them by running this in a terminal:",
+      "goToSetup": "Go to system check"
     },
     "settings": {
       "name": "Settings",
@@ -380,7 +351,6 @@
     "hideLyrics": "Hide lyrics",
     "showLyrics": "Show lyrics",
     "noTrack": "No track",
-    "soundTestStarted": "Sound test (loop) started",
     "soundTestError": "Sound test error",
     "pauseAtEnd": "Pause at end of track",
     "pauseAtEndActive": "Pause scheduled — click to cancel",

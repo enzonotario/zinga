@@ -130,16 +130,7 @@ export default function usePlayer() {
       return;
     }
     cancelPauseAtEndOfTrack();
-    if (direct.isActive.value) {
-      await direct.pause();
-      return;
-    }
-    if (!isLocalPlayback.value) return;
-    try {
-      await invoke('mopidy_stop_test_sound');
-    } catch (err) {
-      console.error('Stop Test Sound Error:', err);
-    }
+    if (direct.isActive.value) await direct.pause();
   }
 
   async function togglePlayPause() {
@@ -209,8 +200,7 @@ export default function usePlayer() {
     }
     const toast = useToast();
     try {
-      await invoke('mopidy_test_sound');
-      toast.add({ title: t('player.soundTestStarted'), color: 'success', duration: 2000 });
+      await invoke('local_test_tone');
     } catch (err) {
       console.error('Test Sound Error:', err);
       toast.add({ title: t('player.soundTestError'), description: String(err), color: 'error' });

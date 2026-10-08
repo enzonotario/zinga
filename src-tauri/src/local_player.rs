@@ -4,6 +4,8 @@ use serde::Serialize;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 static PLAYER: Mutex<Option<LocalPlayer>> = Mutex::new(None);
+const TEST_TONE_PIPELINE: &str = "audiotestsrc num-buffers=100 samplesperbuffer=441 volume=0.3 \
+    ! audio/x-raw,rate=44100 ! audioconvert ! audioresample ! autoaudiosink";
 
 struct LocalPlayer {
     playbin: gst::Element,
@@ -229,6 +231,36 @@ pub async fn local_set_volume(level: u32) -> Result<(), String> {
 #[tauri::command]
 pub async fn local_get_volume() -> Result<u32, String> {
     run(|player| Ok(player.volume)).await
+}
+
+fn play_test_tone() -> Result<(), String> {
+    gst::init().map_err(|e| format!("Failed to initialize GStreamer: {e}"))?;
+    let pipeline = gst::parse::launch(TEST_TONE_PIPELINE)
+        .map_err(|e| format!("Failed to create test tone: {e}"))?;
+    pipeline
+        .set_state(gst::State::Playing)
+        .map_err(|e| format!("Failed to play test tone: {e}"))?;
+
+    let bus = pipeline.bus().ok_or("Test tone pipeline has no bus")?;
+    let result = match bus.timed_pop_filtered(
+        gst::ClockTime::from_seconds(5),
+        &[gst::MessageType::Eos, gst::MessageType::Error],
+    ) {
+        Some(message) => match message.view() {
+            gst::MessageView::Error(err) => Err(format!("Test tone failed: {}", err.error())),
+            _ => Ok(()),
+        },
+        None => Err("Test tone timed out".to_string()),
+    };
+    let _ = pipeline.set_state(gst::State::Null);
+    result
+}
+
+#[tauri::command]
+pub async fn local_test_tone() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(play_test_tone)
+        .await
+        .map_err(|e| format!("Test tone task failed: {e}"))?
 }
 
 #[cfg(test)]

@@ -15,9 +15,7 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "remote-client/*": "remote-client/",
-      "../scripts/*": "scripts/",
-      "../scripts/lib/*": "scripts/lib/"
+      "remote-client/*": "remote-client/"
     },
     "externalBin": [],
     "copyright": "",

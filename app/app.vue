@@ -7,7 +7,7 @@ import useSystemSetup from '~/composables/useSystemSetup';
 
 const { autoDiscover } = useDevices();
 const { loadLastSyncTimes } = useFeedSync();
-const { ensurePipeline, checkSystem } = useSystemSetup();
+const { status, checkSystem } = useSystemSetup();
 const { closeToTray, setCloseToTray } = useSettings();
 useRemoteHostBridge();
 onMounted(async () => {
@@ -15,7 +15,7 @@ onMounted(async () => {
   await autoDiscover();
   await loadLastSyncTimes();
   await checkSystem();
-  await ensurePipeline(false).catch(() => {});
+  if (status.value && !status.value.ready) await navigateTo('/setup');
 });
 </script>
 

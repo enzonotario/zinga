@@ -70,8 +70,8 @@ describe('directStream utils', () => {
     it('should return null for unsupported extensions', () => {
       expect(parseStreamUri('http://h:9633/stream/1/2.wav?start=0.000')).toBeNull();
     });
-    it('should return null for the Icecast url', () => {
-      expect(parseStreamUri('http://h:8000/mopidy')).toBeNull();
+    it('should return null for a non stream server url', () => {
+      expect(parseStreamUri('http://h:8000/live')).toBeNull();
     });
     it('should return null for null or undefined', () => {
       expect(parseStreamUri(null)).toBeNull();

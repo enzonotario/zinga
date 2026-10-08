@@ -41,8 +41,6 @@
     "emptyLibraryDescription": "Agrega carpetas en Configuración > Biblioteca para ver tu música aquí.",
     "localLibrary": "Biblioteca Local",
     "manageFolders": "Gestiona las carpetas donde se encuentra tu música.",
-    "configureMopidy": "Configurar Mopidy",
-    "diagnoseTerminal": "Diagnosticar terminal",
     "selectMusicFolder": "Seleccionar carpeta de música",
     "volume": "Volumen: {volume}%",
     "syncVolume": "Sincronizar volumen con el dispositivo",
@@ -51,11 +49,6 @@
   "nav": {
     "queue": "Cola",
     "viewFullQueue": "Ver cola completa"
-  },
-  "terminal": {
-    "title": "Terminal",
-    "open": "Abrir terminal",
-    "minimize": "Minimizar terminal"
   },
   "categories": {
     "main": "Principal",
@@ -123,7 +116,7 @@
       "searching": "Buscando…",
       "search": "Buscar",
       "localPlayback": "Reproducción local",
-      "localPlaybackDescription": "Reproducir en este equipo via Mopidy",
+      "localPlaybackDescription": "Reproducir en este equipo",
       "upnpDevices": "Dispositivos UPnP",
       "noDevicesFound": "No se encontraron dispositivos",
       "noDevicesDescription": "Haz clic en Buscar para escanear la red.",
@@ -141,9 +134,7 @@
     "queue": {
       "title": "Cola de reproducción",
       "songCount": "{count} canciones",
-      "clearQueue": "Limpiar cola",
-      "mopidyNotConnected": "Mopidy no conectado",
-      "mopidyNotConnectedDescription": "Asegúrate de que Mopidy esté ejecutándose para ver la cola de reproducción."
+      "clearQueue": "Limpiar cola"
     },
     "about": {
       "name": "Acerca de",
@@ -159,40 +150,20 @@
       "visitSite": "Visitar sitio"
     },
     "setup": {
-      "name": "Configuración del sistema",
-      "description": "Verificar y configurar servicios",
-      "title": "Configuración del sistema",
-      "installed": "Instalado",
-      "notInstalled": "No instalado",
-      "running": "Corriendo",
-      "stopped": "Detenido",
-      "configFound": "Configuración encontrada",
-      "configMissing": "Configuración no encontrada",
-      "checkSystem": "Verificar sistema",
+      "name": "Verificación del sistema",
+      "description": "Verificar dependencias necesarias",
+      "title": "Verificación del sistema",
+      "intro": "Zinga usa ffmpeg para transmitir a dispositivos UPnP y GStreamer para reproducir en este equipo.",
       "checking": "Verificando...",
-      "startServices": "Iniciar servicios",
-      "stopServices": "Detener servicios",
-      "restartServices": "Reiniciar servicios",
-      "runSetup": "Ejecutar instalación",
-      "setupWarning": "La instalación requiere permisos de administrador. Si falla, ejecutá el script manualmente en una terminal con sudo.",
-      "output": "Salida",
-      "allGood": "Todos los servicios están OK",
-      "issuesFound": "Se encontraron problemas",
-      "goToSetup": "Ir a configuración del sistema",
-      "mopidyConfig": "Config. de Mopidy",
-      "icecastConfig": "Config. de Icecast",
-      "openTerminal": "Abrir terminal",
-      "install": "Instalar",
-      "uninstall": "Desinstalar",
-      "debugDetails": "Detalles de debug",
-      "errorDetails": "Detalles del error",
-      "scriptOutput": "Salida del script",
-      "ensurePipeline": "Asegurar pipeline",
-      "pipelineReady": "Pipeline de audio listo",
-      "pipelineNotReady": "Pipeline de audio incompleto",
-      "openLog": "Abrir log",
-      "logPath": "Log",
-      "scriptSucceeded": "Script completado correctamente"
+      "recheck": "Volver a verificar",
+      "allGood": "Todas las dependencias están instaladas",
+      "issuesFound": "Faltan dependencias",
+      "available": "Disponible",
+      "missing": "Falta",
+      "ffmpegDescription": "Transmite audio a dispositivos UPnP",
+      "gstreamerPluginDescription": "Plugin de GStreamer para reproducción local",
+      "installHint": "En Debian/Ubuntu, instalalas ejecutando esto en una terminal:",
+      "goToSetup": "Ir a verificación del sistema"
     },
     "settings": {
       "name": "Configuración",
@@ -380,7 +351,6 @@
     "hideLyrics": "Ocultar letras",
     "showLyrics": "Mostrar letras",
     "noTrack": "Sin tema",
-    "soundTestStarted": "Prueba de sonido (loop) iniciada",
     "soundTestError": "Error en la prueba de sonido",
     "pauseAtEnd": "Pausar al finalizar tema",
     "pauseAtEndActive": "Pausa programada — clic para cancelar",

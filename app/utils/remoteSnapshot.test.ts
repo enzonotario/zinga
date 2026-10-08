@@ -8,7 +8,7 @@ function item(tlid: number): QueueItem {
 
 describe('remoteSnapshot utils', () => {
   describe('buildPlaybackSnapshot', () => {
-    it('should produce the Mopidy-compatible playback shape in milliseconds', () => {
+    it('should produce the remote playback shape in milliseconds', () => {
       expect(buildPlaybackSnapshot('playing', 12.3456, item(2))).toEqual({
         state: 'playing',
         position: 12346,

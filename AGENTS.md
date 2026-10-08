@@ -6,7 +6,7 @@
 - **UI**: Nuxt UI v4 (components like UButton, UCard, UModal, UAlert, UBadge, etc.)
 - **Desktop**: Tauri (Rust backend)
 - **Language**: TypeScript
-- **Streaming**: Tidal API + Mopidy + UPnP
+- **Streaming**: TIDAL (in-app playback session) + local FLAC stream server (ffmpeg) + UPnP renderers / GStreamer local renderer
 
 ## Project Structure
 
@@ -212,9 +212,9 @@ pnpm lint:fix    # Auto-fix issues
 
 - Rust structs returned to the frontend via `#[tauri::command]` must use `#[serde(rename_all = "camelCase")]` when they have multi-word fields (e.g. `model_name` → `modelName`). TypeScript interfaces use camelCase, Rust uses snake_case — serde won't convert automatically without this attribute.
 - Single-word fields (`id`, `name`, `ip`) are unaffected, so the mismatch only surfaces when adding multi-word fields.
-- When launching external processes from Tauri/AppImage (Mopidy, ffmpeg, scripts, tmux sessions), sanitize the environment first. AppImage runtime variables can break system GStreamer/PulseAudio resolution and make Mopidy audio fail at startup.
+- When launching external processes from Tauri/AppImage (e.g. ffmpeg), sanitize the environment first with `sanitize_external_env`. AppImage runtime variables can break system GStreamer/PulseAudio resolution.
 - Remove AppImage/runtime-sensitive vars before spawning scripts/processes: `APPDIR`, `APPIMAGE`, `APPIMAGE_SILENT_INSTALL`, `ARGV0`, `LD_LIBRARY_PATH`, `GST_PLUGIN_SYSTEM_PATH`, `GST_PLUGIN_SYSTEM_PATH_1_0`, `GIO_EXTRA_MODULES`, `GDK_PIXBUF_MODULE_FILE`, `GTK_*`, `QT_PLUGIN_PATH`, `GSETTINGS_SCHEMA_DIR`, plus Python overrides (`PYTHONHOME`, `PYTHONPATH`).
-- If playback fails after restarting services in production builds, check `/tmp/mopidy.log` first. Errors like `playbin` being `None` or `ActorDeadError: Audio ... not found` usually indicate a contaminated runtime environment.
+- If playback fails in production builds, check the app stderr for `[DirectStream]` lines (ffmpeg errors, rejected peers) and the Settings > System dependency check (ffmpeg, GStreamer plugins).
 
 ## Don'ts
 

@@ -44,184 +44,6 @@ mod setup;
 mod tidal_session;
 mod window_shortcuts;
 
-use std::process::Command;
-use std::sync::Mutex;
-static TEST_PIPELINE: Mutex<Option<gstreamer::Pipeline>> = Mutex::new(None);
-const TEST_AUDIO_URI: &str =
-    "https://www.learningcontainer.com/wp-content/uploads/2020/02/Sample-OGG-File.ogg";
-const TEST_AUDIO_SINK_DEVICE: &str = "mopidy_null";
-
-fn build_test_pipeline_uri() -> String {
-    format!(
-        "playbin uri={} audio-sink=\"pulsesink device={}\"",
-        TEST_AUDIO_URI, TEST_AUDIO_SINK_DEVICE
-    )
-}
-
-#[tauri::command]
-fn set_local_loopback_mute(mute: bool) -> Result<(), String> {
-    println!("[Audio] Setting local loopback mute to: {}", mute);
-
-    let module_id = find_loopback_module_id()?;
-
-    if let Some(id) = module_id {
-        println!("[Audio] Found loopback module ID: {}", id);
-        if let Some(si_id) = find_sink_input_id(&id)? {
-            let mute_val = if mute { "1" } else { "0" };
-
-            Command::new("pactl")
-                .args(["set-sink-input-mute", &si_id, mute_val])
-                .output()
-                .map_err(|e| format!("Error muteando sink-input {}: {}", si_id, e))?;
-
-            println!(
-                "[Audio] Loopback sink-input {} (from module {}) mute set to {}",
-                si_id, id, mute_val
-            );
-            return Ok(());
-        }
-
-        if let Some(si_id) = find_sink_input_id_fallback(&id)? {
-            let mute_val = if mute { "1" } else { "0" };
-            Command::new("pactl")
-                .args(["set-sink-input-mute", &si_id, mute_val])
-                .output()
-                .map_err(|e| format!("Error muteando sink-input {} (fallback): {}", si_id, e))?;
-            println!(
-                "[Audio] Loopback sink-input {} (fallback) mute set to {}",
-                si_id, mute_val
-            );
-            return Ok(());
-        }
-
-        Err(format!(
-            "No se encontró el sink-input para el loopback (module {})",
-            id
-        ))
-    } else {
-        println!("[Audio] No se encontró el módulo loopback de mopidy_null");
-        if mute {
-            Ok(())
-        } else {
-            Err("Módulo loopback no encontrado".to_string())
-        }
-    }
-}
-
-fn find_loopback_module_id() -> Result<Option<String>, String> {
-    let output = Command::new("pactl")
-        .args(["list", "modules", "short"])
-        .output()
-        .map_err(|e| format!("Error ejecutando pactl: {}", e))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    for line in stdout.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 2 && parts[1] == "module-loopback" && line.contains("mopidy_null.monitor")
-        {
-            return Ok(Some(parts[0].to_string()));
-        }
-    }
-    Ok(None)
-}
-
-fn find_sink_input_id(module_id: &str) -> Result<Option<String>, String> {
-    let sink_inputs = Command::new("pactl")
-        .args(["list", "sink-inputs", "short"])
-        .output()
-        .map_err(|e| format!("Error listando sink-inputs: {}", e))?;
-
-    let si_stdout = String::from_utf8_lossy(&sink_inputs.stdout);
-
-    for line in si_stdout.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 4 && parts[3] == module_id {
-            return Ok(Some(parts[0].to_string()));
-        }
-    }
-    Ok(None)
-}
-
-fn find_sink_input_id_fallback(module_id: &str) -> Result<Option<String>, String> {
-    let full_sink_inputs = Command::new("pactl")
-        .args(["list", "sink-inputs"])
-        .output()
-        .map_err(|e| format!("Error listando sink-inputs completo: {}", e))?;
-    let full_si_stdout = String::from_utf8_lossy(&full_sink_inputs.stdout);
-
-    let mut current_si_id = None;
-    let mut found_target = false;
-
-    for line in full_si_stdout.lines() {
-        if line.contains("Entrada del destino #") || line.contains("Sink Input #") {
-            if found_target && current_si_id.is_some() {
-                break;
-            }
-            current_si_id = line.split('#').last().map(|s| s.trim().to_string());
-            found_target = false;
-        }
-        if let Some(_id) = &current_si_id {
-            if line.contains(&format!("pulse.module.id = \"{}\"", module_id))
-                || (line.contains("media.name =")
-                    && line.contains("loopback")
-                    && line.contains("mopidy_null"))
-            {
-                found_target = true;
-            }
-        }
-    }
-
-    if found_target {
-        Ok(current_si_id)
-    } else {
-        Ok(None)
-    }
-}
-
-#[tauri::command]
-async fn mopidy_test_sound() -> Result<(), String> {
-    use gst::prelude::*;
-    use gstreamer as gst;
-
-    mopidy_stop_test_sound().await?;
-
-    tokio::task::spawn_blocking(move || {
-        gst::init().map_err(|e| format!("Error inicializando GStreamer: {}", e))?;
-
-        let pipeline_str = build_test_pipeline_uri();
-
-        let pipeline = gst::parse::launch(&pipeline_str)
-            .map_err(|e| format!("Error creando pipeline: {}", e))?
-            .dynamic_cast::<gst::Pipeline>()
-            .map_err(|_| "Error casting a Pipeline")?;
-
-        pipeline
-            .set_state(gst::State::Playing)
-            .map_err(|e| format!("Error al iniciar: {}", e))?;
-
-        if let Ok(mut lock) = TEST_PIPELINE.lock() {
-            *lock = Some(pipeline);
-        }
-
-        Ok(())
-    })
-    .await
-    .map_err(|e| format!("Error de tarea: {}", e))?
-}
-
-#[tauri::command]
-async fn mopidy_stop_test_sound() -> Result<(), String> {
-    use gstreamer::prelude::*;
-
-    if let Ok(mut lock) = TEST_PIPELINE.lock() {
-        if let Some(pipeline) = lock.take() {
-            pipeline.set_state(gstreamer::State::Null).ok();
-        }
-    }
-    Ok(())
-}
-
 fn preferred_ipv4_from_interfaces() -> Option<String> {
     use if_addrs::IfAddr;
     use std::net::Ipv4Addr;
@@ -307,12 +129,6 @@ mod tests {
                 println!("get_host_ip falló (posiblemente sin red): {}", e);
             }
         }
-    }
-
-    #[test]
-    fn test_find_loopback_module_id_not_found() {
-        let result = find_loopback_module_id();
-        assert!(result.is_ok());
     }
 }
 
@@ -672,6 +488,7 @@ pub fn run() {
             local_player::local_get_status,
             local_player::local_set_volume,
             local_player::local_get_volume,
+            local_player::local_test_tone,
             upnp_pause,
             upnp_stop,
             upnp_connect,
@@ -683,9 +500,6 @@ pub fn run() {
             upnp_next,
             upnp_previous,
             upnp_set_playlist,
-            set_local_loopback_mute,
-            mopidy_test_sound,
-            mopidy_stop_test_sound,
             get_host_ip,
             remote_server_start,
             remote_server_stop,
@@ -696,22 +510,6 @@ pub fn run() {
             remote_broadcast_state,
             remote_discover_servers,
             setup::system_check,
-            setup::ensure_services,
-            setup::get_script_exit_code,
-            setup::get_script_log,
-            setup::run_setup_script,
-            setup::run_start_services,
-            setup::run_stop_services,
-            setup::run_restart_services,
-            setup::run_verify,
-            setup::get_tmux_output,
-            setup::send_tmux_input,
-            setup::is_tmux_session_alive,
-            setup::kill_tmux_session,
-            setup::open_tmux_terminal,
-            setup::run_uninstall,
-            setup::debug_terminal,
-            setup::shell_open,
             library::scan_folder
         ])
         .run(tauri::generate_context!())
