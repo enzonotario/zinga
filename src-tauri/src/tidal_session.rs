@@ -13,6 +13,8 @@ use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder, 
 use ureq::Agent;
 
 // Public PKCE client credentials shipped with the open-source tidalapi library.
+// TIDAL falls back to the best available quality when a track has no hi-res master
+const AUDIO_QUALITY: &str = "HI_RES_LOSSLESS";
 const CLIENT_ID: &str = "6BDSRdpK9hqEBTgU";
 const CLIENT_SECRET: &str = "xeuPmY7nbpZ9IIbLAcQ93shka1VNheUAqN6IcszjTG8=";
 
@@ -416,7 +418,7 @@ fn fetch_playback_info(session: &mut Session, track_id: &str) -> Result<Value, S
         &format!("tracks/{track_id}/playbackinfopostpaywall"),
         &[
             ("playbackmode", "STREAM"),
-            ("audioquality", "LOSSLESS"),
+            ("audioquality", AUDIO_QUALITY),
             ("assetpresentation", "FULL"),
         ],
     )
