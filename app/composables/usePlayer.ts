@@ -6,6 +6,7 @@ import useDevices, { LOCAL_DEVICE_ID } from './useDevices';
 import useMopidy from './useMopidy';
 import useRemoteClient from './useRemoteClient';
 import useSystemSetup from './useSystemSetup';
+import useUpnpDirect from './useUpnpDirect';
 import useUpnpPlayer from './useUpnpPlayer';
 
 const PAUSE_AT_END_POLL_MS = 250;
@@ -21,16 +22,19 @@ export default function usePlayer() {
   const { selectedDeviceId, isLocalPlayback } = useDevices();
   const mopidy = useMopidy();
   const upnp = useUpnpPlayer();
+  const direct = useUpnpDirect();
   const remote = useRemoteClient();
   const { ensurePipeline, pipelineReady } = useSystemSetup();
   const isUpnpMode = computed(() => !isLocalPlayback.value && !!selectedDeviceId.value);
   const isPlaying = computed(() => mopidy.isPlaying.value);
   const isDevicePlaying = computed(() => {
+    if (direct.isActive.value) return direct.isDevicePlaying.value;
     if (isUpnpMode.value) return upnp.isDevicePlaying.value;
     return mopidy.isPlaying.value;
   });
   const isPaused = computed(() => mopidy.isPaused.value);
   const position = computed(() => {
+    if (direct.isActive.value) return direct.positionSec.value;
     if (isUpnpMode.value) return upnp.displayPositionSec.value;
     return mopidy.position.value / 1000;
   });
@@ -112,11 +116,48 @@ export default function usePlayer() {
       await pushCurrentTrackToUpnp(deviceId, { icecastDelay: true });
     }
   }
+  async function tryPlayDirect(deviceId: string, tlid?: number, startSec = 0): Promise<boolean> {
+    const list = mopidy.tracklist.value.length ? mopidy.tracklist.value : await mopidy.getTracklist();
+    if (!direct.canPlayDirect(list)) return false;
+    const targetTlid = tlid ?? mopidy.currentTrack.value?.tlid;
+    const target = list.find((item) => item.tlid === targetTlid) ?? list[0];
+    if (!target) return false;
+    let offsetSec = startSec;
+    if (tlid == null && mopidy.isPaused.value && mopidy.currentTrack.value?.tlid === target.tlid) {
+      offsetSec = mopidy.position.value / 1000;
+    }
+    try {
+      await direct.startTrack(deviceId, target, offsetSec);
+      return true;
+    } catch (err) {
+      console.error('Direct UPnP playback failed, using Mopidy fallback:', err);
+      direct.deactivate();
+      return false;
+    }
+  }
+  async function playViaMopidy(deviceId: string, tlid?: number) {
+    if (tlid != null) {
+      await mopidy.mopidyRpc('core.playback.play', { tlid });
+      await mopidy.refreshState();
+    }
+    await playOnUpnp(deviceId);
+  }
   async function play() {
     if (remote.isRemoteMode.value) return mopidy.play();
     try {
       if (isUpnpMode.value && selectedDeviceId.value) {
-        await playOnUpnp(selectedDeviceId.value);
+        const deviceId = selectedDeviceId.value;
+        const directTlid = direct.currentTlid.value;
+        const canResumeDirect = direct.isActive.value
+          && direct.isPaused.value
+          && mopidy.tracklist.value.some((item) => item.tlid === directTlid);
+        if (canResumeDirect) {
+          await direct.resume();
+          return;
+        }
+        if (await tryPlayDirect(deviceId)) return;
+        if (direct.isActive.value) await direct.stop();
+        await playOnUpnp(deviceId);
         return;
       } else if (isLocalPlayback.value) {
         await invoke('set_local_loopback_mute', { mute: false }).catch((err) => console.warn('Failed to unmute local loopback:', err));
@@ -151,6 +192,7 @@ export default function usePlayer() {
     clearPauseAtEndOfTrack();
   }
   async function getPlaybackPositionMs(): Promise<number> {
+    if (direct.isActive.value) return direct.positionSec.value * 1000;
     if (isUpnpMode.value && selectedDeviceId.value) {
       await upnp.refreshStatus(selectedDeviceId.value);
       return upnp.displayPositionSec.value * 1000;
@@ -160,6 +202,10 @@ export default function usePlayer() {
   async function executePausePlayback() {
     if (remote.isRemoteMode.value) {
       await mopidy.pause();
+      return;
+    }
+    if (direct.isActive.value) {
+      await direct.pause();
       return;
     }
     await mopidy.pause();
@@ -235,11 +281,31 @@ export default function usePlayer() {
   }
   async function next() {
     clearPauseAtEndOfTrack();
+    if (direct.isActive.value) {
+      await direct.next();
+      return;
+    }
     await mopidy.next();
   }
   async function previous() {
     clearPauseAtEndOfTrack();
+    if (direct.isActive.value) {
+      await direct.previous();
+      return;
+    }
     await mopidy.previous();
+  }
+  async function playTlid(tlid: number) {
+    clearPauseAtEndOfTrack();
+    if (isUpnpMode.value && selectedDeviceId.value) {
+      const deviceId = selectedDeviceId.value;
+      if (await tryPlayDirect(deviceId, tlid)) return;
+      if (direct.isActive.value) await direct.stop();
+      await playViaMopidy(deviceId, tlid);
+      return;
+    }
+    await mopidy.mopidyRpc('core.playback.play', { tlid });
+    await mopidy.refreshState();
   }
   async function testSound() {
     const toast = useToast();
@@ -265,11 +331,16 @@ export default function usePlayer() {
     }
   }
   async function seek(seconds: number) {
+    if (direct.isActive.value) {
+      await direct.seek(seconds);
+      return;
+    }
     if (isUpnpMode.value) upnp.holdSeek(seconds);
     await mopidy.mopidyRpc('core.playback.seek', { time_position: seconds * 1000 });
     await mopidy.refreshState();
   }
   async function stop() {
+    if (direct.isActive.value) await direct.stop();
     await mopidy.stop();
     if (isUpnpMode.value && selectedDeviceId.value) {
       await upnp.stop(selectedDeviceId.value);
@@ -282,7 +353,9 @@ export default function usePlayer() {
   }
   if (import.meta.client && !playerGlobalWatchersRegistered) {
     playerGlobalWatchersRegistered = true;
+    direct.setFailureHandler((deviceId, tlid) => playViaMopidy(deviceId, tlid));
     watch(() => mopidy.currentState.value.state, (newState, oldState) => {
+      if (direct.isActive.value) return;
       if (
         !isUpnpMode.value
         && newState === 'stopped'
@@ -298,6 +371,10 @@ export default function usePlayer() {
         const POLL_MS = 1000;
         const MAX_WAIT_MS = 30000;
         const poll = setInterval(async () => {
+          if (direct.isActive.value || mopidy.currentState.value.state !== 'stopped') {
+            clearInterval(poll);
+            return;
+          }
           await upnp.refreshStatus(deviceId);
           elapsed += POLL_MS;
           const state = upnp.currentUpnpState.value;
@@ -316,6 +393,25 @@ export default function usePlayer() {
       }
     });
     watch(selectedDeviceId, async (newId, oldId) => {
+      if (direct.isActive.value && oldId && oldId !== LOCAL_DEVICE_ID) {
+        const tlid = direct.currentTlid.value;
+        const positionSec = direct.positionSec.value;
+        try {
+          await direct.stop();
+          if (!newId || tlid == null) return;
+          if (newId === LOCAL_DEVICE_ID) {
+            await invoke('set_local_loopback_mute', { mute: false }).catch((err) => console.warn('Failed to unmute local loopback:', err));
+            await mopidy.mopidyRpc('core.playback.play', { tlid });
+            await mopidy.seek(Math.round(positionSec * 1000));
+            return;
+          }
+          if (!(await tryPlayDirect(newId, tlid, positionSec))) await playViaMopidy(newId, tlid);
+        } catch (err) {
+          console.error('Direct UPnP device switch error:', err);
+        }
+        return;
+      }
+
       if (newId === LOCAL_DEVICE_ID && oldId && oldId !== LOCAL_DEVICE_ID) {
         await invoke('set_local_loopback_mute', { mute: false }).catch((err) => console.warn('Failed to unmute local loopback:', err));
         await upnp.stop(oldId);
@@ -344,6 +440,7 @@ export default function usePlayer() {
     watch(
       () => mopidy.currentTrack.value?.tlid,
       async (tlid, oldTlid) => {
+        if (direct.isActive.value) return;
         if (tlid == null || oldTlid == null || tlid === oldTlid) return;
         if (!selectedDeviceId.value || selectedDeviceId.value === LOCAL_DEVICE_ID) return;
         if (!mopidy.isPlaying.value) return;
@@ -367,6 +464,7 @@ export default function usePlayer() {
     progress: computed(() => (duration.value > 0 ? (position.value / duration.value) * 100 : 0)),
     play,
     playUris,
+    playTlid,
     testSound,
     pause,
     stop,

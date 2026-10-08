@@ -1,6 +1,6 @@
 use quick_xml::events::Event;
 use quick_xml::Reader;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::net::{SocketAddrV4, UdpSocket};
 use std::str::FromStr;
@@ -11,7 +11,17 @@ use url::Url;
 
 const AV_TRANSPORT_INSTANCE_ID: u8 = 0;
 const SET_URI_SETTLE_DELAY_MS: u64 = 500;
+const DIRECT_SETTLE_DELAY_MS: u64 = 300;
 const PLAY_RETRY_DELAY_SECS: u64 = 1;
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectTrackMeta {
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub duration_sec: Option<f64>,
+}
 
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -455,6 +465,50 @@ fn build_didl_metadata(uri: &str) -> String {
     )
 }
 
+fn format_didl_duration(seconds: f64) -> String {
+    let total_ms = (seconds.max(0.0) * 1000.0).round() as u64;
+    let ms = total_ms % 1000;
+    let total_secs = total_ms / 1000;
+    format!(
+        "{}:{:02}:{:02}.{:03}",
+        total_secs / 3600,
+        (total_secs / 60) % 60,
+        total_secs % 60,
+        ms
+    )
+}
+
+fn build_direct_didl(uri: &str, meta: &DirectTrackMeta) -> String {
+    let mut fields = format!("<dc:title>{}</dc:title>", escape_xml(&meta.title));
+    if let Some(artist) = meta.artist.as_deref().filter(|a| !a.is_empty()) {
+        let artist = escape_xml(artist);
+        fields.push_str(&format!(
+            "<upnp:artist>{artist}</upnp:artist><dc:creator>{artist}</dc:creator>"
+        ));
+    }
+    if let Some(album) = meta.album.as_deref().filter(|a| !a.is_empty()) {
+        fields.push_str(&format!("<upnp:album>{}</upnp:album>", escape_xml(album)));
+    }
+    let duration_attr = meta
+        .duration_sec
+        .filter(|d| d.is_finite() && *d > 0.0)
+        .map(|d| format!(" duration=\"{}\"", format_didl_duration(d)))
+        .unwrap_or_default();
+    format!(
+        "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" \
+                   xmlns:dc=\"http://purl.org/dc/elements/1.1/\" \
+                   xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\" \
+                   xmlns:dlna=\"urn:schemas-dlna-org:metadata-1-0/\">\
+          <item id=\"0\" parentID=\"0\" restricted=\"1\">\
+            {fields}\
+            <upnp:class>object.item.audioItem.musicTrack</upnp:class>\
+            <res protocolInfo=\"http-get:*:audio/flac:*\"{duration_attr}>{}</res>\
+          </item>\
+        </DIDL-Lite>",
+        escape_xml(uri)
+    )
+}
+
 fn append_xml_start_tag(
     target: &mut String,
     name: &str,
@@ -704,6 +758,86 @@ pub fn upnp_set_uri_and_play(
 
     println!("[UPnP] upnp_set_uri_and_play completado exitosamente");
     Ok(())
+}
+
+fn av_transport_url(state: &AppState, device_id: &str) -> Result<String, String> {
+    let inner = state.inner.lock().map_err(|_| "state poisoned")?;
+    let dev = inner.devices.get(device_id).ok_or("device not found")?;
+    dev.av_transport_url
+        .clone()
+        .ok_or_else(|| "device has no AVTransport".to_string())
+}
+
+#[tauri::command(async)]
+pub fn upnp_play_direct(
+    device_id: String,
+    uri: String,
+    meta: DirectTrackMeta,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
+    let av_url = av_transport_url(&state, &device_id)?;
+    let set_body = format!(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\
+<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">\
+<s:Body>\
+<u:SetAVTransportURI xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\">\
+<InstanceID>{}</InstanceID>\
+<CurrentURI>{}</CurrentURI>\
+<CurrentURIMetaData>{}</CurrentURIMetaData>\
+</u:SetAVTransportURI>\
+</s:Body>\
+</s:Envelope>",
+        AV_TRANSPORT_INSTANCE_ID,
+        escape_xml(&uri),
+        escape_xml(&build_direct_didl(&uri, &meta))
+    );
+    soap_post(
+        &av_url,
+        "\"urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI\"",
+        &set_body,
+    )
+    .map_err(|e| format!("SetAVTransportURI failed: {}", e))?;
+
+    std::thread::sleep(Duration::from_millis(DIRECT_SETTLE_DELAY_MS));
+    send_play_with_retry(&av_url)
+}
+
+#[tauri::command(async)]
+pub fn upnp_set_next_direct(
+    device_id: String,
+    uri: String,
+    meta: Option<DirectTrackMeta>,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
+    let av_url = av_transport_url(&state, &device_id)?;
+    let (next_uri, next_meta) = match meta {
+        Some(meta) if !uri.is_empty() => (
+            escape_xml(&uri),
+            escape_xml(&build_direct_didl(&uri, &meta)),
+        ),
+        _ if !uri.is_empty() => (escape_xml(&uri), String::new()),
+        _ => (String::new(), String::new()),
+    };
+    let body = format!(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\
+<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">\
+<s:Body>\
+<u:SetNextAVTransportURI xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\">\
+<InstanceID>{}</InstanceID>\
+<NextURI>{}</NextURI>\
+<NextURIMetaData>{}</NextURIMetaData>\
+</u:SetNextAVTransportURI>\
+</s:Body>\
+</s:Envelope>",
+        AV_TRANSPORT_INSTANCE_ID, next_uri, next_meta
+    );
+    soap_post(
+        &av_url,
+        "\"urn:schemas-upnp-org:service:AVTransport:1#SetNextAVTransportURI\"",
+        &body,
+    )
+    .map(|_| ())
+    .map_err(|e| format!("SetNextAVTransportURI failed: {}", e))
 }
 
 #[tauri::command]

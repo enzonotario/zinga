@@ -4,6 +4,7 @@ import type { NormalizedCredit } from '~/providers/types';
 import { computed, nextTick, ref, watch } from 'vue';
 import useBottomBar from '~/composables/useBottomBar';
 import useMopidyPolling from '~/composables/useMopidyPolling';
+import usePlayer from '~/composables/usePlayer';
 import useProvider from '~/composables/useProvider';
 import useQueueProgress from '~/composables/useQueueProgress';
 import useTidalArtwork from '~/composables/useTidalArtwork';
@@ -30,6 +31,7 @@ const {
   formattedRemainingDuration,
 } = useQueueProgress(mopidy);
 useBottomBar();
+const player = usePlayer();
 const provider = useProvider();
 const tidalArtwork = useTidalArtwork();
 const tidalAuth = useTidalAuth();
@@ -151,8 +153,7 @@ watch(activeAccordionValue, async (newValue) => {
 });
 async function playTrack(tlid: number) {
   try {
-    await mopidy.mopidyRpc('core.playback.play', { tlid });
-    await mopidy.refreshState();
+    await player.playTlid(tlid);
   } catch (err) {
     console.error('Error playing track:', err);
   }
@@ -167,7 +168,7 @@ async function removeTrack(tlid: number) {
 }
 async function clearQueue() {
   try {
-    await mopidy.clear();
+    await player.clear();
   } catch (err) {
     console.error('Error clearing queue:', err);
   }

@@ -5,6 +5,7 @@ import useMopidy from './useMopidy';
 import usePlayer from './usePlayer';
 import useTidalArtwork from './useTidalArtwork';
 import useTidalAuth from './useTidalAuth';
+import useUpnpDirect from './useUpnpDirect';
 import useUpnpPlayer from './useUpnpPlayer';
 
 const mopidyTidalData = ref<any>(null);
@@ -16,6 +17,7 @@ export default function useBottomBar() {
   const tidalArtwork = useTidalArtwork();
   const tidalAuth = useTidalAuth();
   const upnp = useUpnpPlayer();
+  const direct = useUpnpDirect();
   const { isLocalPlayback } = useDevices();
   const isUsingMopidy = computed(() => {
     return mopidy.isPlaying.value
@@ -54,7 +56,9 @@ export default function useBottomBar() {
   }
   const playbackPositionSec = computed(() => {
     let sec: number;
-    if (!isLocalPlayback.value && selectedDeviceId.value) {
+    if (direct.isActive.value) {
+      sec = direct.positionSec.value;
+    } else if (!isLocalPlayback.value && selectedDeviceId.value) {
       sec = upnp.displayPositionSec.value;
     } else {
       sec = mopidy.position.value / 1000;
@@ -105,6 +109,7 @@ export default function useBottomBar() {
   watch(
     () => [mopidy.isPlaying.value, mopidy.isPaused.value, selectedDeviceId.value, isLocalPlayback.value] as const,
     async ([playing, paused, deviceId, local]) => {
+      if (direct.isActive.value) return;
       if (local || !deviceId) return;
       if (!playing && !paused) return;
 

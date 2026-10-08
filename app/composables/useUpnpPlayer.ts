@@ -1,6 +1,6 @@
 import type { UpnpPositionInfo, UpnpTransportInfo } from '~/types/playback';
 import { invoke } from '@tauri-apps/api/core';
-import { computed, onUnmounted, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { PLAYER_POLLING_INTERVAL, POSITION_UI_TICK_INTERVAL, UPNP_FAST_POLLING_INTERVAL } from '~/constants/polling';
 import { UPNP_DEFAULT_DEVICE_START_SEC, UPNP_STREAM_BUFFER_SEC } from '~/constants/upnp';
 import { timeToSeconds } from '~/utils/time';
@@ -294,8 +294,6 @@ export default function useUpnpPlayer() {
     ensureStatusPolling(deviceId);
   }
 
-  onUnmounted(() => stopStatusPolling());
-
   return {
     currentUpnpState,
     currentVolume,
@@ -318,5 +316,6 @@ export default function useUpnpPlayer() {
     startStatusPolling,
     ensureStatusPolling,
     stopStatusPolling,
+    uiTick,
   };
 }

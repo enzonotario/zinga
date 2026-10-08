@@ -194,7 +194,7 @@ fn latest_log_path() -> Option<String> {
     newest.map(|(_, p)| p.display().to_string())
 }
 
-fn find_script(app_handle: &AppHandle, name: &str) -> Result<PathBuf, String> {
+pub(crate) fn find_script(app_handle: &AppHandle, name: &str) -> Result<PathBuf, String> {
     let mut tried = Vec::new();
 
     if let Ok(resource_dir) = app_handle.path().resource_dir() {
@@ -260,7 +260,7 @@ fn spawn_terminal(args: &[&str]) -> Result<(), String> {
     )
 }
 
-fn sanitize_external_env(command: &mut Command) {
+pub(crate) fn sanitize_external_env(command: &mut Command) {
     for key in [
         "APPDIR",
         "APPIMAGE",

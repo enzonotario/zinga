@@ -36,6 +36,7 @@ use upnp::{
     AppState,
 };
 
+mod direct_stream;
 mod library;
 mod remote;
 mod setup;
@@ -279,6 +280,10 @@ fn udp_trick_local_ip() -> Result<String, String> {
 
 #[tauri::command]
 fn get_host_ip() -> Result<String, String> {
+    resolve_host_ip()
+}
+
+pub(crate) fn resolve_host_ip() -> Result<String, String> {
     if let Some(ip) = preferred_ipv4_from_interfaces() {
         return Ok(ip);
     }
@@ -642,6 +647,8 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            direct_stream::start(app.handle().clone());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -653,6 +660,10 @@ pub fn run() {
             upnp_set_volume,
             upnp_play,
             upnp_set_uri_and_play,
+            upnp::upnp_play_direct,
+            upnp::upnp_set_next_direct,
+            direct_stream::tidal_prepare_stream,
+            direct_stream::direct_stream_base_url,
             upnp_pause,
             upnp_stop,
             upnp_connect,

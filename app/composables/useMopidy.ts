@@ -26,6 +26,7 @@ const currentState = ref<MopidyState>({
 });
 const positionUpdatedAt = ref(0);
 const tracklist = ref<MopidyTlTrack[]>([]);
+const playbackOverride = ref(false);
 export default function useMopidy() {
   const remote = useRemoteClient();
   async function getMopidyBaseUrl(): Promise<string> {
@@ -58,6 +59,7 @@ export default function useMopidy() {
     }
   }
   async function refreshState() {
+    if (playbackOverride.value) return;
     try {
       const [state, position, tlTrack] = await Promise.all([
         mopidyRpc('core.playback.get_state'),
@@ -130,6 +132,14 @@ export default function useMopidy() {
       return null;
     }
   }
+  function setPlaybackOverride(state: MopidyState | null) {
+    if (!state) {
+      playbackOverride.value = false;
+      return;
+    }
+    playbackOverride.value = true;
+    currentState.value = state;
+  }
   async function refresh() {
     await Promise.all([refreshState(), getTracklist()]);
   }
@@ -156,6 +166,7 @@ export default function useMopidy() {
     clear,
     add,
     getStreamUri,
+    setPlaybackOverride,
   };
 }
 async function remoteMopidyCall(remote: any, method: string, params: any) {
