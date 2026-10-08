@@ -38,6 +38,7 @@ const provider = getCurrentProvider();
 const queueCard = useTemplateRef<{ $el: HTMLElement }>('queueCard');
 const queueExpanded = ref(false);
 const queueCollapsedHeight = ref(0);
+const queueCollapsing = ref(false);
 const isPlaying = computed(() => player.isDevicePlaying.value);
 const tidalAlbum = computed(() => {
   const album = currentTrack.value?.tidalData?.album;
@@ -164,8 +165,18 @@ const artistName = computed(() => tidalArtist.value?.attributes?.name || current
 const asyncAlbumCover = ref<string | null>(null);
 const lastLoadedAlbumId = ref<string | null>(null);
 function setQueueExpanded(value: boolean) {
-  if (value) queueCollapsedHeight.value = queueCard.value?.$el?.offsetHeight ?? 0;
-  queueExpanded.value = value;
+  if (value) {
+    queueCollapsedHeight.value = queueCard.value?.$el?.offsetHeight ?? 0;
+    queueCollapsing.value = false;
+    queueExpanded.value = true;
+    return;
+  }
+  if (queueExpanded.value) queueCollapsing.value = true;
+}
+function finishQueueCollapse(event: AnimationEvent) {
+  if (!event.animationName.startsWith('queue-collapse') || !queueCollapsing.value) return;
+  queueCollapsing.value = false;
+  queueExpanded.value = false;
 }
 watch(
   () => tidalAlbum.value,
@@ -246,15 +257,16 @@ watch(
           ref="queueCard"
           class="shrink-0 overflow-hidden flex flex-col z-10"
           :class="queueExpanded
-            ? 'queue-card-expanded max-h-[80vh] md:absolute md:inset-x-0 md:top-2 md:bottom-2 md:max-h-none md:z-20'
+            ? [queueCollapsing ? 'queue-card-collapsing' : 'queue-card-expanded', 'max-h-[80vh] md:absolute md:inset-x-0 md:top-2 md:bottom-2 md:max-h-none md:z-20']
             : 'md:max-h-[40%] max-h-[60vh]'"
           :style="queueExpanded ? { '--queue-collapsed-height': `${queueCollapsedHeight}px` } : undefined"
           :ui="{ body: 'p-0! flex-1 overflow-hidden' }"
+          @animationend="finishQueueCollapse"
         >
           <QueueList
             class="max-h-full"
             expandable
-            :expanded="queueExpanded"
+            :expanded="queueExpanded && !queueCollapsing"
             @update:expanded="setQueueExpanded"
           />
         </UCard>
@@ -375,6 +387,19 @@ watch(
 <style scoped>
 .queue-card-expanded {
   animation: queue-expand 280ms ease-out;
+}
+
+.queue-card-collapsing {
+  animation: queue-collapse 240ms ease-in forwards;
+}
+
+@keyframes queue-collapse {
+  from {
+    clip-path: inset(0 0 0 0 round var(--radius-xl));
+  }
+  to {
+    clip-path: inset(0 0 calc(100% - var(--queue-collapsed-height, 40%)) 0 round var(--radius-xl));
+  }
 }
 
 @keyframes queue-expand {
