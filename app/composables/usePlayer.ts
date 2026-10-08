@@ -58,39 +58,22 @@ export default function usePlayer() {
     const hostIp = await invoke<string>('get_host_ip').catch(() => 'localhost');
     return `http://${hostIp}:8000/mopidy`;
   }
-  function resolveTrackPositionSec() {
-    const track = mopidy.currentTrack.value?.track;
-    let trackPositionSec = mopidy.position.value / 1000;
-    const durationSec = (track?.length ?? 0) / 1000;
-    if (durationSec > 0 && trackPositionSec > durationSec) {
-      trackPositionSec = 0;
-    }
-    return trackPositionSec;
-  }
-  async function pushCurrentTrackToUpnp(
-    deviceId: string,
-    options: { icecastDelay?: boolean, resumeFromSec?: number, trackPositionSec?: number } = {},
-  ) {
+  async function pushCurrentTrackToUpnp(deviceId: string, options: { icecastDelay?: boolean } = {}) {
     await mopidy.refreshState().catch(() => {});
-    const trackPositionSec = options.trackPositionSec ?? resolveTrackPositionSec();
     const uri = await resolveUpnpStreamUri();
     if (options.icecastDelay && uri.includes(':8000/mopidy')) {
       await new Promise((r) => setTimeout(r, 450));
     }
-    await upnp.setUriAndPlay(deviceId, uri, {
-      resumeFromSec: options.resumeFromSec,
-      trackPositionSec: options.resumeFromSec != null ? undefined : trackPositionSec,
-    });
+    await upnp.setUriAndPlay(deviceId, uri);
   }
   async function syncUpnpOnTrackChange(deviceId: string) {
     await mopidy.refreshState().catch(() => {});
-    const trackPositionSec = resolveTrackPositionSec();
     const uri = await resolveUpnpStreamUri();
     const isContinuousIcecast = uri.includes(':8000/mopidy');
 
     if (isContinuousIcecast && upnp.hasActiveUpnpSession.value) {
-      const state = await upnp.recalibrateTrack(deviceId, trackPositionSec);
-      const normalized = state.trim().toUpperCase();
+      await upnp.refreshStatus(deviceId);
+      const normalized = upnp.currentUpnpState.value.trim().toUpperCase();
       if (normalized === 'PLAYING' || normalized === 'TRANSITIONING' || normalized === 'PAUSED' || normalized === 'PAUSED_PLAYBACK') {
         return;
       }
@@ -118,13 +101,6 @@ export default function usePlayer() {
         duration: 5000,
       });
       throw new Error(t('player.pipelineNotReady'));
-    }
-
-    if (mopidy.isPaused.value && upnp.hasActiveUpnpSession.value) {
-      const resumeFromSec = upnp.displayPositionSec.value || mopidy.position.value / 1000;
-      await mopidy.play();
-      await pushCurrentTrackToUpnp(deviceId, { icecastDelay: true, resumeFromSec });
-      return;
     }
 
     await mopidy.play();
@@ -289,6 +265,7 @@ export default function usePlayer() {
     }
   }
   async function seek(seconds: number) {
+    if (isUpnpMode.value) upnp.holdSeek(seconds);
     await mopidy.mopidyRpc('core.playback.seek', { time_position: seconds * 1000 });
     await mopidy.refreshState();
   }
@@ -359,7 +336,7 @@ export default function usePlayer() {
       }
 
       try {
-        await upnp.resyncWithMopidy(newId, mopidy.position.value / 1000);
+        await upnp.attachSession(newId);
       } catch (err) {
         console.error('UPnP session attach error:', err);
       }

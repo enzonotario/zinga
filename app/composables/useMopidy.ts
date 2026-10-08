@@ -24,6 +24,7 @@ const currentState = ref<MopidyState>({
   time_position: 0,
   track: null,
 });
+const positionUpdatedAt = ref(0);
 const tracklist = ref<MopidyTlTrack[]>([]);
 export default function useMopidy() {
   const remote = useRemoteClient();
@@ -68,6 +69,7 @@ export default function useMopidy() {
         time_position: position || 0,
         track: tlTrack || null,
       };
+      positionUpdatedAt.value = performance.now();
       isConnected.value = true;
     } catch (err) {
       console.error('Failed to refresh Mopidy state:', err);
@@ -134,6 +136,7 @@ export default function useMopidy() {
   return {
     isConnected,
     currentState,
+    positionUpdatedAt,
     tracklist,
     isPlaying: computed(() => currentState.value.state === 'playing'),
     isPaused: computed(() => currentState.value.state === 'paused'),

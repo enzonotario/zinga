@@ -108,8 +108,8 @@ export default function useBottomBar() {
       if (local || !deviceId) return;
       if (!playing && !paused) return;
 
-      if (upnp.needsMopidyCalibration.value) {
-        await upnp.resyncWithMopidy(deviceId, mopidy.position.value / 1000);
+      if (upnp.needsSessionAttach.value) {
+        await upnp.attachSession(deviceId);
         return;
       }
 

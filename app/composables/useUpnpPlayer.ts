@@ -2,7 +2,9 @@ import type { UpnpPositionInfo, UpnpTransportInfo } from '~/types/playback';
 import { invoke } from '@tauri-apps/api/core';
 import { computed, onUnmounted, ref } from 'vue';
 import { PLAYER_POLLING_INTERVAL, POSITION_UI_TICK_INTERVAL, UPNP_FAST_POLLING_INTERVAL } from '~/constants/polling';
+import { UPNP_DEFAULT_DEVICE_START_SEC, UPNP_STREAM_BUFFER_SEC } from '~/constants/upnp';
 import { timeToSeconds } from '~/utils/time';
+import useMopidy from './useMopidy';
 
 const currentUpnpState = ref<string>('STOPPED');
 const currentVolume = ref<number>(0);
@@ -18,11 +20,9 @@ const playbackPendingDeviceId = ref<string | null>(null);
 const sessionDeviceId = ref<string | null>(null);
 const devicePlaybackConfirmed = ref(false);
 const frozenPositionSec = ref(0);
-const trackBaselineRelSec = ref(0);
-const resumeOffsetSec = ref(0);
-const needsMopidyCalibration = ref(true);
-const lastReportedRelSec = ref(0);
-const lastReportedRelAt = ref(0);
+const latencySec = ref(UPNP_STREAM_BUFFER_SEC + UPNP_DEFAULT_DEVICE_START_SEC);
+const seekHold = ref<{ tlid: number, sec: number } | null>(null);
+const needsSessionAttach = ref(true);
 const uiTick = ref(0);
 
 let pollingId: ReturnType<typeof setInterval> | null = null;
@@ -30,6 +30,8 @@ let uiTickId: ReturnType<typeof setInterval> | null = null;
 let pollingDeviceId: string | null = null;
 let pollingIntervalMs = PLAYER_POLLING_INTERVAL;
 let lastRelTimeSec = 0;
+let playAcknowledgedAt = 0;
+let deviceStartedAt = Number.POSITIVE_INFINITY;
 let statusRefreshInFlight = false;
 
 function normalizeUpnpState(state: string) {
@@ -40,10 +42,6 @@ function normalizeUpnpState(state: string) {
 
 function getRelTimeSec() {
   return timeToSeconds(positionInfo.value.relTime);
-}
-
-function getTrackRelativeSec(relSec = getRelTimeSec()) {
-  return Math.max(0, relSec - trackBaselineRelSec.value);
 }
 
 function hasActiveSession(deviceId: string) {
@@ -64,45 +62,13 @@ function resolvePollingIntervalMs(deviceId: string, state: string) {
   return PLAYER_POLLING_INTERVAL;
 }
 
-function resetInterpolation() {
-  lastReportedRelSec.value = 0;
-  lastReportedRelAt.value = 0;
-}
-
-function resetDeviceSync(baselineRelSec = 0) {
-  trackBaselineRelSec.value = baselineRelSec;
+function resetDeviceSync() {
   devicePlaybackConfirmed.value = false;
-  lastRelTimeSec = baselineRelSec;
   frozenPositionSec.value = 0;
-  resumeOffsetSec.value = 0;
-  resetInterpolation();
-}
-
-function resetDeviceSyncFull() {
-  resetDeviceSync(0);
-  needsMopidyCalibration.value = true;
-}
-
-function shouldInterpolatePosition() {
-  if (!devicePlaybackConfirmed.value) return false;
-  const state = normalizeUpnpState(currentUpnpState.value);
-  return state === 'PLAYING' || state === 'TRANSITIONING';
-}
-
-function noteRelTime(relSec: number) {
-  if (relSec !== lastReportedRelSec.value) {
-    lastReportedRelSec.value = relSec;
-    lastReportedRelAt.value = performance.now();
-  }
-}
-
-function getEffectiveRelSec() {
-  if (!shouldInterpolatePosition() || lastReportedRelAt.value === 0) {
-    return getRelTimeSec();
-  }
-  void uiTick.value;
-  const elapsed = (performance.now() - lastReportedRelAt.value) / 1000;
-  return lastReportedRelSec.value + Math.max(0, elapsed);
+  seekHold.value = null;
+  playAcknowledgedAt = 0;
+  deviceStartedAt = Number.POSITIVE_INFINITY;
+  needsSessionAttach.value = true;
 }
 
 function stopUiTick() {
@@ -113,7 +79,7 @@ function stopUiTick() {
 }
 
 function ensureUiTick() {
-  if (!shouldInterpolatePosition()) {
+  if (!sessionDeviceId.value) {
     stopUiTick();
     return;
   }
@@ -123,58 +89,20 @@ function ensureUiTick() {
   }, POSITION_UI_TICK_INTERVAL);
 }
 
-function getDisplayPositionSec() {
-  const state = normalizeUpnpState(currentUpnpState.value);
-  const relSec = shouldInterpolatePosition() ? getEffectiveRelSec() : getRelTimeSec();
-  const trackRelativeSec = getTrackRelativeSec(relSec);
-
-  if (state === 'PAUSED_PLAYBACK') {
-    if (!devicePlaybackConfirmed.value) {
-      return frozenPositionSec.value;
-    }
-    return trackRelativeSec > 0 ? resumeOffsetSec.value + trackRelativeSec : frozenPositionSec.value;
-  }
-
-  if (!devicePlaybackConfirmed.value) {
-    if (resumeOffsetSec.value > 0) {
-      return resumeOffsetSec.value;
-    }
-    return frozenPositionSec.value;
-  }
-
-  return resumeOffsetSec.value + trackRelativeSec;
+function clearPlaybackPending() {
+  playbackPendingDeviceId.value = null;
 }
 
-function confirmDeviceSync(relSec = getRelTimeSec()) {
+function updateDeviceSync(relSec: number, observedAt: number) {
+  const changed = relSec !== lastRelTimeSec;
+  lastRelTimeSec = relSec;
+  if (!changed || relSec <= 0 || playAcknowledgedAt === 0) return;
+  if (normalizeUpnpState(currentUpnpState.value) !== 'PLAYING') return;
+  // RelTime has 1 s resolution, so each observed tick only bounds the real start from above
+  deviceStartedAt = Math.min(deviceStartedAt, observedAt - relSec * 1000);
+  latencySec.value = UPNP_STREAM_BUFFER_SEC + Math.max(0, deviceStartedAt - playAcknowledgedAt) / 1000;
   devicePlaybackConfirmed.value = true;
-  lastRelTimeSec = relSec;
   clearPlaybackPending();
-  noteRelTime(relSec);
-  ensureUiTick();
-}
-
-function updateDeviceSync(relSec: number) {
-  if (devicePlaybackConfirmed.value) {
-    lastRelTimeSec = relSec;
-    noteRelTime(relSec);
-    return;
-  }
-
-  if (playbackPendingDeviceId.value != null) {
-    if (relSec < lastRelTimeSec - 1) {
-      trackBaselineRelSec.value = Math.max(0, relSec - frozenPositionSec.value);
-      lastRelTimeSec = relSec;
-      noteRelTime(relSec);
-      return;
-    }
-    if (relSec > lastRelTimeSec) {
-      confirmDeviceSync(relSec);
-      return;
-    }
-  }
-
-  lastRelTimeSec = relSec;
-  noteRelTime(relSec);
 }
 
 function beginUpnpSession(deviceId: string) {
@@ -185,36 +113,16 @@ function endUpnpSession() {
   sessionDeviceId.value = null;
 }
 
-function markPlaybackPending(deviceId: string, trackPositionSec = 0) {
-  const relSec = getRelTimeSec();
+function markPlaybackPending(deviceId: string, frozenSec: number) {
   playbackPendingDeviceId.value = deviceId;
-  resumeOffsetSec.value = 0;
-  trackBaselineRelSec.value = Math.max(0, relSec - trackPositionSec);
   devicePlaybackConfirmed.value = false;
-  lastRelTimeSec = relSec;
-  frozenPositionSec.value = trackPositionSec;
-  resetInterpolation();
-  noteRelTime(relSec);
-  needsMopidyCalibration.value = false;
+  frozenPositionSec.value = frozenSec;
+  seekHold.value = null;
+  playAcknowledgedAt = 0;
+  deviceStartedAt = Number.POSITIVE_INFINITY;
+  lastRelTimeSec = getRelTimeSec();
+  needsSessionAttach.value = false;
   beginUpnpSession(deviceId);
-}
-
-function markResumePending(deviceId: string, positionSec: number) {
-  const relSec = getRelTimeSec();
-  playbackPendingDeviceId.value = deviceId;
-  resumeOffsetSec.value = positionSec;
-  trackBaselineRelSec.value = relSec;
-  devicePlaybackConfirmed.value = false;
-  lastRelTimeSec = relSec;
-  frozenPositionSec.value = positionSec;
-  resetInterpolation();
-  noteRelTime(relSec);
-  needsMopidyCalibration.value = false;
-  beginUpnpSession(deviceId);
-}
-
-function clearPlaybackPending() {
-  playbackPendingDeviceId.value = null;
 }
 
 function stopStatusPolling() {
@@ -225,8 +133,6 @@ function stopStatusPolling() {
   pollingDeviceId = null;
   stopUiTick();
 }
-
-const displayPositionSec = computed(() => getDisplayPositionSec());
 
 const isDevicePlaying = computed(() => {
   if (!devicePlaybackConfirmed.value) return false;
@@ -268,9 +174,10 @@ async function refreshStatus(deviceId: string) {
     const info = await invoke<UpnpTransportInfo>('upnp_get_transport_info', { deviceId });
     currentUpnpState.value = info.currentTransportState;
     const pos = await invoke<UpnpPositionInfo>('upnp_get_position_info', { deviceId });
+    const observedAt = performance.now();
     positionInfo.value = pos;
 
-    updateDeviceSync(getRelTimeSec());
+    updateDeviceSync(getRelTimeSec(), observedAt);
     ensureUiTick();
 
     const state = currentUpnpState.value;
@@ -284,78 +191,60 @@ async function refreshStatus(deviceId: string) {
     } else {
       endUpnpSession();
       clearPlaybackPending();
-      resetDeviceSyncFull();
+      resetDeviceSync();
       stopStatusPolling();
     }
   } catch {
     if (!hasActiveSession(deviceId) && playbackPendingDeviceId.value !== deviceId) {
       stopStatusPolling();
-      resetDeviceSyncFull();
+      resetDeviceSync();
     }
   } finally {
     statusRefreshInFlight = false;
   }
 }
 
-async function resyncWithMopidy(deviceId: string, mopidyPositionSec: number) {
+async function attachSession(deviceId: string) {
   beginUpnpSession(deviceId);
   await refreshStatus(deviceId);
-
-  const relSec = getRelTimeSec();
-  const state = normalizeUpnpState(currentUpnpState.value);
-  const baseline = Math.max(0, relSec - mopidyPositionSec);
-
-  trackBaselineRelSec.value = baseline;
-  lastRelTimeSec = relSec;
-  frozenPositionSec.value = mopidyPositionSec;
-  resumeOffsetSec.value = 0;
-
-  if (state === 'PAUSED_PLAYBACK' || state === 'PLAYING' || state === 'TRANSITIONING') {
-    confirmDeviceSync(relSec);
-  } else {
-    noteRelTime(relSec);
-  }
-
-  needsMopidyCalibration.value = false;
+  needsSessionAttach.value = false;
   ensureStatusPolling(deviceId);
-}
-
-async function recalibrateTrack(deviceId: string, trackPositionSec: number) {
-  beginUpnpSession(deviceId);
-  await refreshStatus(deviceId);
-
-  const relSec = getRelTimeSec();
+  if (playbackPendingDeviceId.value) return;
   const state = normalizeUpnpState(currentUpnpState.value);
-
-  trackBaselineRelSec.value = Math.max(0, relSec - trackPositionSec);
-  lastRelTimeSec = relSec;
-  frozenPositionSec.value = trackPositionSec;
-  resumeOffsetSec.value = 0;
-  clearPlaybackPending();
-  needsMopidyCalibration.value = false;
-
-  if (state === 'PAUSED_PLAYBACK' || state === 'PLAYING' || state === 'TRANSITIONING') {
-    confirmDeviceSync(relSec);
-  } else {
-    noteRelTime(relSec);
+  if (state === 'PLAYING' || state === 'TRANSITIONING' || state === 'PAUSED_PLAYBACK') {
+    devicePlaybackConfirmed.value = true;
   }
-
-  ensureStatusPolling(deviceId);
-  return state;
 }
 
 export default function useUpnpPlayer() {
-  async function setUriAndPlay(
-    deviceId: string,
-    uri: string,
-    options: { resumeFromSec?: number, trackPositionSec?: number } = {},
-  ) {
-    if (options.resumeFromSec != null && options.resumeFromSec > 0) {
-      markResumePending(deviceId, options.resumeFromSec);
-    } else {
-      markPlaybackPending(deviceId, options.trackPositionSec ?? 0);
+  const mopidy = useMopidy();
+
+  function getMopidyLiveSec() {
+    const sec = mopidy.position.value / 1000;
+    if (!mopidy.isPlaying.value) return sec;
+    void uiTick.value;
+    return sec + Math.max(0, performance.now() - mopidy.positionUpdatedAt.value) / 1000;
+  }
+
+  function getAudiblePositionSec() {
+    const liveSec = getMopidyLiveSec();
+    const audibleSec = Math.max(0, liveSec - latencySec.value);
+    const hold = seekHold.value;
+    if (hold && hold.tlid === mopidy.currentTrack.value?.tlid && liveSec >= hold.sec - 1 && audibleSec < hold.sec) {
+      return hold.sec;
     }
+    return audibleSec;
+  }
+
+  const displayPositionSec = computed(() => {
+    if (!devicePlaybackConfirmed.value) return frozenPositionSec.value;
+    return getAudiblePositionSec();
+  });
+
+  async function setUriAndPlay(deviceId: string, uri: string) {
+    markPlaybackPending(deviceId, displayPositionSec.value);
     const result = await invoke('upnp_set_uri_and_play', { deviceId, uri });
+    playAcknowledgedAt = performance.now();
     ensureStatusPolling(deviceId);
     return result;
   }
@@ -370,9 +259,12 @@ export default function useUpnpPlayer() {
     return play(deviceId);
   }
 
+  function holdSeek(sec: number) {
+    const tlid = mopidy.currentTrack.value?.tlid;
+    seekHold.value = tlid == null ? null : { tlid, sec };
+  }
+
   async function pause(deviceId: string) {
-    frozenPositionSec.value = displayPositionSec.value;
-    stopUiTick();
     clearPlaybackPending();
     const result = await invoke('upnp_pause', { deviceId });
     ensureStatusPolling(deviceId);
@@ -382,7 +274,7 @@ export default function useUpnpPlayer() {
   async function stop(deviceId: string) {
     endUpnpSession();
     clearPlaybackPending();
-    resetDeviceSyncFull();
+    resetDeviceSync();
     const result = await invoke('upnp_stop', { deviceId });
     stopStatusPolling();
     return result;
@@ -412,9 +304,9 @@ export default function useUpnpPlayer() {
     isDevicePlaying,
     isDeviceBuffering,
     hasActiveUpnpSession,
-    needsMopidyCalibration,
-    resyncWithMopidy,
-    recalibrateTrack,
+    needsSessionAttach,
+    attachSession,
+    holdSeek,
     setUriAndPlay,
     play,
     resume,
