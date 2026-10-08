@@ -57,6 +57,10 @@ export function extractTidalIdsFromUri(uri?: string): {
       trackId: urlMatch[3],
     };
   }
+  const shortMatch = uri.match(/^tidal:track:(\d+)$/);
+  if (shortMatch) {
+    return { trackId: shortMatch[1] };
+  }
   return {};
 }
 export function extractTidalIds(streamServiceId?: string): {
