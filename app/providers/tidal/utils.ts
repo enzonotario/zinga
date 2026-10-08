@@ -6,30 +6,6 @@ export function cursorParam(cursor?: string): { 'page[cursor]': string } | Recor
   }
   return { 'page[cursor]': trimmed };
 }
-export function parseTidalUrls(streamServiceId?: string): {
-  artist?: string
-  album?: string
-  albumCredits?: string
-} {
-  if (!streamServiceId || !streamServiceId.startsWith('tidal/')) {
-    return {};
-  }
-  const parts = streamServiceId.split('/');
-  if (parts.length >= 4 && parts[0] === 'tidal' && parts[1] === 'search' && parts[2] === 'artists') {
-    const artistId = parts[3];
-    const albumId = parts[4];
-    const urls: { artist?: string, album?: string, albumCredits?: string } = {};
-    if (artistId) {
-      urls.artist = `https://tidal.com/artist/${artistId}`;
-    }
-    if (albumId) {
-      urls.album = `https://tidal.com/album/${albumId}`;
-      urls.albumCredits = `https://tidal.com/album/${albumId}/credits`;
-    }
-    return urls;
-  }
-  return {};
-}
 function cleanTidalId(id?: string): string | undefined {
   if (!id) return undefined;
   const match = id.match(/^(\d+)/);

@@ -1,5 +1,3 @@
-import type { QueueTrack } from './playQueue';
-
 const STREAM_URI_PATTERN = /\/(?:stream|file)\/(\d+)\/[0-9a-f]+\.(?:flac|mp3)\?start=([\d.]+)/;
 const FILE_URI_PREFIX = 'file://';
 
@@ -8,10 +6,6 @@ export type StreamFormat = 'flac' | 'mp3';
 export type StreamSource = { kind: 'tidal', id: string } | { kind: 'file', path: string };
 
 export type PreparedSource = { kind: 'tidal', id: string } | { kind: 'file', token: string };
-
-interface TrackUriItem {
-  track?: Partial<Pick<QueueTrack, 'uri'>>
-}
 
 function getTidalTrackId(uri: string) {
   if (!uri.startsWith('tidal:track:')) return null;
@@ -39,10 +33,6 @@ export function getStreamSource(uri?: string): StreamSource | null {
   if (id) return { kind: 'tidal', id };
   const path = getFilePath(uri);
   return path ? { kind: 'file', path } : null;
-}
-
-export function canPlayDirect(tracklist: TrackUriItem[]) {
-  return tracklist.length > 0 && tracklist.every((item) => getStreamSource(item.track?.uri) != null);
 }
 
 export function parseStreamUri(uri?: string | null) {

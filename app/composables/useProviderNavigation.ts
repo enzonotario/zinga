@@ -6,24 +6,12 @@ import useBottomBar from './useBottomBar';
 export default function useProviderNavigation() {
   const { currentTrack } = useBottomBar();
   const providerId = getCurrentProviderId();
-  const providerIds = computed(() => {
-    if (!currentTrack.value?.streamServiceId) {
-      return { artistId: undefined, albumId: undefined, trackId: undefined };
-    }
-    if (providerId === 'tidal') {
-      return extractTidalIds(currentTrack.value.streamServiceId);
-    }
-    return { artistId: undefined, albumId: undefined, trackId: undefined };
-  });
   const artistId = computed(() => {
     if (currentTrack.value?.uri && providerId === 'tidal') {
       const uriIds = extractTidalIds(currentTrack.value.uri);
       if (uriIds.artistId) {
         return uriIds.artistId;
       }
-    }
-    if (providerIds.value.artistId) {
-      return providerIds.value.artistId;
     }
     const artist = currentTrack.value?.tidalData?.artist;
     if (artist?.data?.id) {
@@ -39,9 +27,6 @@ export default function useProviderNavigation() {
     return undefined;
   });
   const albumId = computed(() => {
-    if (providerIds.value.albumId) {
-      return providerIds.value.albumId;
-    }
     const album = currentTrack.value?.tidalData?.album;
     if (album?.data?.id) {
       return album.data.id;
@@ -56,9 +41,6 @@ export default function useProviderNavigation() {
     return undefined;
   });
   const trackId = computed(() => {
-    if (providerIds.value.trackId) {
-      return providerIds.value.trackId;
-    }
     const track = currentTrack.value?.tidalData?.track;
     if (track?.id) {
       return track.id;
@@ -77,7 +59,6 @@ export default function useProviderNavigation() {
     return !!(artistId.value || albumId.value || trackId.value);
   });
   return {
-    providerIds,
     artistId,
     albumId,
     trackId,

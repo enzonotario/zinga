@@ -111,7 +111,3 @@ export interface MusicProvider {
   getAlbumProviders: (id: string, countryCode?: string) => Promise<any>
   clearCache: () => void
 }
-export interface ProviderRawData {
-  raw: any
-  included?: any[]
-}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildStreamUrl, canPlayDirect, getStreamSource, parseStreamUri } from './directStream';
+import { buildStreamUrl, getStreamSource, parseStreamUri } from './directStream';
 
 describe('directStream utils', () => {
   describe('getStreamSource', () => {
@@ -29,28 +29,6 @@ describe('directStream utils', () => {
       expect(getStreamSource('spotify:track:1')).toBeNull();
       expect(getStreamSource('')).toBeNull();
       expect(getStreamSource(undefined)).toBeNull();
-    });
-  });
-
-  describe('canPlayDirect', () => {
-    it('should return false for an empty list', () => {
-      expect(canPlayDirect([])).toBe(false);
-    });
-    it('should return true when every item has a stream source', () => {
-      expect(canPlayDirect([
-        { track: { uri: 'tidal:track:1' } },
-        { track: { uri: 'tidal:track:1:2:3' } },
-        { track: { uri: 'file:///x.flac' } },
-      ])).toBe(true);
-    });
-    it('should return false when an item has no stream source', () => {
-      expect(canPlayDirect([
-        { track: { uri: 'tidal:track:1' } },
-        { track: { uri: 'spotify:track:1' } },
-      ])).toBe(false);
-    });
-    it('should return false for items without a uri', () => {
-      expect(canPlayDirect([{ track: {} }, {}])).toBe(false);
     });
   });
 

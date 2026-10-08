@@ -9,12 +9,6 @@ use std::sync::Arc;
 use super::command::RemoteCommand;
 use super::state::RemoteState;
 
-#[derive(Deserialize)]
-#[allow(dead_code)]
-pub struct PairRequest {
-    pub device_name: Option<String>,
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PairResponse {

@@ -7,20 +7,14 @@
     "clearFilters": "Clear filters",
     "select": "Select",
     "retry": "Retry",
-    "loading": "Loading...",
     "yes": "Yes",
     "no": "No",
     "error": "Error",
-    "never": "Never",
     "more": "+{count} more",
-    "version": "Version",
     "status": "Status",
     "debug": "Debug",
     "details": "Details",
     "hide": "Hide",
-    "copy": "Copy",
-    "update": "Update",
-    "test": "Test",
     "cover": "Cover",
     "tracks": "Tracks",
     "playGroup": "Play group",
@@ -29,7 +23,6 @@
     "all": "All",
     "reset": "Reset",
     "items": "items",
-    "copyright": "Copyright",
     "dbError": "Database error",
     "scanNow": "Scan now",
     "scanning": "Scanning...",
@@ -63,20 +56,10 @@
       "description": "Your music at a glance",
       "loginTitle": "Log in",
       "loginDescription": "Connect with Tidal to see your personalized feed",
-      "localSync": "Local Sync",
       "syncing": "Syncing...",
       "sync": "Sync",
-      "savedAlbums": "Saved albums",
-      "savedArtists": "Saved artists",
-      "favoriteGenre": "Favorite genre",
-      "differentYears": "Different years",
-      "lastSyncAlbums": "Last album sync: {date}",
-      "lastSyncArtists": "Last artist sync: {date}",
-      "topGenres": "Top genres",
       "favoriteAlbums": "Your favorite albums",
-      "albumCount": "{count} album | {count} albums",
       "followedArtists": "Artists you follow",
-      "artistCount": "{count} artist | {count} artists",
       "emptyTitle": "Your feed is empty",
       "emptyDescription": "Add albums to favorites or follow artists to see them here"
     },
@@ -132,22 +115,13 @@
       "location": "Location"
     },
     "queue": {
-      "title": "Playback queue",
       "songCount": "{count} songs",
       "clearQueue": "Clear queue"
     },
     "about": {
-      "name": "About",
-      "description": "App information",
-      "title": "About",
-      "appInfo": "App information",
       "appVersion": "Version",
-      "author": "Author",
-      "links": "Links",
-      "repository": "Repository",
       "viewOnGithub": "View on GitHub",
-      "sponsorProject": "Sponsor the project",
-      "visitSite": "Visit site"
+      "sponsorProject": "Sponsor the project"
     },
     "setup": {
       "name": "System check",
@@ -172,7 +146,6 @@
       "system": "System",
       "general": "General",
       "library": "Library",
-      "generalDescription": "General app settings",
       "theme": "Theme",
       "themeSystem": "System",
       "themeLight": "Light",
@@ -271,8 +244,6 @@
     "follow": "Follow",
     "following": "Following",
     "unfollow": "Unfollow",
-    "share": "Share",
-    "moreOptions": "More options",
     "albums": "Albums",
     "eps": "EPs",
     "singles": "Singles",
@@ -284,7 +255,6 @@
     "noAlbumsDescription": "This artist has no published albums",
     "notFound": "Artist not found",
     "notFoundDescription": "Could not load artist information",
-    "login": "Log in",
     "errorLoadingAlbums": "Error loading albums",
     "errorLoadingArtist": "Error loading artist"
   },
@@ -300,30 +270,18 @@
     "addToQueue": "Add to queue",
     "credits": "Credits",
     "songCount": "{count} song | {count} songs",
-    "loadingCredits": "Loading credits...",
     "notFound": "Album not found",
     "notFoundDescription": "Could not load album information",
-    "login": "Log in",
     "noPlaybackDevice": "No playback device selected",
     "errorFavorite": "Error changing favorite",
     "playbackError": "Playback error",
     "creditsModal": {
-      "albumCredits": "Album credits",
-      "artistInfo": "Artist information",
-      "title": "Title",
-      "artists": "Artists",
       "songCount": "Songs",
       "releaseDate": "Release date",
       "recordLabel": "Record label",
       "unknownLabel": "Unknown",
       "copyright": "Copyright",
-      "barcode": "Barcode (UPC/EAN)",
-      "audioQuality": "Audio quality",
-      "name": "Name",
-      "links": "Links",
-      "noExternalLinks": "No external links",
-      "noExternalLinksDescription": "This artist has no external links available.",
-      "couldNotLoadProviders": "Could not load providers"
+      "audioQuality": "Audio quality"
     },
     "types": {
       "ALBUM": "Album",
@@ -341,7 +299,6 @@
   },
   "player": {
     "noPlayback": "No music playing",
-    "noPlaybackDescription": "Select a device and play music",
     "unknownTitle": "Unknown title",
     "unknownArtist": "Unknown artist",
     "unknownAlbum": "Unknown album",
@@ -397,8 +354,6 @@
     "noDevicesDescription": "Click 'Search devices' to find UPnP devices on your network",
     "searchingDevices": "Searching devices...",
     "searchingDescription": "Please wait while we search for UPnP devices on your network",
-    "hideDetails": "Hide",
-    "showDetails": "Details",
     "hideDebugJson": "Hide Debug JSON",
     "showDebugJson": "Show Debug JSON",
     "localPlayback": "Local playback",
@@ -457,16 +412,6 @@
     "response": "Response",
     "copyJson": "Copy JSON"
   },
-  "linkTypes": {
-    "OFFICIAL_HOMEPAGE": "Official website",
-    "TWITTER": "Twitter/X",
-    "FACEBOOK": "Facebook",
-    "INSTAGRAM": "Instagram",
-    "TIKTOK": "TikTok",
-    "SNAPCHAT": "Snapchat",
-    "TIDAL_SHARING": "Share on TIDAL",
-    "CASHAPP_CONTRIBUTIONS": "Contributions (Cash App)"
-  },
   "lyrics": {
     "searching": "Searching lyrics",
     "noPlayback": "No playback",
@@ -501,8 +446,5 @@
   },
   "app": {
     "description": "A cross-platform UPnP music player"
-  },
-  "tidal": {
-    "errorInitializing": "Error initializing Tidal authentication"
   }
 }

@@ -4,7 +4,6 @@ import { ref } from 'vue';
 import { PLAYER_POLLING_INTERVAL, POSITION_UI_TICK_INTERVAL, UPNP_FAST_POLLING_INTERVAL } from '~/constants/polling';
 
 const currentUpnpState = ref<string>('STOPPED');
-const currentVolume = ref<number>(0);
 const positionInfo = ref<UpnpPositionInfo>({
   relTime: '00:00:00',
   trackDuration: '00:00:00',
@@ -129,28 +128,13 @@ async function stop(deviceId: string) {
   return result;
 }
 
-async function setVolume(deviceId: string, volume: number) {
-  return await invoke('upnp_set_volume', { deviceId, level: volume });
-}
-
-async function getVolume(deviceId: string) {
-  const vol = await invoke<number>('upnp_get_volume', { deviceId });
-  currentVolume.value = vol;
-  return vol;
-}
-
 export default function useUpnpPlayer() {
   return {
     currentUpnpState,
-    currentVolume,
     positionInfo,
     pause,
     stop,
-    setVolume,
-    getVolume,
-    refreshStatus,
     ensureStatusPolling,
-    stopStatusPolling,
     uiTick,
   };
 }

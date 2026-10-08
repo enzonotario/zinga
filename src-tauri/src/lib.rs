@@ -23,17 +23,10 @@ fn set_close_to_tray(enabled: bool, state: tauri::State<CloseToTray>) {
     state.0.store(enabled, Ordering::Relaxed);
 }
 
-#[tauri::command]
-fn get_close_to_tray(state: tauri::State<CloseToTray>) -> bool {
-    state.0.load(Ordering::Relaxed)
-}
-
 mod upnp;
 use upnp::{
-    upnp_connect, upnp_disconnect, upnp_discover, upnp_get_media_info, upnp_get_position_info,
-    upnp_get_services, upnp_get_transport_info, upnp_get_volume, upnp_next, upnp_pause, upnp_play,
-    upnp_previous, upnp_seek, upnp_set_playlist, upnp_set_uri_and_play, upnp_set_volume, upnp_stop,
-    AppState,
+    upnp_connect, upnp_discover, upnp_get_position_info, upnp_get_services,
+    upnp_get_transport_info, upnp_get_volume, upnp_pause, upnp_set_volume, upnp_stop, AppState,
 };
 
 mod direct_stream;
@@ -94,11 +87,6 @@ fn udp_trick_local_ip() -> Result<String, String> {
     }
 }
 
-#[tauri::command]
-fn get_host_ip() -> Result<String, String> {
-    resolve_host_ip()
-}
-
 pub(crate) fn resolve_host_ip() -> Result<String, String> {
     if let Some(ip) = preferred_ipv4_from_interfaces() {
         return Ok(ip);
@@ -118,15 +106,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_get_host_ip() {
-        let result = get_host_ip();
+    fn test_resolve_host_ip() {
+        let result = resolve_host_ip();
         match result {
             Ok(ip) => {
                 assert!(!ip.is_empty());
                 assert_ne!(ip, "0.0.0.0");
             }
             Err(e) => {
-                println!("get_host_ip falló (posiblemente sin red): {}", e);
+                println!("resolve_host_ip falló (posiblemente sin red): {}", e);
             }
         }
     }
@@ -464,13 +452,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             set_close_to_tray,
-            get_close_to_tray,
             upnp_discover,
             upnp_get_services,
             upnp_get_volume,
             upnp_set_volume,
-            upnp_play,
-            upnp_set_uri_and_play,
             upnp::upnp_play_direct,
             upnp::upnp_set_next_direct,
             upnp::upnp_get_sink_protocols,
@@ -492,15 +477,8 @@ pub fn run() {
             upnp_pause,
             upnp_stop,
             upnp_connect,
-            upnp_disconnect,
             upnp_get_transport_info,
             upnp_get_position_info,
-            upnp_get_media_info,
-            upnp_seek,
-            upnp_next,
-            upnp_previous,
-            upnp_set_playlist,
-            get_host_ip,
             remote_server_start,
             remote_server_stop,
             remote_get_pairing_code,

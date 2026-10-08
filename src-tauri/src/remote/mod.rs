@@ -64,7 +64,7 @@ pub async fn start_server(
 ) -> Result<(String, u16, String), String> {
     stop_server(&state).await;
 
-    let host_ip = crate::get_host_ip().unwrap_or_else(|_| "127.0.0.1".to_string());
+    let host_ip = crate::resolve_host_ip().unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = REMOTE_SERVER_PORT;
 
     {

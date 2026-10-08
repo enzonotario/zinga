@@ -1,6 +1,6 @@
 import { extractTidalIds } from '~/providers/tidal/utils';
 
-export { extractTidalIds, extractTidalIdsFromUri, parseTidalUrls } from '~/providers/tidal/utils';
+export { extractTidalIds, extractTidalIdsFromUri } from '~/providers/tidal/utils';
 const trackInfoCache = new Map<string, { data: any, timestamp: number }>();
 const pendingTrackInfoRequests = new Map<string, Promise<any>>();
 const TRACK_INFO_CACHE_TTL = 5 * 60 * 1000;

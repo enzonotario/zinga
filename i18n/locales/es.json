@@ -7,20 +7,14 @@
     "clearFilters": "Limpiar filtros",
     "select": "Seleccionar",
     "retry": "Reintentar",
-    "loading": "Cargando...",
     "yes": "Sí",
     "no": "No",
     "error": "Error",
-    "never": "Nunca",
     "more": "+{count} más",
-    "version": "Versión",
     "status": "Estado",
     "debug": "Debug",
     "details": "Detalles",
     "hide": "Ocultar",
-    "copy": "Copiar",
-    "update": "Actualizar",
-    "test": "Probar",
     "cover": "Carátula",
     "tracks": "Pistas",
     "playGroup": "Reproducir grupo",
@@ -29,7 +23,6 @@
     "all": "Todo",
     "reset": "Restablecer",
     "items": "elementos",
-    "copyright": "Derechos de autor",
     "dbError": "Error de base de datos",
     "scanNow": "Escanear todo ahora",
     "scanning": "Escaneando...",
@@ -63,20 +56,10 @@
       "description": "Tu música en un vistazo",
       "loginTitle": "Iniciá sesión",
       "loginDescription": "Conectate con Tidal para ver tu feed personalizado",
-      "localSync": "Sincronización Local",
       "syncing": "Sincronizando...",
       "sync": "Sincronizar",
-      "savedAlbums": "Álbumes guardados",
-      "savedArtists": "Artistas guardados",
-      "favoriteGenre": "Género favorito",
-      "differentYears": "Años diferentes",
-      "lastSyncAlbums": "Última sync álbumes: {date}",
-      "lastSyncArtists": "Última sync artistas: {date}",
-      "topGenres": "Géneros principales",
       "favoriteAlbums": "Tus álbumes favoritos",
-      "albumCount": "{count} álbum | {count} álbumes",
       "followedArtists": "Artistas que seguís",
-      "artistCount": "{count} artista | {count} artistas",
       "emptyTitle": "Tu feed está vacío",
       "emptyDescription": "Agregá álbumes a favoritos o seguí artistas para verlos acá"
     },
@@ -132,22 +115,13 @@
       "location": "Ubicación"
     },
     "queue": {
-      "title": "Cola de reproducción",
       "songCount": "{count} canciones",
       "clearQueue": "Limpiar cola"
     },
     "about": {
-      "name": "Acerca de",
-      "description": "Información sobre la aplicación",
-      "title": "Acerca de",
-      "appInfo": "Información de la aplicación",
       "appVersion": "Versión",
-      "author": "Autor",
-      "links": "Enlaces",
-      "repository": "Repositorio",
       "viewOnGithub": "Ver en GitHub",
-      "sponsorProject": "Apoyar el proyecto",
-      "visitSite": "Visitar sitio"
+      "sponsorProject": "Apoyar el proyecto"
     },
     "setup": {
       "name": "Verificación del sistema",
@@ -172,7 +146,6 @@
       "system": "Sistema",
       "general": "General",
       "library": "Biblioteca",
-      "generalDescription": "Configuración general de la aplicación",
       "theme": "Tema",
       "themeSystem": "Sistema",
       "themeLight": "Claro",
@@ -271,8 +244,6 @@
     "follow": "Seguir",
     "following": "Siguiendo",
     "unfollow": "Dejar de seguir",
-    "share": "Compartir",
-    "moreOptions": "Más opciones",
     "albums": "Álbumes",
     "eps": "EPs",
     "singles": "Sencillos",
@@ -284,7 +255,6 @@
     "noAlbumsDescription": "Este artista no tiene álbumes publicados",
     "notFound": "Artista no encontrado",
     "notFoundDescription": "No se pudo cargar la información del artista",
-    "login": "Iniciar sesión",
     "errorLoadingAlbums": "Error cargando álbumes",
     "errorLoadingArtist": "Error cargando artista"
   },
@@ -300,30 +270,18 @@
     "addToQueue": "Agregar a la cola",
     "credits": "Créditos",
     "songCount": "{count} canción | {count} canciones",
-    "loadingCredits": "Cargando créditos...",
     "notFound": "Álbum no encontrado",
     "notFoundDescription": "No se pudo cargar la información del álbum",
-    "login": "Iniciar sesión",
     "noPlaybackDevice": "No hay dispositivo de reproducción seleccionado",
     "errorFavorite": "Error al cambiar favorito",
     "playbackError": "Error de reproducción",
     "creditsModal": {
-      "albumCredits": "Créditos del álbum",
-      "artistInfo": "Información del artista",
-      "title": "Título",
-      "artists": "Artistas",
       "songCount": "Canciones",
       "releaseDate": "Fecha de lanzamiento",
       "recordLabel": "Sello discográfico",
       "unknownLabel": "Desconocido",
       "copyright": "Copyright",
-      "barcode": "Código de barras (UPC/EAN)",
-      "audioQuality": "Calidad de audio",
-      "name": "Nombre",
-      "links": "Enlaces",
-      "noExternalLinks": "Sin enlaces externos",
-      "noExternalLinksDescription": "Este artista no tiene enlaces externos disponibles.",
-      "couldNotLoadProviders": "No se pudieron cargar los proveedores"
+      "audioQuality": "Calidad de audio"
     },
     "types": {
       "ALBUM": "Álbum",
@@ -341,7 +299,6 @@
   },
   "player": {
     "noPlayback": "No hay música reproduciéndose",
-    "noPlaybackDescription": "Selecciona un dispositivo y reproduce música",
     "unknownTitle": "Título desconocido",
     "unknownArtist": "Artista desconocido",
     "unknownAlbum": "Álbum desconocido",
@@ -397,8 +354,6 @@
     "noDevicesDescription": "Haz clic en 'Buscar dispositivos' para encontrar dispositivos UPnP en tu red",
     "searchingDevices": "Buscando dispositivos...",
     "searchingDescription": "Por favor espera mientras buscamos dispositivos UPnP en tu red",
-    "hideDetails": "Ocultar",
-    "showDetails": "Detalles",
     "hideDebugJson": "Ocultar Debug JSON",
     "showDebugJson": "Mostrar Debug JSON",
     "localPlayback": "Reproducción local",
@@ -457,16 +412,6 @@
     "response": "Respuesta",
     "copyJson": "Copiar JSON"
   },
-  "linkTypes": {
-    "OFFICIAL_HOMEPAGE": "Sitio oficial",
-    "TWITTER": "Twitter/X",
-    "FACEBOOK": "Facebook",
-    "INSTAGRAM": "Instagram",
-    "TIKTOK": "TikTok",
-    "SNAPCHAT": "Snapchat",
-    "TIDAL_SHARING": "Compartir en TIDAL",
-    "CASHAPP_CONTRIBUTIONS": "Contribuciones (Cash App)"
-  },
   "lyrics": {
     "searching": "Buscando letra",
     "noPlayback": "Sin reproducción",
@@ -501,8 +446,5 @@
   },
   "app": {
     "description": "Un reproductor de música UPnP multiplataforma"
-  },
-  "tidal": {
-    "errorInitializing": "Error inicializando autenticación de Tidal"
   }
 }
