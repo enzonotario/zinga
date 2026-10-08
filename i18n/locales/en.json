@@ -116,7 +116,9 @@
     },
     "queue": {
       "songCount": "{count} songs",
-      "clearQueue": "Clear queue"
+      "clearQueue": "Clear queue",
+      "expand": "Expand queue",
+      "collapse": "Collapse queue"
     },
     "about": {
       "appVersion": "Version",

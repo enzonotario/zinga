@@ -116,7 +116,9 @@
     },
     "queue": {
       "songCount": "{count} canciones",
-      "clearQueue": "Limpiar cola"
+      "clearQueue": "Limpiar cola",
+      "expand": "Expandir cola",
+      "collapse": "Contraer cola"
     },
     "about": {
       "appVersion": "Versión",

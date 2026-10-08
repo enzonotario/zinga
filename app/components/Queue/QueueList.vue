@@ -16,11 +16,19 @@ import { formatTime } from '~/utils/time';
 interface Props {
   compact?: boolean
   maxItems?: number
+  expandable?: boolean
+  expanded?: boolean
+}
+interface Emits {
+  (e: 'update:expanded', value: boolean): void
 }
 const props = withDefaults(defineProps<Props>(), {
   compact: false,
   maxItems: 0,
+  expandable: false,
+  expanded: false,
 });
+const emit = defineEmits<Emits>();
 const { t } = useI18n();
 const queue = usePlayQueue();
 const {
@@ -182,14 +190,25 @@ async function clearQueue() {
           <span class="text-xs font-medium text-muted uppercase tracking-wider px-2">
             {{ $t('pages.queue.songCount', { count: validTracksCount }) }}
           </span>
-          <UButton
-            :label="$t('pages.queue.clearQueue')"
-            icon="i-heroicons-trash"
-            size="xs"
-            variant="ghost"
-            color="error"
-            @click="clearQueue"
-          />
+          <div class="flex items-center gap-1">
+            <UButton
+              :label="$t('pages.queue.clearQueue')"
+              icon="i-heroicons-trash"
+              size="xs"
+              variant="ghost"
+              color="error"
+              @click="clearQueue"
+            />
+            <UButton
+              v-if="expandable"
+              :icon="expanded ? 'i-heroicons-arrows-pointing-in' : 'i-heroicons-arrows-pointing-out'"
+              :aria-label="expanded ? $t('pages.queue.collapse') : $t('pages.queue.expand')"
+              size="xs"
+              variant="ghost"
+              color="neutral"
+              @click="emit('update:expanded', !expanded)"
+            />
+          </div>
         </div>
         <div v-if="totalDuration > 0" class="shrink-0">
           <div class="px-4 flex justify-between text-[10px] font-medium text-muted uppercase tracking-wider">

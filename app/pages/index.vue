@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed, ref, watch } from 'vue';
+import { computed, ref, useTemplateRef, watch } from 'vue';
 import LyricsPanelBody from '~/components/Player/LyricsPanelBody.vue';
 import LyricsPanelFloatingCard from '~/components/Player/LyricsPanelFloatingCard.vue';
 import LyricsPanelFullscreenCard from '~/components/Player/LyricsPanelFullscreenCard.vue';
@@ -35,6 +35,9 @@ const {
 } = useLyricsFontSize();
 const { lyricsPanelMode } = useLyricsPanelMode();
 const provider = getCurrentProvider();
+const queueCard = useTemplateRef<{ $el: HTMLElement }>('queueCard');
+const queueExpanded = ref(false);
+const queueCollapsedHeight = ref(0);
 const isPlaying = computed(() => player.isDevicePlaying.value);
 const tidalAlbum = computed(() => {
   const album = currentTrack.value?.tidalData?.album;
@@ -160,6 +163,10 @@ const vinylCurrentTrackNumber = computed(() => {
 const artistName = computed(() => tidalArtist.value?.attributes?.name || currentTrack.value?.artist);
 const asyncAlbumCover = ref<string | null>(null);
 const lastLoadedAlbumId = ref<string | null>(null);
+function setQueueExpanded(value: boolean) {
+  if (value) queueCollapsedHeight.value = queueCard.value?.$el?.offsetHeight ?? 0;
+  queueExpanded.value = value;
+}
 watch(
   () => tidalAlbum.value,
   async (album) => {
@@ -234,13 +241,29 @@ watch(
           :inline-credits="albumInlineCredits"
         />
       </div>
-      <div class="flex flex-col gap-4 md:min-h-0 md:min-w-0 overflow-visible py-2">
+      <div class="relative flex flex-col gap-4 md:min-h-0 md:min-w-0 overflow-visible py-2">
         <UCard
-          class="shrink-0 md:max-h-[40%] max-h-[60vh] overflow-hidden flex flex-col z-10"
+          ref="queueCard"
+          class="shrink-0 overflow-hidden flex flex-col z-10"
+          :class="queueExpanded
+            ? 'queue-card-expanded max-h-[80vh] md:absolute md:inset-x-0 md:top-2 md:bottom-2 md:max-h-none md:z-20'
+            : 'md:max-h-[40%] max-h-[60vh]'"
+          :style="queueExpanded ? { '--queue-collapsed-height': `${queueCollapsedHeight}px` } : undefined"
           :ui="{ body: 'p-0! flex-1 overflow-hidden' }"
         >
-          <QueueList class="max-h-full" />
+          <QueueList
+            class="max-h-full"
+            expandable
+            :expanded="queueExpanded"
+            @update:expanded="setQueueExpanded"
+          />
         </UCard>
+        <div
+          v-if="queueExpanded"
+          class="hidden md:block shrink-0"
+          :style="{ height: `${queueCollapsedHeight}px` }"
+          aria-hidden="true"
+        />
         <div class="md:flex-1 md:min-h-0 min-w-0 w-full flex items-center justify-center py-4 md:py-0 px-1 md:px-2 -mt-[15vh]">
           <PlayerVinylPlayer
             :cover-url="albumCover || currentTrack?.coverUrl || undefined"
@@ -348,3 +371,18 @@ watch(
     </UButton>
   </div>
 </template>
+
+<style scoped>
+.queue-card-expanded {
+  animation: queue-expand 280ms ease-out;
+}
+
+@keyframes queue-expand {
+  from {
+    clip-path: inset(0 0 calc(100% - var(--queue-collapsed-height, 40%)) 0 round var(--radius-xl));
+  }
+  to {
+    clip-path: inset(0 0 0 0 round var(--radius-xl));
+  }
+}
+</style>
