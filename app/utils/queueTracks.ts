@@ -2,11 +2,21 @@ import type { QueueTrack } from './playQueue';
 import type { NormalizedTrack } from '~/providers/types';
 import { normalizeTrack } from '~/providers/tidal/normalizer';
 
-export function toQueueTrack(track: NormalizedTrack, album?: { title: string } | null): QueueTrack {
+interface QueueAlbum {
+  title: string
+  artists?: { name: string }[]
+}
+
+function namedArtists(artists: { name: string }[] = []) {
+  return artists.filter((artist) => artist.name?.trim()).map((artist) => ({ name: artist.name }));
+}
+
+export function toQueueTrack(track: NormalizedTrack, album?: QueueAlbum | null): QueueTrack {
+  const artists = namedArtists(track.artists);
   return {
     uri: `tidal:track:${track.id}`,
     name: track.title,
-    artists: track.artists.map((artist) => ({ name: artist.name })),
+    artists: artists.length ? artists : namedArtists(album?.artists),
     album: album ? { name: album.title } : undefined,
     length: track.duration ? Math.round(track.duration * 1000) : undefined,
   };

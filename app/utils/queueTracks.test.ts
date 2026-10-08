@@ -24,6 +24,10 @@ describe('queueTracks utils', () => {
         length: 200400,
       });
     });
+    it('should fall back to album artists when track artists have no names', () => {
+      const track = normalizedTrack({ artists: [{ id: '1', name: '' }] });
+      expect(toQueueTrack(track, { title: 'Album', artists: [{ name: 'Placebo' }] }).artists).toEqual([{ name: 'Placebo' }]);
+    });
     it('should omit album and length when unknown', () => {
       const track = toQueueTrack(normalizedTrack({ duration: undefined }), null);
       expect(track.album).toBeUndefined();

@@ -11,6 +11,7 @@ struct LocalPlayer {
     playbin: gst::Element,
     next_uri: Arc<Mutex<Option<String>>>,
     track_uri: String,
+    desired: gst::State,
     volume: u32,
 }
 
@@ -56,6 +57,7 @@ impl LocalPlayer {
             playbin,
             next_uri,
             track_uri: String::new(),
+            desired: gst::State::Null,
             volume: 100,
         })
     }
@@ -67,11 +69,11 @@ impl LocalPlayer {
             .map_err(|e| format!("Failed to set local player to {state:?}: {e}"))
     }
 
-    fn transition(&self, state: gst::State) -> Result<(), String> {
-        let (_, current, pending) = self.playbin.state(gst::ClockTime::ZERO);
-        if current == gst::State::Null && pending == gst::State::VoidPending {
+    fn transition(&mut self, state: gst::State) -> Result<(), String> {
+        if self.desired == gst::State::Null {
             return Ok(());
         }
+        self.desired = state;
         self.set_state(state)
     }
 
@@ -80,6 +82,7 @@ impl LocalPlayer {
     }
 
     fn halt(&mut self) {
+        self.desired = gst::State::Null;
         let _ = self.playbin.set_state(gst::State::Null);
         self.set_next(None);
     }
@@ -89,6 +92,7 @@ impl LocalPlayer {
         self.set_next(None);
         self.track_uri.clear();
         self.playbin.set_property("uri", uri);
+        self.desired = gst::State::Playing;
         self.set_state(gst::State::Playing)
     }
 
@@ -136,8 +140,8 @@ impl LocalPlayer {
 
     fn status(&mut self) -> LocalStatus {
         self.drain_bus();
-        let (_, current, pending) = self.playbin.state(gst::ClockTime::ZERO);
-        let state = renderer_state(current, pending);
+        let (_, current, _) = self.playbin.state(gst::ClockTime::ZERO);
+        let state = renderer_state(current, self.desired);
         let position_sec = self
             .playbin
             .query_position::<gst::ClockTime>()
@@ -151,13 +155,12 @@ impl LocalPlayer {
     }
 }
 
-fn renderer_state(current: gst::State, pending: gst::State) -> &'static str {
-    if pending == gst::State::Playing {
-        return "TRANSITIONING";
-    }
-    match current {
-        gst::State::Playing => "PLAYING",
-        gst::State::Paused => "PAUSED_PLAYBACK",
+// Reported from the requested state: while prerolling GStreamer sits in READY/PAUSED, which is not a stop
+fn renderer_state(current: gst::State, desired: gst::State) -> &'static str {
+    match (desired, current) {
+        (gst::State::Playing, gst::State::Playing) => "PLAYING",
+        (gst::State::Playing, _) => "TRANSITIONING",
+        (gst::State::Paused, _) => "PAUSED_PLAYBACK",
         _ => "STOPPED",
     }
 }
@@ -268,13 +271,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn renderer_state_matches_upnp_transport_states() {
+    fn renderer_state_follows_requested_state() {
         use gst::State::*;
-        assert_eq!(renderer_state(Paused, Playing), "TRANSITIONING");
         assert_eq!(renderer_state(Ready, Playing), "TRANSITIONING");
-        assert_eq!(renderer_state(Playing, VoidPending), "PLAYING");
-        assert_eq!(renderer_state(Paused, VoidPending), "PAUSED_PLAYBACK");
-        assert_eq!(renderer_state(Ready, VoidPending), "STOPPED");
-        assert_eq!(renderer_state(Null, VoidPending), "STOPPED");
+        assert_eq!(renderer_state(Paused, Playing), "TRANSITIONING");
+        assert_eq!(renderer_state(Playing, Playing), "PLAYING");
+        assert_eq!(renderer_state(Playing, Paused), "PAUSED_PLAYBACK");
+        assert_eq!(renderer_state(Paused, Paused), "PAUSED_PLAYBACK");
+        assert_eq!(renderer_state(Null, Null), "STOPPED");
+        assert_eq!(renderer_state(Playing, Null), "STOPPED");
     }
 }
