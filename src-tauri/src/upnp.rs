@@ -2,7 +2,7 @@ use quick_xml::events::Event;
 use quick_xml::Reader;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::net::{SocketAddrV4, UdpSocket};
+use std::net::{IpAddr, SocketAddrV4, UdpSocket};
 use std::str::FromStr;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -109,6 +109,25 @@ pub struct InnerState {
 #[derive(Default)]
 pub struct AppState {
     pub inner: Mutex<InnerState>,
+}
+
+impl AppState {
+    pub fn renderer_hosts(&self) -> Vec<IpAddr> {
+        let Ok(inner) = self.inner.lock() else {
+            return Vec::new();
+        };
+        inner
+            .devices
+            .values()
+            .filter_map(|d| Url::parse(d.location.as_deref()?).ok())
+            .filter_map(|url| match url.host()? {
+                url::Host::Ipv4(ip) => Some(IpAddr::V4(ip)),
+                url::Host::Ipv6(ip) => Some(IpAddr::V6(ip)),
+                url::Host::Domain(domain) => domain.parse().ok(),
+            })
+            .map(|ip| ip.to_canonical())
+            .collect()
+    }
 }
 
 fn parse_headers(resp: &str) -> HashMap<String, String> {
@@ -1503,6 +1522,43 @@ mod tests {
             "http://192.168.1.10:8080/desc.xml"
         );
         assert_eq!(headers.get("USN").unwrap(), "uuid:1234::upnp:rootdevice");
+    }
+
+    fn direct_meta(artist: Option<&str>, album: Option<&str>) -> DirectTrackMeta {
+        DirectTrackMeta {
+            title: "Rock & Roll <Live> \"Mix\"".to_string(),
+            artist: artist.map(str::to_string),
+            album: album.map(str::to_string),
+            duration_sec: Some(124.693),
+        }
+    }
+
+    #[test]
+    fn build_direct_didl_escapes_xml_special_chars() {
+        let didl = build_direct_didl(
+            "http://h:9633/stream/1/2.flac?start=0.000&x=1",
+            &direct_meta(Some("Simon & <Garfunkel>"), Some("A \"B\" & C")),
+        );
+        assert!(didl.contains("<dc:title>Rock &amp; Roll &lt;Live&gt; &quot;Mix&quot;</dc:title>"));
+        assert!(didl.contains("<upnp:artist>Simon &amp; &lt;Garfunkel&gt;</upnp:artist>"));
+        assert!(didl.contains("<dc:creator>Simon &amp; &lt;Garfunkel&gt;</dc:creator>"));
+        assert!(didl.contains("<upnp:album>A &quot;B&quot; &amp; C</upnp:album>"));
+        assert!(didl.contains(">http://h:9633/stream/1/2.flac?start=0.000&amp;x=1</res>"));
+    }
+
+    #[test]
+    fn build_direct_didl_formats_duration() {
+        let didl = build_direct_didl("http://h/x.flac", &direct_meta(None, None));
+        assert!(didl.contains("duration=\"0:02:04.693\""));
+        assert_eq!(format_didl_duration(3725.5), "1:02:05.500");
+    }
+
+    #[test]
+    fn build_direct_didl_omits_missing_artist_and_album() {
+        let didl = build_direct_didl("http://h/x.flac", &direct_meta(None, None));
+        assert!(!didl.contains("upnp:artist>"));
+        assert!(!didl.contains("dc:creator>"));
+        assert!(!didl.contains("upnp:album>"));
     }
 
     #[test]

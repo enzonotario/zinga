@@ -1,16 +1,17 @@
 use axum::body::{Body, Bytes};
-use axum::extract::{Path as AxumPath, Query};
+use axum::extract::{ConnectInfo, Path as AxumPath, Query, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, ChildStdout};
 
@@ -18,6 +19,7 @@ pub const DIRECT_STREAM_PORT: u16 = 9633;
 const MANIFEST_TTL: Duration = Duration::from_secs(30 * 60);
 const MANIFEST_FETCH_TIMEOUT_SECS: u64 = 20;
 const STREAM_CHUNK_SIZE: usize = 64 * 1024;
+const FFMPEG_EXIT_WAIT: Duration = Duration::from_secs(1);
 const DLNA_CONTENT_FEATURES: &str =
     "DLNA.ORG_OP=00;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000";
 
@@ -171,7 +173,7 @@ fn stream_headers() -> HeaderMap {
     headers
 }
 
-fn spawn_ffmpeg(input: &str, start: f64) -> Result<(ChildStdout, Child), String> {
+fn spawn_ffmpeg(input: &str, start: f64, track_id: &str) -> Result<(ChildStdout, Child), String> {
     let mut cmd = tokio::process::Command::new("ffmpeg");
     cmd.args([
         "-hide_banner",
@@ -193,7 +195,7 @@ fn spawn_ffmpeg(input: &str, start: f64) -> Result<(ChildStdout, Child), String>
     ])
     .stdin(Stdio::null())
     .stdout(Stdio::piped())
-    .stderr(Stdio::null())
+    .stderr(Stdio::piped())
     .kill_on_drop(true);
     crate::setup::sanitize_external_env(cmd.as_std_mut());
 
@@ -201,33 +203,76 @@ fn spawn_ffmpeg(input: &str, start: f64) -> Result<(ChildStdout, Child), String>
         .spawn()
         .map_err(|e| format!("Failed to spawn ffmpeg: {e}"))?;
     let stdout = child.stdout.take().ok_or("ffmpeg stdout unavailable")?;
+    if let Some(mut stderr) = child.stderr.take() {
+        let track_id = track_id.to_string();
+        tokio::spawn(async move {
+            let mut buf = Vec::new();
+            let _ = stderr.read_to_end(&mut buf).await;
+            let msg = String::from_utf8_lossy(&buf);
+            let msg = msg.trim();
+            if !msg.is_empty() {
+                eprintln!("[DirectStream] ffmpeg track {track_id}: {msg}");
+            }
+        });
+    }
     Ok((stdout, child))
 }
 
-fn ffmpeg_body(stdout: ChildStdout, child: Child) -> Body {
+async fn log_ffmpeg_exit(child: &mut Child, track_id: &str) {
+    match tokio::time::timeout(FFMPEG_EXIT_WAIT, child.wait()).await {
+        Ok(Ok(status)) if !status.success() => {
+            eprintln!("[DirectStream] ffmpeg track {track_id} exited with {status}");
+        }
+        Ok(Err(e)) => eprintln!("[DirectStream] ffmpeg track {track_id} wait failed: {e}"),
+        _ => {}
+    }
+}
+
+fn ffmpeg_body(stdout: ChildStdout, child: Child, track_id: String) -> Body {
     // The Child lives in the stream state: when the client disconnects, the body is
     // dropped, which drops the Child and kill_on_drop terminates ffmpeg.
-    let stream = futures_util::stream::unfold((stdout, child), |(mut stdout, child)| async move {
-        let mut buf = vec![0u8; STREAM_CHUNK_SIZE];
-        match stdout.read(&mut buf).await {
-            Ok(0) | Err(_) => None,
-            Ok(n) => {
-                buf.truncate(n);
-                Some((
-                    Ok::<Bytes, std::io::Error>(Bytes::from(buf)),
-                    (stdout, child),
-                ))
+    let stream = futures_util::stream::unfold(
+        (stdout, child, track_id),
+        |(mut stdout, mut child, track_id)| async move {
+            let mut buf = vec![0u8; STREAM_CHUNK_SIZE];
+            match stdout.read(&mut buf).await {
+                Ok(0) | Err(_) => {
+                    log_ffmpeg_exit(&mut child, &track_id).await;
+                    None
+                }
+                Ok(n) => {
+                    buf.truncate(n);
+                    Some((
+                        Ok::<Bytes, std::io::Error>(Bytes::from(buf)),
+                        (stdout, child, track_id),
+                    ))
+                }
             }
-        }
-    });
+        },
+    );
     Body::from_stream(stream)
+}
+
+fn is_allowed_peer(app: &AppHandle, peer: IpAddr) -> bool {
+    let peer = peer.to_canonical();
+    peer.is_loopback()
+        || app
+            .try_state::<crate::upnp::AppState>()
+            .is_some_and(|state| state.renderer_hosts().contains(&peer))
 }
 
 async fn stream_handler(
     method: Method,
+    State(app): State<AppHandle>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     AxumPath((_tlid, file)): AxumPath<(String, String)>,
     Query(query): Query<StreamQuery>,
 ) -> Response {
+    if !is_allowed_peer(&app, peer.ip()) {
+        eprintln!("[DirectStream] Rejected request from non-renderer {}", peer.ip());
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
     let Some(track_id) = file.strip_suffix(".flac").filter(|id| is_valid_track_id(id)) else {
         return (StatusCode::BAD_REQUEST, "Invalid track file").into_response();
     };
@@ -252,10 +297,13 @@ async fn stream_handler(
         Err(e) => return (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
     };
 
-    match spawn_ffmpeg(&input, start) {
-        Ok((stdout, child)) => {
-            (StatusCode::OK, stream_headers(), ffmpeg_body(stdout, child)).into_response()
-        }
+    match spawn_ffmpeg(&input, start, track_id) {
+        Ok((stdout, child)) => (
+            StatusCode::OK,
+            stream_headers(),
+            ffmpeg_body(stdout, child, track_id.to_string()),
+        )
+            .into_response(),
         Err(e) => {
             eprintln!("[DirectStream] {e}");
             (StatusCode::BAD_GATEWAY, e).into_response()
@@ -280,11 +328,14 @@ pub fn start(app_handle: AppHandle) {
                     return;
                 }
             };
-        let router = Router::new().route(
-            "/stream/{tlid}/{file}",
-            get(stream_handler).head(stream_handler),
-        );
-        if let Err(e) = axum::serve(listener, router).await {
+        let router = Router::new()
+            .route(
+                "/stream/{tlid}/{file}",
+                get(stream_handler).head(stream_handler),
+            )
+            .with_state(app_handle);
+        let service = router.into_make_service_with_connect_info::<SocketAddr>();
+        if let Err(e) = axum::serve(listener, service).await {
             eprintln!("[DirectStream] Server error: {e}");
         }
     });

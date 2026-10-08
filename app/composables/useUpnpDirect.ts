@@ -1,6 +1,7 @@
 import type { MopidyTlTrack } from './useMopidy';
 import { invoke } from '@tauri-apps/api/core';
 import { computed, ref, watch } from 'vue';
+import { buildStreamUrl, canPlayDirect, getTidalTrackId, parseStreamUri } from '~/utils/directStream';
 import { timeToSeconds } from '~/utils/time';
 import useMopidy from './useMopidy';
 import useUpnpPlayer from './useUpnpPlayer';
@@ -12,10 +13,10 @@ interface DirectTrackMeta {
   durationSec?: number
 }
 
-type FailureHandler = (deviceId: string, tlid: number) => Promise<void>;
+type FailureHandler = (deviceId: string, tlid: number, startSec: number) => Promise<void>;
 
 const DIRECT_START_TIMEOUT_MS = 15000;
-const STREAM_URI_PATTERN = /\/stream\/(\d+)\/\d+\.flac\?start=([\d.]+)/;
+const NATURAL_END_MARGIN_SEC = 3;
 
 const directDeviceId = ref<string | null>(null);
 const currentTlid = ref<number | null>(null);
@@ -30,22 +31,8 @@ let baseUrl: string | null = null;
 let failureHandler: FailureHandler | null = null;
 let watchersRegistered = false;
 let startRequestId = 0;
-
-export function getTidalTrackId(uri?: string) {
-  if (!uri?.startsWith('tidal:track:')) return null;
-  const id = uri.split(':').pop();
-  return id && /^\d+$/.test(id) ? id : null;
-}
-
-export function canPlayDirect(tracklist: MopidyTlTrack[]) {
-  return tracklist.length > 0 && tracklist.every((item) => getTidalTrackId(item.track?.uri) != null);
-}
-
-export function parseStreamUri(uri?: string | null) {
-  const match = uri?.match(STREAM_URI_PATTERN);
-  if (!match) return null;
-  return { tlid: Number(match[1]), startSec: Number(match[2]) };
-}
+let currentIndexHint = -1;
+let currentTlTrackCache: MopidyTlTrack | null = null;
 
 function buildMeta(tlTrack: MopidyTlTrack): DirectTrackMeta {
   const track = tlTrack.track;
@@ -55,10 +42,6 @@ function buildMeta(tlTrack: MopidyTlTrack): DirectTrackMeta {
     album: track.album?.name,
     durationSec: track.length ? track.length / 1000 : undefined,
   };
-}
-
-function buildStreamUrl(base: string, tlid: number, trackId: string, startSec: number) {
-  return `${base}/stream/${tlid}/${trackId}.flac?start=${startSec.toFixed(3)}`;
 }
 
 async function getBaseUrl() {
@@ -96,12 +79,34 @@ export default function useUpnpDirect() {
     return mopidy.tracklist.value.find((item) => item.tlid === tlid);
   }
 
+  function resolveCurrentIndex(list: MopidyTlTrack[]) {
+    const index = list.findIndex((item) => item.tlid === currentTlid.value);
+    const item = list[index];
+    if (item) {
+      currentIndexHint = index;
+      currentTlTrackCache = item;
+    }
+    return index;
+  }
+
+  function getNextItem(list: MopidyTlTrack[]) {
+    const index = resolveCurrentIndex(list);
+    if (index >= 0) return list[index + 1];
+    return currentIndexHint >= 0 ? list[currentIndexHint] : undefined;
+  }
+
+  function getPreviousItem(list: MopidyTlTrack[]) {
+    const index = resolveCurrentIndex(list);
+    if (index >= 0) return index > 0 ? list[index - 1] : list[index];
+    return list[currentIndexHint - 1] ?? list[0];
+  }
+
   function publishState() {
     if (!isActive.value) return;
     mopidy.setPlaybackOverride({
       state: isPaused.value ? 'paused' : 'playing',
       time_position: Math.round(positionSec.value * 1000),
-      track: findTlTrack(currentTlid.value) ?? null,
+      track: findTlTrack(currentTlid.value) ?? currentTlTrackCache,
     });
   }
 
@@ -115,6 +120,8 @@ export default function useUpnpDirect() {
     lastTrackUri = '';
     lastRelSec = -1;
     nextQueuedTlid = undefined;
+    currentIndexHint = -1;
+    currentTlTrackCache = null;
     mopidy.setPlaybackOverride(null);
     void mopidy.refreshState();
   }
@@ -132,10 +139,11 @@ export default function useUpnpDirect() {
   async function handleStartFailure() {
     const deviceId = directDeviceId.value;
     const tlid = pending.value?.tlid ?? currentTlid.value;
+    const startSec = pending.value?.startSec ?? pausedAtSec.value ?? positionSec.value;
     endSession();
     if (!deviceId || tlid == null) return;
     try {
-      await failureHandler?.(deviceId, tlid);
+      await failureHandler?.(deviceId, tlid, startSec);
     } catch (err) {
       console.error('Direct UPnP fallback error:', err);
     }
@@ -148,9 +156,7 @@ export default function useUpnpDirect() {
   async function queueNext() {
     const deviceId = directDeviceId.value;
     if (!deviceId) return;
-    const list = mopidy.tracklist.value;
-    const index = list.findIndex((item) => item.tlid === currentTlid.value);
-    const next = index >= 0 ? list[index + 1] : undefined;
+    const next = getNextItem(mopidy.tracklist.value);
     const nextTrackId = getTidalTrackId(next?.track?.uri);
     const targetTlid = next && nextTrackId ? next.tlid : null;
     if (targetTlid === nextQueuedTlid) return;
@@ -172,6 +178,22 @@ export default function useUpnpDirect() {
       if (nextQueuedTlid === targetTlid) nextQueuedTlid = undefined;
       console.error('Direct UPnP next track error:', err);
     }
+  }
+
+  function handleDeviceStopped() {
+    const lengthMs = (findTlTrack(currentTlid.value) ?? currentTlTrackCache)?.track?.length;
+    // Renderers often reset RelTime once stopped, so the local clock is the better end-of-track signal
+    const clockSec = Number.isFinite(anchorAt.value)
+      ? startOffsetSec.value + (performance.now() - anchorAt.value) / 1000
+      : 0;
+    const endedNaturally = !!lengthMs
+      && Math.max(positionSec.value, clockSec) >= lengthMs / 1000 - NATURAL_END_MARGIN_SEC;
+    const nextItem = endedNaturally ? getNextItem(mopidy.tracklist.value) : undefined;
+    if (nextItem && getTidalTrackId(nextItem.track?.uri)) {
+      void restartAt(nextItem, 0);
+      return;
+    }
+    void stop();
   }
 
   function syncFromDevice() {
@@ -201,7 +223,7 @@ export default function useUpnpDirect() {
     }
 
     if (state === 'STOPPED') {
-      void stop();
+      handleDeviceStopped();
       return;
     }
 
@@ -213,6 +235,8 @@ export default function useUpnpDirect() {
     if (trackUri !== lastTrackUri) {
       lastTrackUri = trackUri;
       currentTlid.value = parsed.tlid;
+      currentTlTrackCache = findTlTrack(parsed.tlid) ?? null;
+      resolveCurrentIndex(mopidy.tracklist.value);
       startOffsetSec.value = parsed.startSec;
       anchorAt.value = Number.POSITIVE_INFINITY;
       lastRelSec = rel;
@@ -241,24 +265,37 @@ export default function useUpnpDirect() {
     lastTrackUri = '';
     nextQueuedTlid = undefined;
     anchorAt.value = Number.POSITIVE_INFINITY;
+    currentTlTrackCache = tlTrack;
+    currentIndexHint = -1;
+    resolveCurrentIndex(mopidy.tracklist.value);
     publishState();
 
-    await mopidy.mopidyRpc('core.playback.stop').catch(() => {});
-    const base = await getBaseUrl();
-    await invoke('tidal_prepare_stream', { trackId });
-    if (!isCurrentRequest()) return;
-    await invoke('upnp_play_direct', {
-      deviceId,
-      uri: buildStreamUrl(base, tlTrack.tlid, trackId, startSec),
-      meta: buildMeta(tlTrack),
-    });
-    const request = pending.value;
-    if (requestId !== startRequestId || !request) return;
-    request.acked = true;
-    upnp.ensureStatusPolling(deviceId);
-    setTimeout(() => {
-      if (requestId === startRequestId && pending.value === request) void handleStartFailure();
-    }, DIRECT_START_TIMEOUT_MS);
+    try {
+      await mopidy.mopidyRpc('core.playback.stop').catch(() => {});
+      const base = await getBaseUrl();
+      await invoke('tidal_prepare_stream', { trackId });
+      if (!isCurrentRequest()) return;
+      await invoke('upnp_play_direct', {
+        deviceId,
+        uri: buildStreamUrl(base, tlTrack.tlid, trackId, startSec),
+        meta: buildMeta(tlTrack),
+      });
+      if (requestId !== startRequestId) {
+        // The Pause SOAP may have reached the device before this Play
+        if (pausedAtSec.value != null && directDeviceId.value === deviceId) await upnp.pause(deviceId);
+        return;
+      }
+      const request = pending.value;
+      if (!request) return;
+      request.acked = true;
+      upnp.ensureStatusPolling(deviceId);
+      setTimeout(() => {
+        if (requestId === startRequestId && pending.value === request) void handleStartFailure();
+      }, DIRECT_START_TIMEOUT_MS);
+    } catch (err) {
+      if (requestId !== startRequestId) return;
+      throw err;
+    }
   }
 
   async function restartAt(tlTrack: MopidyTlTrack, startSec: number) {
@@ -275,6 +312,7 @@ export default function useUpnpDirect() {
   async function pause() {
     const deviceId = directDeviceId.value;
     if (!deviceId) return;
+    startRequestId++;
     pausedAtSec.value = positionSec.value;
     pending.value = null;
     publishState();
@@ -306,9 +344,7 @@ export default function useUpnpDirect() {
   }
 
   async function next() {
-    const list = mopidy.tracklist.value;
-    const index = list.findIndex((item) => item.tlid === currentTlid.value);
-    const target = list[index + 1];
+    const target = getNextItem(mopidy.tracklist.value);
     if (!target) {
       await stop();
       return;
@@ -317,9 +353,7 @@ export default function useUpnpDirect() {
   }
 
   async function previous() {
-    const list = mopidy.tracklist.value;
-    const index = list.findIndex((item) => item.tlid === currentTlid.value);
-    const target = index > 0 ? list[index - 1] : list[index];
+    const target = getPreviousItem(mopidy.tracklist.value);
     if (!target) return;
     await restartAt(target, 0);
   }

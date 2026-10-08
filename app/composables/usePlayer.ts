@@ -135,12 +135,13 @@ export default function usePlayer() {
       return false;
     }
   }
-  async function playViaMopidy(deviceId: string, tlid?: number) {
+  async function playViaMopidy(deviceId: string, tlid?: number, startSec = 0) {
     if (tlid != null) {
       await mopidy.mopidyRpc('core.playback.play', { tlid });
       await mopidy.refreshState();
     }
     await playOnUpnp(deviceId);
+    if (startSec > 0) await seek(startSec);
   }
   async function play() {
     if (remote.isRemoteMode.value) return mopidy.play();
@@ -353,7 +354,7 @@ export default function usePlayer() {
   }
   if (import.meta.client && !playerGlobalWatchersRegistered) {
     playerGlobalWatchersRegistered = true;
-    direct.setFailureHandler((deviceId, tlid) => playViaMopidy(deviceId, tlid));
+    direct.setFailureHandler((deviceId, tlid, startSec) => playViaMopidy(deviceId, tlid, startSec));
     watch(() => mopidy.currentState.value.state, (newState, oldState) => {
       if (direct.isActive.value) return;
       if (
@@ -405,7 +406,7 @@ export default function usePlayer() {
             await mopidy.seek(Math.round(positionSec * 1000));
             return;
           }
-          if (!(await tryPlayDirect(newId, tlid, positionSec))) await playViaMopidy(newId, tlid);
+          if (!(await tryPlayDirect(newId, tlid, positionSec))) await playViaMopidy(newId, tlid, positionSec);
         } catch (err) {
           console.error('Direct UPnP device switch error:', err);
         }
