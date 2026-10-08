@@ -1,6 +1,5 @@
 <script lang="ts" setup>
 import type { NormalizedAlbum, NormalizedCredit, NormalizedTrack } from '~/providers/types';
-import type { QueueTrack } from '~/utils/playQueue';
 import { useLocalStorage } from '@vueuse/core';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import useAppBackground from '~/composables/useAppBackground';
@@ -8,6 +7,7 @@ import useDevices from '~/composables/useDevices';
 import usePlayer from '~/composables/usePlayer';
 import useProvider from '~/composables/useProvider';
 import useProviderArtwork from '~/composables/useProviderArtwork';
+import { toQueueTrack } from '~/utils/queueTracks';
 import { formatTime, formatTimeHHMMSS } from '~/utils/time';
 
 interface Props {
@@ -190,14 +190,8 @@ function onLoginSuccess() {
   loadFavoritesStatus();
 }
 const player = usePlayer();
-function toQueueTrack(track: NormalizedTrack): QueueTrack {
-  return {
-    uri: `tidal:track:${track.id}`,
-    name: track.title,
-    artists: track.artists.map((artist) => ({ name: artist.name })),
-    album: album.value ? { name: album.value.title } : undefined,
-    length: track.duration ? Math.round(track.duration * 1000) : undefined,
-  };
+function albumQueueTrack(track: NormalizedTrack) {
+  return toQueueTrack(track, album.value);
 }
 async function playTracks(trackList: NormalizedTrack[], setLoading: (loading: boolean) => void) {
   if (!selectedDeviceId.value) {
@@ -208,7 +202,7 @@ async function playTracks(trackList: NormalizedTrack[], setLoading: (loading: bo
   try {
     setLoading(true);
     actionError.value = null;
-    await player.playTracks(trackList.map(toQueueTrack));
+    await player.playTracks(trackList.map(albumQueueTrack));
     await navigateTo('/');
   } catch (err) {
     actionError.value = err instanceof Error ? err.message : t('album.playbackError');
@@ -241,7 +235,7 @@ function addAlbumToQueue() {
     return;
   }
   actionError.value = null;
-  player.addTracks(tracks.value.map(toQueueTrack));
+  player.addTracks(tracks.value.map(albumQueueTrack));
 }
 const albumTitle = computed(() => album.value?.title || t('album.unknown'));
 const albumReleaseDate = computed(() => album.value?.releaseDate);

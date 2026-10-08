@@ -1,14 +1,20 @@
 import type { QueueState, QueueTrack } from '~/utils/playQueue';
 import { computed, shallowRef, watch } from 'vue';
 import { addTracks, clearItems, createQueueState, parseQueueState, removeItem, replaceTracks, setCurrentItem } from '~/utils/playQueue';
+import { parsePlaybackSnapshot, parseQueueSnapshot } from '~/utils/remoteSnapshot';
+import useRemoteClient from './useRemoteClient';
 
 export type { QueueItem, QueueTrack } from '~/utils/playQueue';
 
 const STORAGE_KEY = 'playQueue';
 
 const state = shallowRef<QueueState>(createQueueState());
-const items = computed(() => state.value.items);
-const currentTlid = computed(() => state.value.currentTlid);
+const remote = useRemoteClient();
+const items = computed(() => (remote.isRemoteMode.value ? parseQueueSnapshot(remote.lastQueueUpdate.value) : state.value.items));
+const currentTlid = computed(() => {
+  if (!remote.isRemoteMode.value) return state.value.currentTlid;
+  return parsePlaybackSnapshot(remote.lastPlaybackState.value).item?.tlid ?? null;
+});
 const currentItem = computed(() => items.value.find((item) => item.tlid === currentTlid.value));
 
 if (import.meta.client) {

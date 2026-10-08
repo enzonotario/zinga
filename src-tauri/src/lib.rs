@@ -44,14 +44,6 @@ mod setup;
 mod tidal_session;
 mod window_shortcuts;
 
-#[tauri::command]
-async fn mopidy_rpc(
-    method: String,
-    params: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    remote::mopidy::call_mopidy_rpc("127.0.0.1", &method, &params)
-}
-
 use std::process::Command;
 use std::sync::Mutex;
 static TEST_PIPELINE: Mutex<Option<gstreamer::Pipeline>> = Mutex::new(None);
@@ -394,14 +386,11 @@ async fn remote_set_tidal_token(
 
 #[tauri::command]
 async fn remote_broadcast_state(
-    payload: serde_json::Value,
+    playback: Option<serde_json::Value>,
+    queue: Option<serde_json::Value>,
     remote_state: tauri::State<'_, Arc<remote::state::RemoteState>>,
 ) -> Result<(), String> {
-    let msg = serde_json::json!({
-        "type": "playback_state",
-        "data": payload,
-    });
-    let _ = remote_state.broadcast_tx.send(msg.to_string());
+    remote_state.update_snapshots(playback, queue).await;
     Ok(())
 }
 
@@ -695,7 +684,6 @@ pub fn run() {
             upnp_previous,
             upnp_set_playlist,
             set_local_loopback_mute,
-            mopidy_rpc,
             mopidy_test_sound,
             mopidy_stop_test_sound,
             get_host_ip,

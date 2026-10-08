@@ -74,7 +74,7 @@ export function setCurrentItem(state: QueueState, tlid: number | null): QueueSta
   return { ...state, currentTlid: tlid };
 }
 
-function isQueueItem(value: any): value is QueueItem {
+export function isQueueItem(value: any): value is QueueItem {
   return Number.isInteger(value?.tlid)
     && typeof value.track?.uri === 'string'
     && typeof value.track.name === 'string'

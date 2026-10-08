@@ -49,7 +49,7 @@ export default function useBottomBar() {
     };
   }
   const playbackPositionSec = computed(() => {
-    let sec = direct.positionSec.value;
+    let sec = player.position.value;
     const durationSec = (player.currentItem.value?.track.length || 0) / 1000;
     if (durationSec > 0) {
       sec = Math.min(sec, durationSec);

@@ -1,7 +1,7 @@
 pub mod api;
 pub mod auth;
+pub mod command;
 pub mod discovery;
-pub mod mopidy;
 pub mod state;
 pub mod ws;
 

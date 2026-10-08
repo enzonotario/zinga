@@ -126,15 +126,6 @@ export default function useRemoteServer() {
       eventUnlisten = null;
     }
   }
-  async function broadcastState(payload: any) {
-    try {
-      if (!isRunning.value) return;
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('remote_broadcast_state', { payload });
-    } catch (err) {
-      console.error('Error broadcasting state:', err);
-    }
-  }
   return {
     serverInfo: computed(() => serverInfo.value),
     isRunning: computed(() => isRunning.value),
@@ -148,6 +139,5 @@ export default function useRemoteServer() {
     refreshPairingCode,
     refreshPairedDevices,
     revokeDevice,
-    broadcastState,
   };
 }

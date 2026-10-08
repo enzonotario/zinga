@@ -2,6 +2,7 @@ import type { TrackInfo } from '~/types/track';
 import type { QueueTrack } from '~/utils/playQueue';
 import { invoke } from '@tauri-apps/api/core';
 import { computed, effectScope, readonly, watch } from 'vue';
+import { parsePlaybackSnapshot } from '~/utils/remoteSnapshot';
 import useDevices, { LOCAL_DEVICE_ID } from './useDevices';
 import useDirectPlayer from './useDirectPlayer';
 import usePlayQueue from './usePlayQueue';
@@ -17,10 +18,15 @@ export default function usePlayer() {
   const direct = useDirectPlayer();
   const remote = useRemoteClient();
 
-  const isPlaying = computed(() => direct.state.value === 'playing');
-  const isPaused = computed(() => direct.state.value === 'paused');
-  const currentItem = computed(() => direct.playingItem.value ?? queue.currentItem.value ?? null);
-  const position = computed(() => direct.positionSec.value);
+  const remotePlayback = computed(() => parsePlaybackSnapshot(remote.lastPlaybackState.value));
+  const playbackState = computed(() => (remote.isRemoteMode.value ? remotePlayback.value.state : direct.state.value));
+  const isPlaying = computed(() => playbackState.value === 'playing');
+  const isPaused = computed(() => playbackState.value === 'paused');
+  const currentItem = computed(() => {
+    if (remote.isRemoteMode.value) return remotePlayback.value.item;
+    return direct.playingItem.value ?? queue.currentItem.value ?? null;
+  });
+  const position = computed(() => (remote.isRemoteMode.value ? remotePlayback.value.positionSec : direct.positionSec.value));
   const duration = computed(() => (currentItem.value?.track.length || 0) / 1000);
   const currentTrack = computed<TrackInfo | null>(() => {
     const track = currentItem.value?.track;
@@ -45,8 +51,29 @@ export default function usePlayer() {
     await direct.start(deviceId, tlid, startSec);
   }
 
+  async function sendRemote(action: string, data?: Record<string, unknown>) {
+    try {
+      await remote.sendCommand(action, data);
+    } catch (err) {
+      console.error('Remote command error:', err);
+    }
+  }
+
+  async function postRemote(path: string, body?: Record<string, unknown>) {
+    try {
+      await remote.apiFetch(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined });
+      return true;
+    } catch (err) {
+      console.error('Remote request error:', err);
+      return false;
+    }
+  }
+
   async function play() {
-    if (remote.isRemoteMode.value) return;
+    if (remote.isRemoteMode.value) {
+      await sendRemote('play');
+      return;
+    }
     if (direct.isPaused.value) {
       await direct.resume();
       return;
@@ -58,7 +85,13 @@ export default function usePlayer() {
   }
 
   async function playTracks(tracks: QueueTrack[], startIndex = 0) {
-    if (remote.isRemoteMode.value || tracks.length === 0) return;
+    if (tracks.length === 0) return;
+    if (remote.isRemoteMode.value) {
+      if (!await postRemote('/api/queue/clear')) return;
+      if (!await postRemote('/api/queue/add', { uris: tracks.map((track) => track.uri) })) return;
+      await sendRemote('play');
+      return;
+    }
     const added = queue.replace(tracks);
     const item = added[startIndex] ?? added[0];
     if (!item) return;
@@ -66,7 +99,10 @@ export default function usePlayer() {
   }
 
   function addTracks(tracks: QueueTrack[]) {
-    if (remote.isRemoteMode.value) return;
+    if (remote.isRemoteMode.value) {
+      postRemote('/api/queue/add', { uris: tracks.map((track) => track.uri) });
+      return;
+    }
     queue.add(tracks);
   }
 
@@ -89,7 +125,10 @@ export default function usePlayer() {
   }
 
   async function pause() {
-    if (remote.isRemoteMode.value) return;
+    if (remote.isRemoteMode.value) {
+      await sendRemote('pause');
+      return;
+    }
     cancelPauseAtEndOfTrack();
     if (direct.isActive.value) {
       await direct.pause();
@@ -116,7 +155,10 @@ export default function usePlayer() {
   }
 
   async function next() {
-    if (remote.isRemoteMode.value) return;
+    if (remote.isRemoteMode.value) {
+      await sendRemote('next');
+      return;
+    }
     cancelPauseAtEndOfTrack();
     if (!direct.isActive.value) {
       selectRelative(1);
@@ -126,7 +168,10 @@ export default function usePlayer() {
   }
 
   async function previous() {
-    if (remote.isRemoteMode.value) return;
+    if (remote.isRemoteMode.value) {
+      await sendRemote('previous');
+      return;
+    }
     cancelPauseAtEndOfTrack();
     if (!direct.isActive.value) {
       selectRelative(-1);
@@ -136,7 +181,10 @@ export default function usePlayer() {
   }
 
   async function seek(seconds: number) {
-    if (remote.isRemoteMode.value) return;
+    if (remote.isRemoteMode.value) {
+      await sendRemote('seek', { time_position: Math.round(seconds * 1000) });
+      return;
+    }
     await direct.seek(seconds);
   }
 
@@ -146,7 +194,10 @@ export default function usePlayer() {
   }
 
   async function clear() {
-    if (remote.isRemoteMode.value) return;
+    if (remote.isRemoteMode.value) {
+      await postRemote('/api/queue/clear');
+      return;
+    }
     await direct.stop();
     queue.clear();
   }

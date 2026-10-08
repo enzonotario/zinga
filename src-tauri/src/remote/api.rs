@@ -6,10 +6,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use super::mopidy::call_mopidy_rpc;
+use super::command::RemoteCommand;
 use super::state::RemoteState;
-
-const MOPIDY_RPC_HOST: &str = "127.0.0.1";
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -60,127 +58,60 @@ pub async fn pair_verify(
     }))
 }
 
-async fn mopidy_rpc_async(
-    host_ip: String,
-    method: String,
-    params: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    tokio::task::spawn_blocking(move || call_mopidy_rpc(&host_ip, &method, &params))
+type CommandResponse = Result<(StatusCode, Json<serde_json::Value>), (StatusCode, String)>;
+
+async fn forward(state: &RemoteState, command: RemoteCommand) -> CommandResponse {
+    state
+        .send_command(command)
         .await
-        .map_err(|e| format!("Task join error: {}", e))?
+        .map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, e))?;
+    Ok((StatusCode::ACCEPTED, Json(serde_json::json!({ "ok": true }))))
 }
 
-pub async fn playback_state(
-    State(_state): State<Arc<RemoteState>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let ip = MOPIDY_RPC_HOST.to_string();
-
-    let (state_res, position_res, track_res) = tokio::join!(
-        mopidy_rpc_async(
-            ip.clone(),
-            "core.playback.get_state".to_string(),
-            serde_json::json!({})
-        ),
-        mopidy_rpc_async(
-            ip.clone(),
-            "core.playback.get_time_position".to_string(),
-            serde_json::json!({})
-        ),
-        mopidy_rpc_async(
-            ip,
-            "core.playback.get_current_tl_track".to_string(),
-            serde_json::json!({})
-        ),
-    );
-
-    Ok(Json(serde_json::json!({
-        "state": state_res.unwrap_or(serde_json::Value::Null),
-        "position": position_res.unwrap_or(serde_json::Value::Null),
-        "track": track_res.unwrap_or(serde_json::Value::Null),
-    })))
+pub async fn playback_state(State(state): State<Arc<RemoteState>>) -> Json<serde_json::Value> {
+    Json(state.playback_snapshot.lock().await.clone())
 }
 
-pub async fn playback_play(
-    State(state): State<Arc<RemoteState>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let ip = MOPIDY_RPC_HOST.to_string();
-    let result = mopidy_rpc_async(ip, "core.playback.play".to_string(), serde_json::json!({}))
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    broadcast_playback_state(&state).await;
-    Ok(Json(result))
+pub async fn playback_play(State(state): State<Arc<RemoteState>>) -> CommandResponse {
+    forward(&state, RemoteCommand::Play).await
 }
 
-pub async fn playback_pause(
-    State(state): State<Arc<RemoteState>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let ip = MOPIDY_RPC_HOST.to_string();
-    let result = mopidy_rpc_async(ip, "core.playback.pause".to_string(), serde_json::json!({}))
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    broadcast_playback_state(&state).await;
-    Ok(Json(result))
+pub async fn playback_pause(State(state): State<Arc<RemoteState>>) -> CommandResponse {
+    forward(&state, RemoteCommand::Pause).await
 }
 
-pub async fn playback_next(
-    State(state): State<Arc<RemoteState>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let ip = MOPIDY_RPC_HOST.to_string();
-    let result = mopidy_rpc_async(ip, "core.playback.next".to_string(), serde_json::json!({}))
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    broadcast_playback_state(&state).await;
-    Ok(Json(result))
+pub async fn playback_next(State(state): State<Arc<RemoteState>>) -> CommandResponse {
+    forward(&state, RemoteCommand::Next).await
 }
 
-pub async fn playback_previous(
-    State(state): State<Arc<RemoteState>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let ip = MOPIDY_RPC_HOST.to_string();
-    let result = mopidy_rpc_async(
-        ip,
-        "core.playback.previous".to_string(),
-        serde_json::json!({}),
-    )
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    broadcast_playback_state(&state).await;
-    Ok(Json(result))
+pub async fn playback_previous(State(state): State<Arc<RemoteState>>) -> CommandResponse {
+    forward(&state, RemoteCommand::Previous).await
 }
 
 #[derive(Deserialize)]
 pub struct SeekRequest {
+    #[serde(alias = "time_position")]
     pub position: u64,
 }
 
 pub async fn playback_seek(
-    State(_state): State<Arc<RemoteState>>,
+    State(state): State<Arc<RemoteState>>,
     Json(body): Json<SeekRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let ip = MOPIDY_RPC_HOST.to_string();
-    let result = mopidy_rpc_async(
-        ip,
-        "core.playback.seek".to_string(),
-        serde_json::json!({ "time_position": body.position }),
+) -> CommandResponse {
+    forward(
+        &state,
+        RemoteCommand::Seek {
+            position: body.position,
+        },
     )
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(result))
 }
 
-pub async fn queue_get(
-    State(_state): State<Arc<RemoteState>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let ip = MOPIDY_RPC_HOST.to_string();
-    let result = mopidy_rpc_async(
-        ip,
-        "core.tracklist.get_tl_tracks".to_string(),
-        serde_json::json!({}),
-    )
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(result))
+pub async fn queue_get(State(state): State<Arc<RemoteState>>) -> Json<serde_json::Value> {
+    Json(state.queue_snapshot.lock().await.clone())
 }
+
+const MAX_QUEUE_ADD_URIS: usize = 500;
 
 #[derive(Deserialize)]
 pub struct QueueAddRequest {
@@ -189,33 +120,14 @@ pub struct QueueAddRequest {
 
 pub async fn queue_add(
     State(state): State<Arc<RemoteState>>,
-    Json(body): Json<QueueAddRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let ip = MOPIDY_RPC_HOST.to_string();
-    let result = mopidy_rpc_async(
-        ip,
-        "core.tracklist.add".to_string(),
-        serde_json::json!({ "uris": body.uris }),
-    )
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    broadcast_queue_updated(&state).await;
-    Ok(Json(result))
+    Json(mut body): Json<QueueAddRequest>,
+) -> CommandResponse {
+    body.uris.truncate(MAX_QUEUE_ADD_URIS);
+    forward(&state, RemoteCommand::QueueAdd { uris: body.uris }).await
 }
 
-pub async fn queue_clear(
-    State(state): State<Arc<RemoteState>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let ip = MOPIDY_RPC_HOST.to_string();
-    let result = mopidy_rpc_async(
-        ip,
-        "core.tracklist.clear".to_string(),
-        serde_json::json!({}),
-    )
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    broadcast_queue_updated(&state).await;
-    Ok(Json(result))
+pub async fn queue_clear(State(state): State<Arc<RemoteState>>) -> CommandResponse {
+    forward(&state, RemoteCommand::QueueClear).await
 }
 
 #[derive(Deserialize)]
@@ -226,60 +138,14 @@ pub struct PlayAlbumRequest {
 pub async fn queue_play_album(
     State(state): State<Arc<RemoteState>>,
     Json(body): Json<PlayAlbumRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let ip = MOPIDY_RPC_HOST.to_string();
-    let uri = format!("tidal:album:{}", body.album_id);
-
-    let tracks = mopidy_rpc_async(
-        ip.clone(),
-        "core.library.lookup".to_string(),
-        serde_json::json!({ "uris": [uri] }),
+) -> CommandResponse {
+    forward(
+        &state,
+        RemoteCommand::QueuePlayAlbum {
+            album_id: body.album_id,
+        },
     )
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-
-    let track_uris: Vec<String> = tracks
-        .as_object()
-        .and_then(|obj| obj.values().next())
-        .and_then(|arr| arr.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|t| t.get("uri").and_then(|u| u.as_str()).map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    if track_uris.is_empty() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            "No tracks found for album".to_string(),
-        ));
-    }
-
-    mopidy_rpc_async(
-        ip.clone(),
-        "core.tracklist.clear".to_string(),
-        serde_json::json!({}),
-    )
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-
-    mopidy_rpc_async(
-        ip.clone(),
-        "core.tracklist.add".to_string(),
-        serde_json::json!({ "uris": track_uris }),
-    )
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-
-    mopidy_rpc_async(ip, "core.playback.play".to_string(), serde_json::json!({}))
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-
-    broadcast_playback_state(&state).await;
-    broadcast_queue_updated(&state).await;
-
-    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 #[derive(Deserialize)]
@@ -402,18 +268,9 @@ async fn tidal_proxy(
     Ok(Json(result))
 }
 
-pub async fn devices_list(
-    State(_state): State<Arc<RemoteState>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let ip = MOPIDY_RPC_HOST.to_string();
-    let result = mopidy_rpc_async(
-        ip,
-        "core.mixer.get_volume".to_string(),
-        serde_json::json!({}),
-    )
-    .await
-    .unwrap_or(serde_json::Value::Null);
-    Ok(Json(serde_json::json!({ "volume": result })))
+pub async fn devices_list(State(_state): State<Arc<RemoteState>>) -> Json<serde_json::Value> {
+    let volume = crate::local_player::local_get_volume().await.ok();
+    Json(serde_json::json!({ "volume": volume }))
 }
 
 #[derive(Deserialize)]
@@ -427,56 +284,4 @@ pub async fn devices_select(
     Json(_body): Json<SelectDeviceRequest>,
 ) -> Json<serde_json::Value> {
     Json(serde_json::json!({ "ok": true }))
-}
-
-async fn broadcast_playback_state(state: &RemoteState) {
-    let ip = MOPIDY_RPC_HOST.to_string();
-    let playback_state = mopidy_rpc_async(
-        ip.clone(),
-        "core.playback.get_state".to_string(),
-        serde_json::json!({}),
-    )
-    .await
-    .unwrap_or(serde_json::Value::Null);
-    let position = mopidy_rpc_async(
-        ip.clone(),
-        "core.playback.get_time_position".to_string(),
-        serde_json::json!({}),
-    )
-    .await
-    .unwrap_or(serde_json::Value::Null);
-    let track = mopidy_rpc_async(
-        ip,
-        "core.playback.get_current_tl_track".to_string(),
-        serde_json::json!({}),
-    )
-    .await
-    .unwrap_or(serde_json::Value::Null);
-
-    let msg = serde_json::json!({
-        "type": "playback_state",
-        "data": {
-            "state": playback_state,
-            "position": position,
-            "track": track,
-        }
-    });
-    let _ = state.broadcast_tx.send(msg.to_string());
-}
-
-async fn broadcast_queue_updated(state: &RemoteState) {
-    let ip = MOPIDY_RPC_HOST.to_string();
-    let tracks = mopidy_rpc_async(
-        ip,
-        "core.tracklist.get_tl_tracks".to_string(),
-        serde_json::json!({}),
-    )
-    .await
-    .unwrap_or(serde_json::Value::Null);
-
-    let msg = serde_json::json!({
-        "type": "queue_updated",
-        "data": { "tracks": tracks }
-    });
-    let _ = state.broadcast_tx.send(msg.to_string());
 }

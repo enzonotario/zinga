@@ -17,11 +17,11 @@ const serverUrl = ref<string | null>(null);
 const token = ref<string | null>(null);
 const connectionStatus = ref<ConnectionStatus>('disconnected');
 const lastPlaybackState = ref<PlaybackState | null>(null);
-const lastQueueUpdate = ref<any[] | null>(null);
+const lastQueueUpdate = ref<{ tracks: any[] } | null>(null);
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 const playbackCallbacks: Set<(state: PlaybackState) => void> = new Set();
-const queueCallbacks: Set<(queue: any[]) => void> = new Set();
+const queueCallbacks: Set<(queue: { tracks: any[] }) => void> = new Set();
 if (import.meta.client) {
   serverUrl.value = localStorage.getItem(STORAGE_KEY_URL);
   token.value = localStorage.getItem(STORAGE_KEY_TOKEN);
@@ -131,11 +131,21 @@ async function apiFetch(path: string, options?: RequestInit): Promise<any> {
   if (!text) return null;
   return JSON.parse(text);
 }
+async function sendCommand(action: string, data?: Record<string, unknown>): Promise<void> {
+  if (ws?.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'command', action, data }));
+    return;
+  }
+  await apiFetch(`/api/playback/${action}`, {
+    method: 'POST',
+    body: data ? JSON.stringify(data) : undefined,
+  });
+}
 function onPlaybackState(callback: (state: PlaybackState) => void): () => void {
   playbackCallbacks.add(callback);
   return () => playbackCallbacks.delete(callback);
 }
-function onQueueUpdated(callback: (queue: any[]) => void): () => void {
+function onQueueUpdated(callback: (queue: { tracks: any[] }) => void): () => void {
   queueCallbacks.add(callback);
   return () => queueCallbacks.delete(callback);
 }
@@ -160,6 +170,7 @@ export default function useRemoteClient() {
     connect,
     disconnect,
     apiFetch,
+    sendCommand,
     onPlaybackState,
     onQueueUpdated,
     discoverServers,
