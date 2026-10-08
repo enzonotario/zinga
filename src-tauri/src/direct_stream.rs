@@ -298,9 +298,17 @@ fn ffmpeg_body(stdout: ChildStdout, child: Child, track_id: String) -> Body {
     Body::from_stream(stream)
 }
 
+fn is_own_address(peer: IpAddr) -> bool {
+    if_addrs::get_if_addrs()
+        .map(|interfaces| interfaces.iter().any(|interface| interface.ip() == peer))
+        .unwrap_or(false)
+}
+
+// Stream URLs use the LAN address, so the local renderer connects from this host's own interface
 fn is_allowed_peer(app: &AppHandle, peer: IpAddr) -> bool {
     let peer = peer.to_canonical();
     peer.is_loopback()
+        || is_own_address(peer)
         || app
             .try_state::<crate::upnp::AppState>()
             .is_some_and(|state| state.renderer_hosts().contains(&peer))
