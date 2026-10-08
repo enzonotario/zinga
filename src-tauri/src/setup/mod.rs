@@ -194,7 +194,7 @@ fn latest_log_path() -> Option<String> {
     newest.map(|(_, p)| p.display().to_string())
 }
 
-pub(crate) fn find_script(app_handle: &AppHandle, name: &str) -> Result<PathBuf, String> {
+fn find_script(app_handle: &AppHandle, name: &str) -> Result<PathBuf, String> {
     let mut tried = Vec::new();
 
     if let Ok(resource_dir) = app_handle.path().resource_dir() {

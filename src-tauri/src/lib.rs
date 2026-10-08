@@ -41,6 +41,7 @@ mod library;
 mod local_player;
 mod remote;
 mod setup;
+mod tidal_session;
 mod window_shortcuts;
 
 #[tauri::command]
@@ -604,6 +605,9 @@ pub fn run() {
         .manage(remote::state::RemoteState::new())
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() != "main" {
+                    return;
+                }
                 let close_to_tray = window.app_handle().state::<CloseToTray>();
                 if close_to_tray.0.load(Ordering::Relaxed) {
                     api.prevent_close();
@@ -648,6 +652,7 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            tidal_session::init(app.handle());
             direct_stream::start(app.handle().clone());
 
             Ok(())
@@ -665,6 +670,9 @@ pub fn run() {
             upnp::upnp_set_next_direct,
             direct_stream::tidal_prepare_stream,
             direct_stream::direct_stream_base_url,
+            tidal_session::tidal_login_start,
+            tidal_session::tidal_session_status,
+            tidal_session::tidal_logout,
             local_player::local_play,
             local_player::local_set_next,
             local_player::local_pause,

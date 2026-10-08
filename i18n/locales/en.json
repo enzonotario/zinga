@@ -359,6 +359,13 @@
       "ALBUM": "Album",
       "EP": "EP",
       "SINGLE": "Single",
+      "playback": "Playback",
+      "tidalPlayback": "TIDAL playback account",
+      "tidalPlaybackDescription": "Zinga uses this account to play TIDAL tracks directly on your devices.",
+      "tidalPlaybackCountry": "Country: {country}",
+      "tidalPlaybackConnect": "Connect TIDAL",
+      "tidalPlaybackDisconnect": "Disconnect",
+      "tidalPlaybackLoginError": "Could not log in to TIDAL",
       "COMPILATION": "Compilation"
     }
   },
@@ -378,7 +385,8 @@
     "soundTestError": "Sound test error",
     "pauseAtEnd": "Pause at end of track",
     "pauseAtEndActive": "Pause scheduled — click to cancel",
-    "pipelineNotReady": "Audio pipeline is not ready. Try Restart services."
+    "pipelineNotReady": "Audio pipeline is not ready. Try Restart services.",
+    "tidalPlaybackNotConnected": "Connect TIDAL playback in Settings > Playback to play without Mopidy."
   },
   "auth": {
     "login": "Log in",

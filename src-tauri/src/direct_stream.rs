@@ -8,16 +8,17 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
+
+use crate::tidal_session::{self, PlaybackSource};
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, ChildStdout};
 
 pub const DIRECT_STREAM_PORT: u16 = 9633;
 const MANIFEST_TTL: Duration = Duration::from_secs(30 * 60);
-const MANIFEST_FETCH_TIMEOUT_SECS: u64 = 20;
 const STREAM_CHUNK_SIZE: usize = 64 * 1024;
 const FFMPEG_EXIT_WAIT: Duration = Duration::from_secs(1);
 const DLNA_CONTENT_FEATURES: &str =
@@ -29,17 +30,9 @@ struct CachedSource {
 }
 
 #[derive(Deserialize)]
-struct ManifestOutput {
-    kind: String,
-    data: String,
-}
-
-#[derive(Deserialize)]
 struct StreamQuery {
     start: Option<f64>,
 }
-
-static SCRIPT_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 fn cache() -> &'static Mutex<HashMap<String, CachedSource>> {
     static CACHE: OnceLock<Mutex<HashMap<String, CachedSource>>> = OnceLock::new();
@@ -47,7 +40,7 @@ fn cache() -> &'static Mutex<HashMap<String, CachedSource>> {
 }
 
 // Serializes fetches so a GET arriving while tidal_prepare_stream is still running
-// waits for that result instead of spawning a second python process.
+// waits for that result instead of issuing a second TIDAL playback request.
 fn fetch_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
@@ -63,13 +56,6 @@ fn mpd_path(track_id: &str) -> PathBuf {
         .join(format!("{track_id}.mpd"))
 }
 
-fn script_path() -> Result<&'static Path, String> {
-    SCRIPT_PATH
-        .get()
-        .map(PathBuf::as_path)
-        .ok_or_else(|| "Direct stream server not started".to_string())
-}
-
 fn cached_source(track_id: &str) -> Option<String> {
     let cache = cache().lock().ok()?;
     let entry = cache.get(track_id)?;
@@ -82,57 +68,24 @@ fn cached_source(track_id: &str) -> Option<String> {
     Some(entry.input.clone())
 }
 
-fn fetch_source(script: &Path, track_id: &str) -> Result<String, String> {
+fn fetch_source(track_id: &str) -> Result<String, String> {
     if !is_valid_track_id(track_id) {
         return Err(format!("Invalid track id: {track_id}"));
     }
-    let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
-    let python = PathBuf::from(home).join("mopidy-env/bin/python");
 
-    let mut cmd = Command::new("timeout");
-    cmd.arg(MANIFEST_FETCH_TIMEOUT_SECS.to_string())
-        .arg(&python)
-        .arg("-I")
-        .arg(script)
-        .arg(track_id)
-        .stdin(Stdio::null());
-    crate::setup::sanitize_external_env(&mut cmd);
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to run {}: {e}", python.display()))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() {
-            format!("tidal_manifest.py exited with {}", output.status)
-        } else {
-            stderr
-        });
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let line = stdout
-        .lines()
-        .rev()
-        .find(|l| !l.trim().is_empty())
-        .ok_or("tidal_manifest.py produced no output")?;
-    let manifest: ManifestOutput =
-        serde_json::from_str(line).map_err(|e| format!("Invalid manifest output: {e}"))?;
-
-    let input = match manifest.kind.as_str() {
-        "mpd" => {
+    let input = match tidal_session::fetch_source(track_id)? {
+        PlaybackSource::Mpd(manifest) => {
             let path = mpd_path(track_id);
             if let Some(dir) = path.parent() {
                 std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
             }
             // Write-then-rename so a running ffmpeg never reads a half-written manifest.
             let tmp = path.with_extension("mpd.tmp");
-            std::fs::write(&tmp, manifest.data.as_bytes()).map_err(|e| e.to_string())?;
+            std::fs::write(&tmp, manifest.as_bytes()).map_err(|e| e.to_string())?;
             std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
             path.display().to_string()
         }
-        "url" => manifest.data,
-        other => return Err(format!("Unknown manifest kind: {other}")),
+        PlaybackSource::Url(url) => url,
     };
 
     if let Ok(mut cache) = cache().lock() {
@@ -147,7 +100,7 @@ fn fetch_source(script: &Path, track_id: &str) -> Result<String, String> {
     Ok(input)
 }
 
-pub fn ensure_source(script: &Path, track_id: &str) -> Result<String, String> {
+pub fn ensure_source(track_id: &str) -> Result<String, String> {
     if let Some(input) = cached_source(track_id) {
         return Ok(input);
     }
@@ -155,7 +108,7 @@ pub fn ensure_source(script: &Path, track_id: &str) -> Result<String, String> {
     if let Some(input) = cached_source(track_id) {
         return Ok(input);
     }
-    fetch_source(script, track_id)
+    fetch_source(track_id)
 }
 
 fn stream_headers() -> HeaderMap {
@@ -281,14 +234,10 @@ async fn stream_handler(
         return (StatusCode::OK, stream_headers()).into_response();
     }
 
-    let script = match script_path() {
-        Ok(path) => path,
-        Err(e) => return (StatusCode::BAD_GATEWAY, e).into_response(),
-    };
     let start = query.start.filter(|s| s.is_finite()).unwrap_or(0.0).max(0.0);
     let id = track_id.to_string();
 
-    let input = match tokio::task::spawn_blocking(move || ensure_source(script, &id)).await {
+    let input = match tokio::task::spawn_blocking(move || ensure_source(&id)).await {
         Ok(Ok(input)) => input,
         Ok(Err(e)) => {
             eprintln!("[DirectStream] Source for track {track_id} failed: {e}");
@@ -312,13 +261,6 @@ async fn stream_handler(
 }
 
 pub fn start(app_handle: AppHandle) {
-    match crate::setup::find_script(&app_handle, "tidal_manifest.py") {
-        Ok(path) => {
-            let _ = SCRIPT_PATH.set(path);
-        }
-        Err(e) => eprintln!("[DirectStream] {e}"),
-    }
-
     tauri::async_runtime::spawn(async move {
         let listener =
             match tokio::net::TcpListener::bind(("0.0.0.0", DIRECT_STREAM_PORT)).await {
@@ -343,8 +285,7 @@ pub fn start(app_handle: AppHandle) {
 
 #[tauri::command]
 pub async fn tidal_prepare_stream(track_id: String) -> Result<(), String> {
-    let script = script_path()?;
-    tauri::async_runtime::spawn_blocking(move || ensure_source(script, &track_id))
+    tauri::async_runtime::spawn_blocking(move || ensure_source(&track_id))
         .await
         .map_err(|e| e.to_string())?
         .map(|_| ())

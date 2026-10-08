@@ -37,6 +37,7 @@ const { sections, activeSection } = useSettingsSections();
         </nav>
         <div class="flex-1 min-w-0">
           <SettingsGeneralSection v-if="activeSection === 'general'" />
+          <SettingsPlaybackSection v-else-if="activeSection === 'playback'" />
           <SettingsSystemSection v-else-if="activeSection === 'system'" />
           <SettingsRemoteSection v-else-if="activeSection === 'remote'" />
           <SettingsLibrarySection v-else-if="activeSection === 'library'" />

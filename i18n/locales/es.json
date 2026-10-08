@@ -359,6 +359,13 @@
       "ALBUM": "Álbum",
       "EP": "EP",
       "SINGLE": "Single",
+      "playback": "Reproducción",
+      "tidalPlayback": "Cuenta de reproducción de TIDAL",
+      "tidalPlaybackDescription": "Zinga usa esta cuenta para reproducir temas de TIDAL directamente en tus dispositivos.",
+      "tidalPlaybackCountry": "País: {country}",
+      "tidalPlaybackConnect": "Conectar TIDAL",
+      "tidalPlaybackDisconnect": "Desconectar",
+      "tidalPlaybackLoginError": "No se pudo iniciar sesión en TIDAL",
       "COMPILATION": "Compilación"
     }
   },
@@ -378,7 +385,8 @@
     "soundTestError": "Error en la prueba de sonido",
     "pauseAtEnd": "Pausar al finalizar tema",
     "pauseAtEndActive": "Pausa programada — clic para cancelar",
-    "pipelineNotReady": "El pipeline de audio no está listo. Probá Reiniciar servicios."
+    "pipelineNotReady": "El pipeline de audio no está listo. Probá Reiniciar servicios.",
+    "tidalPlaybackNotConnected": "Conectá la reproducción de TIDAL en Configuración > Reproducción para reproducir sin Mopidy."
   },
   "auth": {
     "login": "Iniciar sesión",

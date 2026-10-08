@@ -5,6 +5,7 @@ export interface SettingsSection {
 }
 const ALL_SECTIONS: SettingsSection[] = [
   { id: 'general', labelKey: 'pages.settings.general', icon: 'i-heroicons-cog-6-tooth' },
+  { id: 'playback', labelKey: 'pages.settings.playback', icon: 'i-heroicons-play-circle' },
   { id: 'system', labelKey: 'pages.settings.system', icon: 'i-heroicons-server-stack' },
   { id: 'remote', labelKey: 'pages.settings.remoteServer', icon: 'i-heroicons-device-phone-mobile' },
   { id: 'library', labelKey: 'pages.settings.library', icon: 'i-heroicons-musical-note' },
@@ -16,6 +17,7 @@ export function useSettingsSections() {
   const sections = computed(() =>
     ALL_SECTIONS.filter((s) => {
       if (s.id === 'system' && isRemoteMode.value) return false;
+      if (s.id === 'playback' && isRemoteMode.value) return false;
       if (s.id === 'remote' && isRemoteMode.value) return false;
       return true;
     }),

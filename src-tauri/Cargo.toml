@@ -33,6 +33,7 @@ lofty = "0.22.0"
 walkdir = "2.5.0"
 base64 = "0.22.1"
 if-addrs = "0.14"
+sha2 = "0.10"
 
 [dependencies.axum]
 version = "0.8"

@@ -8,6 +8,7 @@ import useLocalRenderer from './useLocalRenderer';
 import useMopidy from './useMopidy';
 import useRemoteClient from './useRemoteClient';
 import useSystemSetup from './useSystemSetup';
+import { TIDAL_NOT_LOGGED_IN } from './useTidalPlayback';
 import useUpnpPlayer from './useUpnpPlayer';
 
 const PAUSE_AT_END_POLL_MS = 250;
@@ -15,6 +16,7 @@ const PAUSE_AT_END_THRESHOLD_MS = 500;
 
 let playerGlobalWatchersRegistered = false;
 let pauseAtEndPollId: ReturnType<typeof setInterval> | null = null;
+let tidalLoginHintShown = false;
 const pauseAtEndOfTrack = ref(false);
 const pauseAtEndTlid = ref<number | null>(null);
 
@@ -134,6 +136,10 @@ export default function usePlayer() {
     } catch (err) {
       console.error('Direct playback failed, using Mopidy fallback:', err);
       direct.deactivate();
+      if (!tidalLoginHintShown && String(err).includes(TIDAL_NOT_LOGGED_IN)) {
+        tidalLoginHintShown = true;
+        useToast().add({ title: t('player.tidalPlaybackNotConnected'), color: 'warning', duration: 8000 });
+      }
       return false;
     }
   }
