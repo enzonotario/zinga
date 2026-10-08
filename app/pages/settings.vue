@@ -23,7 +23,7 @@ const { sections, activeSection } = useSettingsSections();
           <ul class="space-y-1">
             <li v-for="section in sections" :key="section.id">
               <button
-                class="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer"
+                class="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-left transition-colors cursor-pointer"
                 :class="activeSection === section.id
                   ? 'bg-primary/10 text-primary font-medium'
                   : 'text-(--ui-text-muted) hover:bg-(--ui-bg-elevated)'"
