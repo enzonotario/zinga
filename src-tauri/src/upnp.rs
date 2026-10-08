@@ -21,6 +21,7 @@ pub struct DirectTrackMeta {
     pub artist: Option<String>,
     pub album: Option<String>,
     pub duration_sec: Option<f64>,
+    pub mime: Option<String>,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -83,6 +84,7 @@ pub struct UpnpDeviceInfo {
     pub ip: Option<String>,
     pub rendering_control_url: Option<String>,
     pub av_transport_url: Option<String>,
+    pub connection_manager_url: Option<String>,
     pub manufacturer: Option<String>,
     pub model_name: Option<String>,
     pub model_number: Option<String>,
@@ -145,6 +147,7 @@ struct DescriptionResult {
     friendly_name: String,
     rendering_control_url: Option<String>,
     av_transport_url: Option<String>,
+    connection_manager_url: Option<String>,
     manufacturer: Option<String>,
     model_name: Option<String>,
     model_number: Option<String>,
@@ -166,6 +169,7 @@ fn fetch_description(location: &str) -> Option<DescriptionResult> {
     let mut current_control_url: Option<String> = None;
     let mut rendering_control_url: Option<String> = None;
     let mut av_transport_url: Option<String> = None;
+    let mut connection_manager_url: Option<String> = None;
     let mut manufacturer: Option<String> = None;
     let mut model_name: Option<String> = None;
     let mut model_number: Option<String> = None;
@@ -283,7 +287,11 @@ fn fetch_description(location: &str) -> Option<DescriptionResult> {
                                 rendering_control_url = Some(cu.clone());
                             }
                             if st.contains("AVTransport") && av_transport_url.is_none() {
-                                av_transport_url = Some(cu);
+                                av_transport_url = Some(cu.clone());
+                            }
+                            if st.contains("ConnectionManager") && connection_manager_url.is_none()
+                            {
+                                connection_manager_url = Some(cu);
                             }
                         }
                         in_service = false;
@@ -306,6 +314,7 @@ fn fetch_description(location: &str) -> Option<DescriptionResult> {
         friendly_name: friendly_name.unwrap_or_else(|| "Unknown".to_string()),
         rendering_control_url,
         av_transport_url,
+        connection_manager_url,
         manufacturer,
         model_name,
         model_number,
@@ -368,6 +377,9 @@ fn ssdp_discover() -> Vec<UpnpDeviceInfo> {
                         let av_abs = desc
                             .av_transport_url
                             .and_then(|u| absolute_url(&location, &u));
+                        let cm_abs = desc
+                            .connection_manager_url
+                            .and_then(|u| absolute_url(&location, &u));
                         devices.push(UpnpDeviceInfo {
                             id,
                             name: desc.friendly_name,
@@ -376,6 +388,7 @@ fn ssdp_discover() -> Vec<UpnpDeviceInfo> {
                             ip: Some(ip),
                             rendering_control_url: rc_abs,
                             av_transport_url: av_abs,
+                            connection_manager_url: cm_abs,
                             manufacturer: desc.manufacturer,
                             model_name: desc.model_name,
                             model_number: desc.model_number,
@@ -508,6 +521,11 @@ fn build_direct_didl(uri: &str, meta: &DirectTrackMeta) -> String {
     if let Some(album) = meta.album.as_deref().filter(|a| !a.is_empty()) {
         fields.push_str(&format!("<upnp:album>{}</upnp:album>", escape_xml(album)));
     }
+    let mime = meta
+        .mime
+        .as_deref()
+        .filter(|m| !m.is_empty())
+        .unwrap_or("audio/flac");
     let duration_attr = meta
         .duration_sec
         .filter(|d| d.is_finite() && *d > 0.0)
@@ -521,9 +539,10 @@ fn build_direct_didl(uri: &str, meta: &DirectTrackMeta) -> String {
           <item id=\"0\" parentID=\"0\" restricted=\"1\">\
             {fields}\
             <upnp:class>object.item.audioItem.musicTrack</upnp:class>\
-            <res protocolInfo=\"http-get:*:audio/flac:*\"{duration_attr}>{}</res>\
+            <res protocolInfo=\"http-get:*:{}:*\"{duration_attr}>{}</res>\
           </item>\
         </DIDL-Lite>",
+        escape_xml(mime),
         escape_xml(uri)
     )
 }
@@ -857,6 +876,67 @@ pub fn upnp_set_next_direct(
     )
     .map(|_| ())
     .map_err(|e| format!("SetNextAVTransportURI failed: {}", e))
+}
+
+fn parse_sink_protocols(resp: &str) -> Vec<String> {
+    let mut reader = Reader::from_str(resp);
+    reader.config_mut().trim_text(true);
+    let mut buf = Vec::new();
+    let mut cur_text: Option<String> = None;
+    let mut sink: Option<String> = None;
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(_)) => cur_text = None,
+            Ok(Event::Text(e)) => {
+                cur_text = Some(e.decode().unwrap_or_default().to_string());
+            }
+            Ok(Event::End(e)) => {
+                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                if name == "Sink" || name.ends_with(":Sink") {
+                    sink = cur_text.take();
+                    break;
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    sink.unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+#[tauri::command(async)]
+pub fn upnp_get_sink_protocols(
+    device_id: String,
+    state: tauri::State<AppState>,
+) -> Result<Vec<String>, String> {
+    let cm_url = {
+        let inner = state.inner.lock().map_err(|_| "state poisoned")?;
+        let dev = inner.devices.get(&device_id).ok_or("device not found")?;
+        dev.connection_manager_url
+            .clone()
+            .ok_or("device has no ConnectionManager")?
+    };
+    let body = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\
+<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">\
+<s:Body>\
+<u:GetProtocolInfo xmlns:u=\"urn:schemas-upnp-org:service:ConnectionManager:1\">\
+</u:GetProtocolInfo>\
+</s:Body>\
+</s:Envelope>";
+    let resp = soap_post(
+        &cm_url,
+        "\"urn:schemas-upnp-org:service:ConnectionManager:1#GetProtocolInfo\"",
+        body,
+    )
+    .map_err(|e| format!("GetProtocolInfo failed: {}", e))?;
+    Ok(parse_sink_protocols(&resp))
 }
 
 #[tauri::command]
@@ -1530,6 +1610,7 @@ mod tests {
             artist: artist.map(str::to_string),
             album: album.map(str::to_string),
             duration_sec: Some(124.693),
+            mime: None,
         }
     }
 
@@ -1559,6 +1640,46 @@ mod tests {
         assert!(!didl.contains("upnp:artist>"));
         assert!(!didl.contains("dc:creator>"));
         assert!(!didl.contains("upnp:album>"));
+    }
+
+    #[test]
+    fn build_direct_didl_defaults_to_flac_protocol() {
+        let didl = build_direct_didl("http://h/x.flac", &direct_meta(None, None));
+        assert!(didl.contains("protocolInfo=\"http-get:*:audio/flac:*\""));
+    }
+
+    #[test]
+    fn build_direct_didl_uses_mp3_mime() {
+        let meta = DirectTrackMeta {
+            mime: Some("audio/mpeg".to_string()),
+            ..direct_meta(None, None)
+        };
+        let didl = build_direct_didl("http://h/x.mp3", &meta);
+        assert!(didl.contains("protocolInfo=\"http-get:*:audio/mpeg:*\""));
+        assert!(!didl.contains("audio/flac"));
+    }
+
+    #[test]
+    fn parse_sink_protocols_splits_sink_list() {
+        let resp = "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body>\
+            <u:GetProtocolInfoResponse xmlns:u=\"urn:schemas-upnp-org:service:ConnectionManager:1\">\
+            <Source>http-get:*:audio/x-ignored:*</Source>\
+            <Sink>http-get:*:audio/mpeg:*, http-get:*:audio/x-flac:*,,http-get:*:audio/wav:*</Sink>\
+            </u:GetProtocolInfoResponse></s:Body></s:Envelope>";
+        assert_eq!(
+            parse_sink_protocols(resp),
+            vec![
+                "http-get:*:audio/mpeg:*",
+                "http-get:*:audio/x-flac:*",
+                "http-get:*:audio/wav:*",
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_sink_protocols_handles_empty_sink() {
+        let resp = "<r><Source>http-get:*:audio/mpeg:*</Source><Sink></Sink></r>";
+        assert!(parse_sink_protocols(resp).is_empty());
     }
 
     #[test]

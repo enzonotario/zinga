@@ -1,9 +1,10 @@
 import type { ComputedRef, Ref } from 'vue';
 import type { RendererStatus } from './useLocalRenderer';
 import type { MopidyTlTrack } from './useMopidy';
+import type { PreparedSource, StreamFormat, StreamSource } from '~/utils/directStream';
 import { invoke } from '@tauri-apps/api/core';
 import { computed, ref, watch } from 'vue';
-import { buildStreamUrl, canPlayDirect, getTidalTrackId, parseStreamUri } from '~/utils/directStream';
+import { buildStreamUrl, canPlayDirect, getStreamSource, parseStreamUri } from '~/utils/directStream';
 import { timeToSeconds } from '~/utils/time';
 import { LOCAL_DEVICE_ID } from './useDevices';
 import useLocalRenderer from './useLocalRenderer';
@@ -15,6 +16,7 @@ interface DirectTrackMeta {
   artist?: string
   album?: string
   durationSec?: number
+  mime?: string
 }
 
 interface RendererAdapter {
@@ -31,6 +33,8 @@ type FailureHandler = (deviceId: string, tlid: number, startSec: number) => Prom
 
 const DIRECT_START_TIMEOUT_MS = 15000;
 const NATURAL_END_MARGIN_SEC = 3;
+const FORMAT_MIME: Record<StreamFormat, string> = { flac: 'audio/flac', mp3: 'audio/mpeg' };
+const FLAC_MIMES = ['audio/flac', 'audio/x-flac'];
 
 const directDeviceId = ref<string | null>(null);
 const currentTlid = ref<number | null>(null);
@@ -47,20 +51,46 @@ let watchersRegistered = false;
 let startRequestId = 0;
 let currentIndexHint = -1;
 let currentTlTrackCache: MopidyTlTrack | null = null;
+const deviceFormats = new Map<string, StreamFormat>();
 
-function buildMeta(tlTrack: MopidyTlTrack): DirectTrackMeta {
+function buildMeta(tlTrack: MopidyTlTrack, format: StreamFormat): DirectTrackMeta {
   const track = tlTrack.track;
   return {
     title: track.name || 'Unknown',
     artist: track.artists?.[0]?.name,
     album: track.album?.name,
     durationSec: track.length ? track.length / 1000 : undefined,
+    mime: FORMAT_MIME[format],
   };
 }
 
 async function getBaseUrl() {
   baseUrl ??= await invoke<string>('direct_stream_base_url');
   return baseUrl;
+}
+
+async function prepareSource(source: StreamSource): Promise<PreparedSource> {
+  if (source.kind === 'tidal') {
+    await invoke('tidal_prepare_stream', { trackId: source.id });
+    return source;
+  }
+  const token = await invoke<string>('direct_register_file', { path: source.path });
+  return { kind: 'file', token };
+}
+
+async function getStreamFormat(deviceId: string): Promise<StreamFormat> {
+  if (deviceId === LOCAL_DEVICE_ID) return 'flac';
+  const cached = deviceFormats.get(deviceId);
+  if (cached) return cached;
+  try {
+    const protocols = await invoke<string[]>('upnp_get_sink_protocols', { deviceId });
+    const format = protocols.some((protocol) => FLAC_MIMES.some((mime) => protocol.includes(mime))) ? 'flac' : 'mp3';
+    deviceFormats.set(deviceId, format);
+    return format;
+  } catch (err) {
+    console.warn('Failed to read renderer protocols, assuming FLAC:', err);
+    return 'flac';
+  }
 }
 
 export default function useDirectPlayer() {
@@ -214,19 +244,22 @@ export default function useDirectPlayer() {
     if (!deviceId) return;
     const renderer = adapterFor(deviceId);
     const next = getNextItem(mopidy.tracklist.value);
-    const nextTrackId = getTidalTrackId(next?.track?.uri);
-    const targetTlid = next && nextTrackId ? next.tlid : null;
+    const nextSource = getStreamSource(next?.track?.uri);
+    const targetTlid = next && nextSource ? next.tlid : null;
     if (targetTlid === nextQueuedTlid) return;
     nextQueuedTlid = targetTlid;
     try {
-      if (!next || !nextTrackId) {
+      if (!next || !nextSource) {
         await renderer.setNext(deviceId, null, null);
         return;
       }
-      await invoke('tidal_prepare_stream', { trackId: nextTrackId });
-      const base = await getBaseUrl();
+      const [prepared, format, base] = await Promise.all([
+        prepareSource(nextSource),
+        getStreamFormat(deviceId),
+        getBaseUrl(),
+      ]);
       if (directDeviceId.value !== deviceId || nextQueuedTlid !== targetTlid) return;
-      await renderer.setNext(deviceId, buildStreamUrl(base, next.tlid, nextTrackId, 0), buildMeta(next));
+      await renderer.setNext(deviceId, buildStreamUrl(base, next.tlid, prepared, 0, format), buildMeta(next, format));
     } catch (err) {
       if (nextQueuedTlid === targetTlid) nextQueuedTlid = undefined;
       console.error('Direct playback next track error:', err);
@@ -242,7 +275,7 @@ export default function useDirectPlayer() {
     const endedNaturally = !!lengthMs
       && Math.max(positionSec.value, clockSec) >= lengthMs / 1000 - NATURAL_END_MARGIN_SEC;
     const nextItem = endedNaturally ? getNextItem(mopidy.tracklist.value) : undefined;
-    if (nextItem && getTidalTrackId(nextItem.track?.uri)) {
+    if (nextItem && getStreamSource(nextItem.track?.uri)) {
       void restartAt(nextItem, 0);
       return;
     }
@@ -311,8 +344,8 @@ export default function useDirectPlayer() {
   }
 
   async function startTrack(deviceId: string, tlTrack: MopidyTlTrack, startSec = 0) {
-    const trackId = getTidalTrackId(tlTrack.track?.uri);
-    if (!trackId) throw new Error(`Not a TIDAL track: ${tlTrack.track?.uri}`);
+    const source = getStreamSource(tlTrack.track?.uri);
+    if (!source) throw new Error(`No direct stream source: ${tlTrack.track?.uri}`);
 
     const renderer = adapterFor(deviceId);
     const requestId = ++startRequestId;
@@ -332,10 +365,13 @@ export default function useDirectPlayer() {
 
     try {
       await mopidy.mopidyRpc('core.playback.stop').catch(() => {});
-      const base = await getBaseUrl();
-      await invoke('tidal_prepare_stream', { trackId });
+      const [prepared, format, base] = await Promise.all([
+        prepareSource(source),
+        getStreamFormat(deviceId),
+        getBaseUrl(),
+      ]);
       if (!isCurrentRequest()) return;
-      await renderer.play(deviceId, buildStreamUrl(base, tlTrack.tlid, trackId, startSec), buildMeta(tlTrack));
+      await renderer.play(deviceId, buildStreamUrl(base, tlTrack.tlid, prepared, startSec, format), buildMeta(tlTrack, format));
       if (requestId !== startRequestId) {
         // The pause may have reached the renderer before this play
         if (pausedAtSec.value != null && directDeviceId.value === deviceId) await renderer.pause(deviceId);
