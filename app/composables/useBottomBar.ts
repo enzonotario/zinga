@@ -1,11 +1,11 @@
 import { computed, ref, watch } from 'vue';
 import { fetchTidalMetadata } from '~/utils/tidalMetadata';
 import useDevices from './useDevices';
+import useDirectPlayer from './useDirectPlayer';
 import useMopidy from './useMopidy';
 import usePlayer from './usePlayer';
 import useTidalArtwork from './useTidalArtwork';
 import useTidalAuth from './useTidalAuth';
-import useUpnpDirect from './useUpnpDirect';
 import useUpnpPlayer from './useUpnpPlayer';
 
 const mopidyTidalData = ref<any>(null);
@@ -17,7 +17,7 @@ export default function useBottomBar() {
   const tidalArtwork = useTidalArtwork();
   const tidalAuth = useTidalAuth();
   const upnp = useUpnpPlayer();
-  const direct = useUpnpDirect();
+  const direct = useDirectPlayer();
   const { isLocalPlayback } = useDevices();
   const isUsingMopidy = computed(() => {
     return mopidy.isPlaying.value

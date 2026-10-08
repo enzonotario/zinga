@@ -1,8 +1,12 @@
+import type { ComputedRef, Ref } from 'vue';
+import type { RendererStatus } from './useLocalRenderer';
 import type { MopidyTlTrack } from './useMopidy';
 import { invoke } from '@tauri-apps/api/core';
 import { computed, ref, watch } from 'vue';
 import { buildStreamUrl, canPlayDirect, getTidalTrackId, parseStreamUri } from '~/utils/directStream';
 import { timeToSeconds } from '~/utils/time';
+import { LOCAL_DEVICE_ID } from './useDevices';
+import useLocalRenderer from './useLocalRenderer';
 import useMopidy from './useMopidy';
 import useUpnpPlayer from './useUpnpPlayer';
 
@@ -11,6 +15,16 @@ interface DirectTrackMeta {
   artist?: string
   album?: string
   durationSec?: number
+}
+
+interface RendererAdapter {
+  status: ComputedRef<RendererStatus>
+  tick: Ref<number>
+  play: (deviceId: string, uri: string, meta: DirectTrackMeta) => Promise<void>
+  setNext: (deviceId: string, uri: string | null, meta: DirectTrackMeta | null) => Promise<void>
+  pause: (deviceId: string) => Promise<void>
+  stop: (deviceId: string) => Promise<void>
+  ensurePolling: (deviceId: string) => void
 }
 
 type FailureHandler = (deviceId: string, tlid: number, startSec: number) => Promise<void>;
@@ -49,29 +63,71 @@ async function getBaseUrl() {
   return baseUrl;
 }
 
-export default function useUpnpDirect() {
+export default function useDirectPlayer() {
   const mopidy = useMopidy();
   const upnp = useUpnpPlayer();
+  const local = useLocalRenderer();
 
-  const deviceState = computed(() => upnp.currentUpnpState.value.trim().toUpperCase());
+  const upnpAdapter: RendererAdapter = {
+    status: computed(() => ({
+      state: upnp.currentUpnpState.value.trim().toUpperCase(),
+      trackUri: upnp.positionInfo.value.trackUri ?? '',
+      positionSec: timeToSeconds(upnp.positionInfo.value.relTime),
+    })),
+    tick: upnp.uiTick,
+    play: async (deviceId, uri, meta) => {
+      await invoke('upnp_play_direct', { deviceId, uri, meta });
+    },
+    setNext: async (deviceId, uri, meta) => {
+      await invoke('upnp_set_next_direct', { deviceId, uri: uri ?? '', meta });
+    },
+    pause: async (deviceId) => {
+      await upnp.pause(deviceId);
+    },
+    stop: async (deviceId) => {
+      await upnp.stop(deviceId);
+    },
+    ensurePolling: (deviceId) => upnp.ensureStatusPolling(deviceId),
+  };
+
+  const localAdapter: RendererAdapter = {
+    status: computed(() => local.status.value),
+    tick: local.tick,
+    play: (_deviceId, uri) => local.play(uri),
+    setNext: (_deviceId, uri) => local.setNext(uri),
+    pause: () => local.pause(),
+    stop: () => local.stop(),
+    ensurePolling: () => local.ensurePolling(),
+  };
+
+  function adapterFor(deviceId: string | null) {
+    return deviceId === LOCAL_DEVICE_ID ? localAdapter : upnpAdapter;
+  }
+
+  function adapter() {
+    return adapterFor(directDeviceId.value);
+  }
+
   const isActive = computed(() => directDeviceId.value != null);
   const isPaused = computed(() => pausedAtSec.value != null);
   const isDevicePlaying = computed(() =>
-    isActive.value && !pending.value && !isPaused.value && deviceState.value === 'PLAYING',
+    isActive.value && !pending.value && !isPaused.value && adapter().status.value.state === 'PLAYING',
   );
 
   const positionSec = computed(() => {
     if (pending.value) return pending.value.startSec;
     if (pausedAtSec.value != null) return pausedAtSec.value;
-    if (deviceState.value === 'PLAYING' && Number.isFinite(anchorAt.value)) {
-      void upnp.uiTick.value;
+    const renderer = adapter();
+    const status = renderer.status.value;
+    if (status.state === 'PLAYING' && Number.isFinite(anchorAt.value)) {
+      void renderer.tick.value;
       return startOffsetSec.value + (performance.now() - anchorAt.value) / 1000;
     }
-    const parsed = parseStreamUri(upnp.positionInfo.value.trackUri);
+    const parsed = parseStreamUri(status.trackUri);
     const matchesCurrent = parsed?.tlid === currentTlid.value
       && Math.abs(parsed.startSec - startOffsetSec.value) < 0.01;
     if (!matchesCurrent) return startOffsetSec.value;
-    return startOffsetSec.value + timeToSeconds(upnp.positionInfo.value.relTime);
+    return startOffsetSec.value + status.positionSec;
   });
 
   function findTlTrack(tlid: number | null) {
@@ -129,7 +185,7 @@ export default function useUpnpDirect() {
   async function stop() {
     const deviceId = directDeviceId.value;
     endSession();
-    if (deviceId) await upnp.stop(deviceId);
+    if (deviceId) await adapterFor(deviceId).stop(deviceId);
   }
 
   function deactivate() {
@@ -145,7 +201,7 @@ export default function useUpnpDirect() {
     try {
       await failureHandler?.(deviceId, tlid, startSec);
     } catch (err) {
-      console.error('Direct UPnP fallback error:', err);
+      console.error('Direct playback fallback error:', err);
     }
   }
 
@@ -156,6 +212,7 @@ export default function useUpnpDirect() {
   async function queueNext() {
     const deviceId = directDeviceId.value;
     if (!deviceId) return;
+    const renderer = adapterFor(deviceId);
     const next = getNextItem(mopidy.tracklist.value);
     const nextTrackId = getTidalTrackId(next?.track?.uri);
     const targetTlid = next && nextTrackId ? next.tlid : null;
@@ -163,26 +220,22 @@ export default function useUpnpDirect() {
     nextQueuedTlid = targetTlid;
     try {
       if (!next || !nextTrackId) {
-        await invoke('upnp_set_next_direct', { deviceId, uri: '', meta: null });
+        await renderer.setNext(deviceId, null, null);
         return;
       }
       await invoke('tidal_prepare_stream', { trackId: nextTrackId });
       const base = await getBaseUrl();
       if (directDeviceId.value !== deviceId || nextQueuedTlid !== targetTlid) return;
-      await invoke('upnp_set_next_direct', {
-        deviceId,
-        uri: buildStreamUrl(base, next.tlid, nextTrackId, 0),
-        meta: buildMeta(next),
-      });
+      await renderer.setNext(deviceId, buildStreamUrl(base, next.tlid, nextTrackId, 0), buildMeta(next));
     } catch (err) {
       if (nextQueuedTlid === targetTlid) nextQueuedTlid = undefined;
-      console.error('Direct UPnP next track error:', err);
+      console.error('Direct playback next track error:', err);
     }
   }
 
   function handleDeviceStopped() {
     const lengthMs = (findTlTrack(currentTlid.value) ?? currentTlTrackCache)?.track?.length;
-    // Renderers often reset RelTime once stopped, so the local clock is the better end-of-track signal
+    // Renderers often reset their position once stopped, so the anchored clock is the better end-of-track signal
     const clockSec = Number.isFinite(anchorAt.value)
       ? startOffsetSec.value + (performance.now() - anchorAt.value) / 1000
       : 0;
@@ -193,16 +246,22 @@ export default function useUpnpDirect() {
       void restartAt(nextItem, 0);
       return;
     }
-    void stop();
+    const deviceId = directDeviceId.value;
+    if (!nextItem || !deviceId || !failureHandler) {
+      void stop();
+      return;
+    }
+    endSession();
+    void failureHandler(deviceId, nextItem.tlid, 0).catch((err) => {
+      console.error('Direct playback hand-off error:', err);
+    });
   }
 
   function syncFromDevice() {
     if (!isActive.value) return;
-    const trackUri = upnp.positionInfo.value.trackUri ?? '';
+    const { state, trackUri, positionSec: rel } = adapter().status.value;
     const parsed = parseStreamUri(trackUri);
-    const rel = timeToSeconds(upnp.positionInfo.value.relTime);
     const now = performance.now();
-    const state = deviceState.value;
 
     const request = pending.value;
     if (request) {
@@ -244,7 +303,7 @@ export default function useUpnpDirect() {
     }
 
     if (state === 'PLAYING' && rel !== lastRelSec && rel > 0) {
-      // RelTime has 1 s resolution, so each observed tick only bounds the real start from above
+      // Renderer positions may be coarse (UPnP RelTime is whole seconds), so each change only bounds the start from above
       anchorAt.value = Math.min(anchorAt.value, now - rel * 1000);
     }
     lastRelSec = rel;
@@ -255,6 +314,7 @@ export default function useUpnpDirect() {
     const trackId = getTidalTrackId(tlTrack.track?.uri);
     if (!trackId) throw new Error(`Not a TIDAL track: ${tlTrack.track?.uri}`);
 
+    const renderer = adapterFor(deviceId);
     const requestId = ++startRequestId;
     const isCurrentRequest = () => requestId === startRequestId && pending.value != null;
     directDeviceId.value = deviceId;
@@ -275,20 +335,16 @@ export default function useUpnpDirect() {
       const base = await getBaseUrl();
       await invoke('tidal_prepare_stream', { trackId });
       if (!isCurrentRequest()) return;
-      await invoke('upnp_play_direct', {
-        deviceId,
-        uri: buildStreamUrl(base, tlTrack.tlid, trackId, startSec),
-        meta: buildMeta(tlTrack),
-      });
+      await renderer.play(deviceId, buildStreamUrl(base, tlTrack.tlid, trackId, startSec), buildMeta(tlTrack));
       if (requestId !== startRequestId) {
-        // The Pause SOAP may have reached the device before this Play
-        if (pausedAtSec.value != null && directDeviceId.value === deviceId) await upnp.pause(deviceId);
+        // The pause may have reached the renderer before this play
+        if (pausedAtSec.value != null && directDeviceId.value === deviceId) await renderer.pause(deviceId);
         return;
       }
       const request = pending.value;
       if (!request) return;
       request.acked = true;
-      upnp.ensureStatusPolling(deviceId);
+      renderer.ensurePolling(deviceId);
       setTimeout(() => {
         if (requestId === startRequestId && pending.value === request) void handleStartFailure();
       }, DIRECT_START_TIMEOUT_MS);
@@ -304,7 +360,7 @@ export default function useUpnpDirect() {
     try {
       await startTrack(deviceId, tlTrack, startSec);
     } catch (err) {
-      console.error('Direct UPnP playback error:', err);
+      console.error('Direct playback error:', err);
       await handleStartFailure();
     }
   }
@@ -316,7 +372,7 @@ export default function useUpnpDirect() {
     pausedAtSec.value = positionSec.value;
     pending.value = null;
     publishState();
-    await upnp.pause(deviceId);
+    await adapterFor(deviceId).pause(deviceId);
   }
 
   async function resume() {
@@ -360,7 +416,7 @@ export default function useUpnpDirect() {
 
   if (import.meta.client && !watchersRegistered) {
     watchersRegistered = true;
-    watch([upnp.positionInfo, upnp.currentUpnpState], () => syncFromDevice(), { flush: 'sync' });
+    watch([upnp.positionInfo, upnp.currentUpnpState, local.status], () => syncFromDevice(), { flush: 'sync' });
     watch(
       () => mopidy.tracklist.value.map((item) => item.tlid).join(','),
       () => {

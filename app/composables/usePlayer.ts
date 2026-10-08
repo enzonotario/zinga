@@ -3,10 +3,11 @@ import { invoke } from '@tauri-apps/api/core';
 import { computed, readonly, watch } from 'vue';
 import { timeToSeconds } from '~/utils/time';
 import useDevices, { LOCAL_DEVICE_ID } from './useDevices';
+import useDirectPlayer from './useDirectPlayer';
+import useLocalRenderer from './useLocalRenderer';
 import useMopidy from './useMopidy';
 import useRemoteClient from './useRemoteClient';
 import useSystemSetup from './useSystemSetup';
-import useUpnpDirect from './useUpnpDirect';
 import useUpnpPlayer from './useUpnpPlayer';
 
 const PAUSE_AT_END_POLL_MS = 250;
@@ -22,7 +23,8 @@ export default function usePlayer() {
   const { selectedDeviceId, isLocalPlayback } = useDevices();
   const mopidy = useMopidy();
   const upnp = useUpnpPlayer();
-  const direct = useUpnpDirect();
+  const direct = useDirectPlayer();
+  const localRenderer = useLocalRenderer();
   const remote = useRemoteClient();
   const { ensurePipeline, pipelineReady } = useSystemSetup();
   const isUpnpMode = computed(() => !isLocalPlayback.value && !!selectedDeviceId.value);
@@ -130,29 +132,38 @@ export default function usePlayer() {
       await direct.startTrack(deviceId, target, offsetSec);
       return true;
     } catch (err) {
-      console.error('Direct UPnP playback failed, using Mopidy fallback:', err);
+      console.error('Direct playback failed, using Mopidy fallback:', err);
       direct.deactivate();
       return false;
     }
   }
+  function unmuteLocalLoopback() {
+    return invoke('set_local_loopback_mute', { mute: false }).catch((err) => console.warn('Failed to unmute local loopback:', err));
+  }
   async function playViaMopidy(deviceId: string, tlid?: number, startSec = 0) {
+    if (deviceId === LOCAL_DEVICE_ID) {
+      await localRenderer.stop().catch((err) => console.warn('Failed to stop local renderer:', err));
+      await unmuteLocalLoopback();
+    }
     if (tlid != null) {
       await mopidy.mopidyRpc('core.playback.play', { tlid });
       await mopidy.refreshState();
     }
-    await playOnUpnp(deviceId);
+    if (deviceId !== LOCAL_DEVICE_ID) await playOnUpnp(deviceId);
     if (startSec > 0) await seek(startSec);
+  }
+  function canResumeDirect() {
+    const directTlid = direct.currentTlid.value;
+    return direct.isActive.value
+      && direct.isPaused.value
+      && mopidy.tracklist.value.some((item) => item.tlid === directTlid);
   }
   async function play() {
     if (remote.isRemoteMode.value) return mopidy.play();
     try {
       if (isUpnpMode.value && selectedDeviceId.value) {
         const deviceId = selectedDeviceId.value;
-        const directTlid = direct.currentTlid.value;
-        const canResumeDirect = direct.isActive.value
-          && direct.isPaused.value
-          && mopidy.tracklist.value.some((item) => item.tlid === directTlid);
-        if (canResumeDirect) {
+        if (canResumeDirect()) {
           await direct.resume();
           return;
         }
@@ -161,7 +172,13 @@ export default function usePlayer() {
         await playOnUpnp(deviceId);
         return;
       } else if (isLocalPlayback.value) {
-        await invoke('set_local_loopback_mute', { mute: false }).catch((err) => console.warn('Failed to unmute local loopback:', err));
+        if (canResumeDirect()) {
+          await direct.resume();
+          return;
+        }
+        if (await tryPlayDirect(LOCAL_DEVICE_ID)) return;
+        if (direct.isActive.value) await direct.stop();
+        await unmuteLocalLoopback();
         if (!pipelineReady.value) {
           await ensureUpnpPipeline(false).catch(() => {});
         }
@@ -305,6 +322,10 @@ export default function usePlayer() {
       await playViaMopidy(deviceId, tlid);
       return;
     }
+    if (isLocalPlayback.value && !remote.isRemoteMode.value) {
+      if (await tryPlayDirect(LOCAL_DEVICE_ID, tlid)) return;
+      if (direct.isActive.value) await direct.stop();
+    }
     await mopidy.mopidyRpc('core.playback.play', { tlid });
     await mopidy.refreshState();
   }
@@ -394,27 +415,21 @@ export default function usePlayer() {
       }
     });
     watch(selectedDeviceId, async (newId, oldId) => {
-      if (direct.isActive.value && oldId && oldId !== LOCAL_DEVICE_ID) {
+      if (direct.isActive.value) {
         const tlid = direct.currentTlid.value;
         const positionSec = direct.positionSec.value;
         try {
           await direct.stop();
           if (!newId || tlid == null) return;
-          if (newId === LOCAL_DEVICE_ID) {
-            await invoke('set_local_loopback_mute', { mute: false }).catch((err) => console.warn('Failed to unmute local loopback:', err));
-            await mopidy.mopidyRpc('core.playback.play', { tlid });
-            await mopidy.seek(Math.round(positionSec * 1000));
-            return;
-          }
           if (!(await tryPlayDirect(newId, tlid, positionSec))) await playViaMopidy(newId, tlid, positionSec);
         } catch (err) {
-          console.error('Direct UPnP device switch error:', err);
+          console.error('Direct device switch error:', err);
         }
         return;
       }
 
       if (newId === LOCAL_DEVICE_ID && oldId && oldId !== LOCAL_DEVICE_ID) {
-        await invoke('set_local_loopback_mute', { mute: false }).catch((err) => console.warn('Failed to unmute local loopback:', err));
+        await unmuteLocalLoopback();
         await upnp.stop(oldId);
         return;
       }

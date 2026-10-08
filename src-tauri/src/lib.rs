@@ -38,6 +38,7 @@ use upnp::{
 
 mod direct_stream;
 mod library;
+mod local_player;
 mod remote;
 mod setup;
 mod window_shortcuts;
@@ -664,6 +665,14 @@ pub fn run() {
             upnp::upnp_set_next_direct,
             direct_stream::tidal_prepare_stream,
             direct_stream::direct_stream_base_url,
+            local_player::local_play,
+            local_player::local_set_next,
+            local_player::local_pause,
+            local_player::local_resume,
+            local_player::local_stop,
+            local_player::local_get_status,
+            local_player::local_set_volume,
+            local_player::local_get_volume,
             upnp_pause,
             upnp_stop,
             upnp_connect,

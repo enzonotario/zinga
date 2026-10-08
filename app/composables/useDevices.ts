@@ -2,6 +2,7 @@ import type { Device } from '~/types/device';
 import { invoke } from '@tauri-apps/api/core';
 import { computed, ref, watch } from 'vue';
 import { VOLUME_POLLING_INTERVAL, VOLUME_UPDATE_RESET_DELAY } from '~/constants/polling';
+import useLocalRenderer from './useLocalRenderer';
 import useRemoteClient from './useRemoteClient';
 
 export const LOCAL_DEVICE_ID = 'local';
@@ -82,6 +83,7 @@ if (import.meta.client) {
 export default function useDevices() {
   const { t } = useI18n();
   const remote = useRemoteClient();
+  const localRenderer = useLocalRenderer();
   async function discover() {
     if (remote.isRemoteMode.value) {
       loading.value = true;
@@ -143,29 +145,22 @@ export default function useDevices() {
       }
     } else {
       services.value = [];
-      try {
-        const mopidyVolume = await invoke<number>('mopidy_rpc', {
-          method: 'core.mixer.get_volume',
-          params: {},
-        });
-        volume.value = mopidyVolume;
-      } catch {
-        volume.value = null;
-      }
+      volume.value = await localRenderer.getVolume().catch(() => null);
     }
   }
   async function setVolume(level: number) {
     if (!selectedDeviceId.value) return;
     if (isLocalPlayback.value) {
       try {
-        await invoke('mopidy_rpc', {
-          method: 'core.mixer.set_volume',
-          params: { volume: level },
-        });
+        await localRenderer.setVolume(level);
         volume.value = level;
       } catch (e) {
         console.error('Failed to set local volume:', e);
       }
+      await invoke('mopidy_rpc', {
+        method: 'core.mixer.set_volume',
+        params: { volume: level },
+      }).catch(() => {});
       return;
     }
     try {
@@ -206,11 +201,7 @@ export default function useDevices() {
 
     try {
       if (isLocalPlayback.value) {
-        const mopidyVolume = await invoke<number>('mopidy_rpc', {
-          method: 'core.mixer.get_volume',
-          params: {},
-        });
-        volume.value = mopidyVolume;
+        volume.value = await localRenderer.getVolume();
         return;
       }
 
