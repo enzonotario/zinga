@@ -51,6 +51,7 @@ async function selectLocalPlayback() {
     />
     <template #content>
       <UCard
+        variant="soft"
         :ui="{
           body: 'max-h-[70vh] w-96 sm:w-112 overflow-y-auto',
         }"
@@ -72,13 +73,13 @@ async function selectLocalPlayback() {
         </template>
         <div class="space-y-4">
           <div class="space-y-2">
-            <h4 class="text-xs font-semibold uppercase tracking-wider text-neutral-500">
+            <h4 class="text-xs font-semibold uppercase tracking-wider text-muted">
               {{ t('pages.devices.localPlayback') }}
             </h4>
             <div
-              class="border rounded-lg p-3 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors flex items-center gap-3 cursor-pointer"
+              class="ring ring-default rounded-lg p-3 hover:bg-accented/40 transition-colors flex items-center gap-3 cursor-pointer"
               :class="{
-                'ring-2 ring-neutral-500 bg-neutral-50 dark:bg-neutral-950': isLocalPlayback,
+                'ring-2 ring-primary bg-primary/5': isLocalPlayback,
               }"
               @click="selectLocalPlayback"
             >
@@ -93,7 +94,7 @@ async function selectLocalPlayback() {
                 <div class="font-medium truncate">
                   {{ t('pages.devices.localPlayback') }}
                 </div>
-                <div class="text-sm text-neutral-500 truncate">
+                <div class="text-sm text-muted truncate">
                   {{ t('pages.devices.localPlaybackDescription') }}
                 </div>
               </div>
@@ -108,16 +109,16 @@ async function selectLocalPlayback() {
           </div>
           <USeparator />
           <div class="space-y-2">
-            <h4 class="text-xs font-semibold uppercase tracking-wider text-neutral-500">
+            <h4 class="text-xs font-semibold uppercase tracking-wider text-muted">
               {{ t('pages.devices.upnpDevices') }}
             </h4>
             <ul v-if="devices.length > 0" class="space-y-2">
               <li
                 v-for="device in devices"
                 :key="device.id"
-                class="border rounded-lg p-3 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors flex flex-col gap-3 cursor-pointer"
+                class="ring ring-default rounded-lg p-3 hover:bg-accented/40 transition-colors flex flex-col gap-3 cursor-pointer"
                 :class="{
-                  'ring-2 ring-neutral-500 bg-neutral-50 dark:bg-neutral-950': selectedDeviceId === device.id,
+                  'ring-2 ring-primary bg-primary/5': selectedDeviceId === device.id,
                 }"
                 @click="selectDevice(device.id)"
               >
@@ -133,7 +134,7 @@ async function selectLocalPlayback() {
                     <div class="font-medium truncate">
                       {{ device.name }}
                     </div>
-                    <div class="text-sm text-neutral-500 truncate">
+                    <div class="text-sm text-muted truncate">
                       {{ device.ip || device.location || device.usn }}
                     </div>
                   </div>
@@ -159,7 +160,7 @@ async function selectLocalPlayback() {
                   <template #content>
                     <div class="flex flex-col gap-2">
                       <USeparator />
-                      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-neutral-600">
+                      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-toned">
                         <div><span class="font-semibold">ID:</span> {{ device.id }}</div>
                         <div v-if="device.usn">
                           <span class="font-semibold">USN:</span> {{ device.usn }}

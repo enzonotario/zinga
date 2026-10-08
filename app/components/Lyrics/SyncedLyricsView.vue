@@ -95,7 +95,7 @@ watch(
         :key="`${line.timeMs}-${i}`"
         :ref="(el) => setLineRef(i, el)"
         class="py-0.5 px-2 transition-colors duration-150"
-        :class="i === activeIndex ? 'bg-(--ui-bg-muted) text-(--ui-color-primary-600) dark:text-(--ui-color-primary-400) font-medium' : 'text-(--ui-text-muted)'"
+        :class="i === activeIndex ? 'bg-accented/40 text-(--ui-color-primary-600) dark:text-(--ui-color-primary-400) font-medium' : 'text-(--ui-text-muted)'"
       >
         {{ line.text }}
       </p>

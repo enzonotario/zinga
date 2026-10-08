@@ -47,16 +47,11 @@ async function handleAddFolder() {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <div>
-      <h3 class="text-lg font-medium">
-        {{ t('common.localLibrary') }}
-      </h3>
-      <p class="text-sm text-(--ui-text-muted)">
-        {{ t('common.manageFolders') }}
-      </p>
-    </div>
-
+  <SettingsGroup
+    icon="i-heroicons-folder"
+    :title="t('common.localLibrary')"
+    :description="t('common.manageFolders')"
+  >
     <UAlert
       v-if="error"
       color="error"
@@ -64,67 +59,57 @@ async function handleAddFolder() {
       :title="t('common.dbError')"
       :description="error"
       icon="i-heroicons-exclamation-triangle"
-      class="mb-4"
     />
-
-    <UCard>
-      <div class="space-y-4">
-        <div class="flex gap-2">
-          <UInput
-            v-model="newFolderPath"
-            placeholder="/home/usuario/Musica"
-            class="flex-1"
-            :disabled="isAdding"
-            @keyup.enter="handleAddFolder"
-          >
-            <template #trailing>
-              <UButton
-                icon="i-heroicons-folder-open"
-                variant="ghost"
-                color="neutral"
-                size="sm"
-                :disabled="isAdding"
-                @click="handleSelectFolder"
-              />
-            </template>
-          </UInput>
+    <div class="flex gap-2">
+      <UInput
+        v-model="newFolderPath"
+        placeholder="/home/usuario/Musica"
+        class="flex-1"
+        :disabled="isAdding"
+        @keyup.enter="handleAddFolder"
+      >
+        <template #trailing>
           <UButton
-            icon="i-heroicons-plus"
-            :loading="isAdding"
-            @click="handleAddFolder"
-          >
-            {{ t('common.addFolder') }}
-          </UButton>
+            icon="i-heroicons-folder-open"
+            variant="ghost"
+            color="neutral"
+            size="sm"
+            :disabled="isAdding"
+            @click="handleSelectFolder"
+          />
+        </template>
+      </UInput>
+      <UButton
+        icon="i-heroicons-plus"
+        :loading="isAdding"
+        @click="handleAddFolder"
+      >
+        {{ t('common.addFolder') }}
+      </UButton>
+    </div>
+    <UCard
+      v-if="folders.length > 0"
+      variant="subtle"
+      :ui="{ body: 'p-0 sm:p-0 divide-y divide-default', footer: 'py-2 sm:px-4' }"
+    >
+      <div
+        v-for="folder in folders"
+        :key="folder.id"
+        class="flex items-center justify-between gap-3 px-4 py-2.5"
+      >
+        <div class="flex items-center gap-3 min-w-0">
+          <UIcon name="i-heroicons-folder" class="w-5 h-5 text-primary shrink-0" />
+          <span class="truncate text-sm font-medium">{{ folder.path }}</span>
         </div>
-
-        <div v-if="folders.length > 0" class="space-y-2">
-          <div
-            v-for="folder in folders"
-            :key="folder.id"
-            class="flex items-center justify-between p-3 rounded-lg border border-(--ui-border) bg-(--ui-bg-elevated)"
-          >
-            <div class="flex items-center gap-3 min-w-0">
-              <UIcon name="i-heroicons-folder" class="w-5 h-5 text-primary shrink-0" />
-              <span class="truncate text-sm font-medium">{{ folder.path }}</span>
-            </div>
-            <UButton
-              icon="i-heroicons-trash"
-              variant="ghost"
-              color="error"
-              size="sm"
-              @click="removeFolder(folder.id)"
-            />
-          </div>
-        </div>
-        <UEmpty
-          v-else
-          icon="i-heroicons-folder-open"
-          :title="t('common.noFolders')"
-          :description="t('common.noFoldersDescription')"
+        <UButton
+          icon="i-heroicons-trash"
+          variant="ghost"
+          color="error"
+          size="sm"
+          @click="removeFolder(folder.id)"
         />
       </div>
-
-      <template v-if="folders.length > 0" #footer>
+      <template #footer>
         <div class="flex justify-end">
           <UButton
             variant="ghost"
@@ -137,5 +122,11 @@ async function handleAddFolder() {
         </div>
       </template>
     </UCard>
-  </div>
+    <UEmpty
+      v-else
+      icon="i-heroicons-folder-open"
+      :title="t('common.noFolders')"
+      :description="t('common.noFoldersDescription')"
+    />
+  </SettingsGroup>
 </template>

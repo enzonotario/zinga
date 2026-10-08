@@ -81,7 +81,7 @@ onUnmounted(() => {
         <p class="text-sm text-muted">
           {{ $t('auth.completeLoginDescription') }}
         </p>
-        <div class="bg-neutral-100 dark:bg-neutral-800 rounded-lg p-4 space-y-3">
+        <div class="glass-soft rounded-lg p-4 space-y-3">
           <div class="text-3xl font-mono font-bold tracking-widest text-primary">
             {{ provider.deviceLoginInfo.value.userCode }}
           </div>

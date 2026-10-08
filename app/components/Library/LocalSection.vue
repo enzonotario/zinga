@@ -145,7 +145,7 @@ const formatDuration = (seconds: number) => {
     <div v-else class="space-y-6">
       <div v-if="viewMode === 'all'" class="border border-(--ui-border) rounded-lg overflow-hidden">
         <table class="w-full text-sm text-left">
-          <thead class="bg-(--ui-bg-elevated) text-(--ui-text-muted) uppercase text-xs">
+          <thead class="bg-elevated/50 text-(--ui-text-muted) uppercase text-xs">
             <tr>
               <th class="px-4 py-2 font-medium">
                 {{ t('pages.library.colTitle') }}
@@ -214,7 +214,7 @@ const formatDuration = (seconds: number) => {
             <div
               v-for="track in groupTracks"
               :key="track.uri"
-              class="p-2 rounded-lg border border-(--ui-border) hover:border-primary/50 flex items-center gap-3 cursor-pointer group bg-(--ui-bg-elevated)"
+              class="p-2 rounded-lg glass-soft ring ring-transparent hover:ring-primary/50 flex items-center gap-3 cursor-pointer group"
               @click="playTrack(track)"
             >
               <div class="w-10 h-10 rounded bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden relative">

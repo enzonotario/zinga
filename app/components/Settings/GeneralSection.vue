@@ -23,16 +23,8 @@ const availableLocales = computed(() =>
 </script>
 
 <template>
-  <div class="space-y-4">
-    <UCard variant="soft">
-      <template #header>
-        <div class="flex items-center gap-2">
-          <UIcon name="i-heroicons-paint-brush" class="w-5 h-5 text-(--ui-text-muted)" />
-          <h3 class="text-sm font-semibold">
-            {{ t('pages.settings.theme') }}
-          </h3>
-        </div>
-      </template>
+  <div class="divide-y divide-default">
+    <SettingsGroup icon="i-heroicons-paint-brush" :title="t('pages.settings.theme')">
       <URadioGroup
         :model-value="colorMode.preference"
         :items="colorModeOptions"
@@ -46,16 +38,8 @@ const availableLocales = computed(() =>
           </div>
         </template>
       </URadioGroup>
-    </UCard>
-    <UCard variant="soft">
-      <template #header>
-        <div class="flex items-center gap-2">
-          <UIcon name="i-heroicons-language" class="w-5 h-5 text-(--ui-text-muted)" />
-          <h3 class="text-sm font-semibold">
-            {{ t('pages.settings.language') }}
-          </h3>
-        </div>
-      </template>
+    </SettingsGroup>
+    <SettingsGroup icon="i-heroicons-language" :title="t('pages.settings.language')">
       <URadioGroup
         :model-value="locale"
         :items="availableLocales"
@@ -66,16 +50,8 @@ const availableLocales = computed(() =>
           <span class="font-medium">{{ item.label }}</span>
         </template>
       </URadioGroup>
-    </UCard>
-    <UCard variant="soft">
-      <template #header>
-        <div class="flex items-center gap-2">
-          <UIcon name="i-heroicons-wrench-screwdriver" class="w-5 h-5 text-(--ui-text-muted)" />
-          <h3 class="text-sm font-semibold">
-            {{ t('pages.settings.advanced') }}
-          </h3>
-        </div>
-      </template>
+    </SettingsGroup>
+    <SettingsGroup icon="i-heroicons-wrench-screwdriver" :title="t('pages.settings.advanced')">
       <UFormField
         :label="t('pages.settings.closeToTray')"
         :description="t('pages.settings.closeToTrayDescription')"
@@ -103,6 +79,6 @@ const availableLocales = computed(() =>
           @update:model-value="setShowExplicitIndicator"
         />
       </UFormField>
-    </UCard>
+    </SettingsGroup>
   </div>
 </template>

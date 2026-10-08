@@ -281,7 +281,7 @@ const handleCurrentTrackChange = (value: number) => {
             :current-track-number="currentTrackNumber"
           />
         </div>
-        <div class="mt-6 p-4 bg-neutral-100 dark:bg-neutral-800 rounded-lg">
+        <div class="mt-6 p-4 glass-soft rounded-lg">
           <div class="space-y-2 text-sm">
             <div class="flex justify-between">
               <span class="text-muted">{{ t('pages.debugVinyl.state') }}:</span>

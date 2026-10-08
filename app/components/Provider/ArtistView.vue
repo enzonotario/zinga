@@ -396,7 +396,7 @@ onUnmounted(() => clearPageBackground());
                 @click="sortOrder = sortOrder === 'asc' ? 'desc' : 'asc'"
               />
             </div>
-            <div class="flex items-center gap-1 bg-neutral-100 dark:bg-neutral-800 rounded-lg p-1">
+            <div class="flex items-center gap-1 glass ring ring-default rounded-lg p-1">
               <UButton
                 icon="i-heroicons-squares-2x2"
                 :variant="viewMode === 'grid' ? 'solid' : 'ghost'"
@@ -439,9 +439,9 @@ onUnmounted(() => clearPageBackground());
               >
                 <NuxtLink
                   :to="`/album/${album.id}`"
-                  class="flex flex-col gap-2 p-3 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group"
+                  class="flex flex-col gap-2 p-3 rounded-lg hover:bg-accented/40 transition-colors group"
                 >
-                  <div class="relative aspect-square w-full rounded-lg overflow-hidden bg-neutral-200 dark:bg-neutral-800">
+                  <div class="relative aspect-square w-full rounded-lg overflow-hidden bg-accented/50">
                     <img
                       v-if="album.coverUrl"
                       :src="album.coverUrl"
@@ -511,9 +511,9 @@ onUnmounted(() => clearPageBackground());
               >
                 <NuxtLink
                   :to="`/album/${album.id}`"
-                  class="flex items-center gap-4 px-4 py-3 hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-colors group"
+                  class="flex items-center gap-4 px-4 py-3 hover:bg-accented/40 transition-colors group"
                 >
-                  <div class="w-12 h-12 shrink-0 rounded overflow-hidden bg-neutral-200 dark:bg-neutral-800">
+                  <div class="w-12 h-12 shrink-0 rounded overflow-hidden bg-accented/50">
                     <img
                       v-if="album.coverUrl"
                       :src="album.coverUrl"
@@ -579,6 +579,7 @@ onUnmounted(() => clearPageBackground());
         </template>
         <UEmpty
           v-else
+          variant="outline"
           icon="i-heroicons-musical-note"
           :title="t('artist.noAlbums')"
           :description="t('artist.noAlbumsDescription')"
@@ -595,9 +596,9 @@ onUnmounted(() => clearPageBackground());
             v-for="similar in similarArtistsWithPictures"
             :key="similar.id"
             :to="`/artist/${similar.id}`"
-            class="flex flex-col items-center gap-3 p-3 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group"
+            class="flex flex-col items-center gap-3 p-3 rounded-lg hover:bg-accented/40 transition-colors group"
           >
-            <div class="w-24 h-24 md:w-28 md:h-28 rounded-full overflow-hidden bg-neutral-200 dark:bg-neutral-800 group-hover:scale-105 transition-transform">
+            <div class="w-24 h-24 md:w-28 md:h-28 rounded-full overflow-hidden bg-accented/50 group-hover:scale-105 transition-transform">
               <img
                 v-if="similar.picture"
                 :src="similar.picture"
@@ -617,13 +618,14 @@ onUnmounted(() => clearPageBackground());
     </div>
     <UEmpty
       v-else
+      variant="outline"
       icon="i-heroicons-user"
       :title="t('artist.notFound')"
       :description="t('artist.notFoundDescription')"
     />
     <UModal v-model:open="showBiographyModal" class="sm:max-w-2xl">
       <template #content>
-        <UCard>
+        <UCard variant="soft">
           <template #header>
             <div class="flex items-center justify-between">
               <h3 class="text-lg font-semibold">
@@ -645,7 +647,7 @@ onUnmounted(() => clearPageBackground());
     </UModal>
     <UModal v-model:open="showLoginModal">
       <template #content>
-        <UCard>
+        <UCard variant="soft">
           <template #header>
             <div class="flex items-center justify-between">
               <h3 class="text-lg font-semibold">

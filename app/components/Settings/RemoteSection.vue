@@ -1,5 +1,5 @@
 <template>
-  <div class="space-y-4">
+  <div class="divide-y divide-default">
     <RemoteServerStatus />
     <RemotePairedDevices />
   </div>

@@ -26,7 +26,7 @@ const { sections, activeSection } = useSettingsSections();
                 class="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-left transition-colors cursor-pointer"
                 :class="activeSection === section.id
                   ? 'bg-primary/10 text-primary font-medium'
-                  : 'text-(--ui-text-muted) hover:bg-(--ui-bg-elevated)'"
+                  : 'text-(--ui-text-muted) hover:bg-accented/40'"
                 @click="activeSection = section.id"
               >
                 <UIcon :name="section.icon" class="w-4 h-4" />

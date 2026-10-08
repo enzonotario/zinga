@@ -90,7 +90,7 @@ function handleLogout() {
     </UPopover>
     <UModal v-model:open="showLoginModal">
       <template #content>
-        <UCard>
+        <UCard variant="soft">
           <template #header>
             <div class="flex items-center justify-between">
               <h3 class="text-lg font-semibold">

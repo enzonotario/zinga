@@ -353,7 +353,7 @@ const responseItemCount = computed(() => {
           </div>
         </div>
       </template>
-      <code class="block p-2 bg-neutral-100 dark:bg-neutral-800 rounded text-xs break-all max-h-24 overflow-auto">
+      <code class="block p-2 glass-soft rounded text-xs break-all max-h-24 overflow-auto">
         {{ currentToken || t('debug.notAvailable') }}
       </code>
     </UCard>
@@ -473,7 +473,7 @@ const responseItemCount = computed(() => {
           </UButton>
         </div>
       </template>
-      <div v-if="supportsCursor && (nextCursor || cursor)" class="flex items-center justify-between mb-4 p-3 bg-neutral-50 dark:bg-neutral-900 rounded">
+      <div v-if="supportsCursor && (nextCursor || cursor)" class="flex items-center justify-between mb-4 p-3 glass-soft rounded">
         <div class="text-sm text-muted">
           <span v-if="cursor">{{ t('debug.currentCursor') }}: <code class="text-xs">{{ cursor.slice(0, 20) }}...</code></span>
           <span v-else>{{ t('debug.firstPage') }}</span>
@@ -490,13 +490,13 @@ const responseItemCount = computed(() => {
         </UButton>
         <span v-else class="text-sm text-muted">{{ t('debug.lastPage') }}</span>
       </div>
-      <div class="p-3 bg-neutral-100 dark:bg-neutral-800 rounded overflow-auto max-h-128">
+      <div class="p-3 glass-soft rounded overflow-auto max-h-128">
         <pre class="text-xs">{{ JSON.stringify(response, null, 2) }}</pre>
       </div>
     </UCard>
     <UModal v-model:open="showLoginModal">
       <template #content>
-        <UCard>
+        <UCard variant="soft">
           <template #header>
             <div class="flex items-center justify-between">
               <h3 class="text-lg font-semibold">

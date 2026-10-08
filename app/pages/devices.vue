@@ -80,7 +80,8 @@ onMounted(() => {
             {{ t('pages.devices.localPlayback') }}
           </h2>
           <UCard
-            :ui="{ body: { padding: 'p-3 sm:p-3' } }"
+            variant="subtle"
+            :ui="{ body: 'p-3 sm:p-3' }"
             class="hover:ring-2 hover:ring-primary-500/50 transition-all cursor-pointer"
             :class="{ 'ring-2 ring-primary-500': isLocalPlayback }"
             @click="selectLocal()"
@@ -125,7 +126,8 @@ onMounted(() => {
             <UCard
               v-for="d in devices"
               :key="d.id"
-              :ui="{ body: { padding: 'p-3 sm:p-3' } }"
+              variant="subtle"
+              :ui="{ body: 'p-3 sm:p-3' }"
               class="hover:ring-2 hover:ring-primary-500/50 transition-all cursor-pointer"
               :class="{ 'ring-2 ring-primary-500': selectedDeviceId === d.id }"
               @click="select(d.id)"
@@ -161,7 +163,7 @@ onMounted(() => {
                     />
                   </div>
                 </div>
-                <div v-if="expandedId === d.id" class="mt-2 pt-2 border-t border-gray-100 dark:border-gray-800 text-xs text-neutral-600 space-y-1">
+                <div v-if="expandedId === d.id" class="mt-2 pt-2 border-t border-default text-xs text-toned space-y-1">
                   <div class="grid grid-cols-[80px_1fr] gap-1">
                     <span class="font-semibold">ID:</span> <span class="truncate">{{ d.id }}</span>
                     <template v-if="d.usn">
@@ -240,7 +242,7 @@ onMounted(() => {
                 @sync="syncVolumeFromDevice"
               />
             </div>
-            <div v-else-if="!isLocalPlayback" class="flex items-center gap-4 bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg text-sm text-neutral-500">
+            <div v-else-if="!isLocalPlayback" class="flex items-center gap-4 glass-soft p-3 rounded-lg text-sm text-muted">
               <UIcon name="i-heroicons-speaker-x-mark" />
               {{ t('pages.devices.volumeNotAvailable') }}
             </div>
@@ -270,7 +272,7 @@ onMounted(() => {
       @update:open="(val: boolean) => { if (!val) debugDevice = null }"
     >
       <template #body>
-        <pre class="text-xs overflow-auto max-h-96 p-2 bg-gray-50 dark:bg-gray-900 rounded">{{ JSON.stringify(debugDevice, null, 2) }}</pre>
+        <pre class="text-xs overflow-auto max-h-96 p-2 bg-elevated/50 rounded">{{ JSON.stringify(debugDevice, null, 2) }}</pre>
       </template>
     </UModal>
   </div>

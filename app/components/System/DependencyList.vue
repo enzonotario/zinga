@@ -40,7 +40,7 @@ const dependencies = computed(() => [
       <p class="text-sm">
         {{ t('pages.setup.installHint') }}
       </p>
-      <pre class="bg-(--ui-bg-elevated) text-xs p-3 rounded-lg overflow-x-auto font-mono select-all">{{ INSTALL_HINT }}</pre>
+      <pre class="glass-soft text-xs p-3 rounded-lg overflow-x-auto font-mono select-all">{{ INSTALL_HINT }}</pre>
     </div>
   </div>
 </template>

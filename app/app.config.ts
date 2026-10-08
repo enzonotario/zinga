@@ -32,6 +32,15 @@ export default defineAppConfig({
     },
   },
   ui: {
+    tv: {
+      twMergeConfig: {
+        extend: {
+          classGroups: {
+            'bg-color': ['glass', 'glass-soft'],
+          },
+        },
+      },
+    },
     colors: {
       primary: 'indigo',
       neutral: 'zinc',
@@ -82,32 +91,47 @@ export default defineAppConfig({
     },
     card: {
       slots: {
-        root: 'bg-white/70! dark:bg-neutral-900/80! backdrop-blur-sm',
+        root: 'rounded-xl',
       },
       variants: {
         variant: {
+          outline: {
+            root: 'glass ring ring-default divide-y divide-default',
+          },
           soft: {
-            root: 'border border-neutral-300 dark:border-neutral-700 bg-transparent! dark:bg-transparent!',
+            root: 'bg-transparent divide-y divide-default',
+          },
+          subtle: {
+            root: 'glass-soft ring ring-default divide-y divide-default',
           },
         },
       },
     },
     empty: {
-      slots: {
-        root: 'bg-white/70! dark:bg-neutral-900/80! backdrop-blur-sm',
-      },
-    },
-    badge: {
-      slots: {
-        base: 'bg-neutral-200/70! dark:bg-neutral-700/80! backdrop-blur-sm',
-      },
       variants: {
         variant: {
-          soft: {
-            base: 'border border-neutral-300 dark:border-neutral-700 bg-transparent! dark:bg-transparent!',
+          outline: {
+            root: 'glass ring ring-default',
           },
         },
       },
+      defaultVariants: {
+        variant: 'naked',
+      },
+    },
+    badge: {
+      compoundVariants: [
+        {
+          color: 'neutral',
+          variant: 'soft',
+          class: 'bg-default/60 backdrop-blur-sm ring ring-inset ring-default',
+        },
+        {
+          color: 'neutral',
+          variant: 'subtle',
+          class: 'bg-default/60 backdrop-blur-sm',
+        },
+      ],
     },
   },
 });

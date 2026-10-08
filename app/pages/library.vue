@@ -65,7 +65,7 @@ const albumColumns = computed<TableColumn<NormalizedAlbum>[]>(() => [
           class: 'w-10 h-10 rounded object-cover shrink-0',
         })
         : h('div', {
-          class: 'w-10 h-10 rounded bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center shrink-0',
+          class: 'w-10 h-10 rounded bg-accented/50 flex items-center justify-center shrink-0',
         }, [h(UIcon, { name: 'i-heroicons-musical-note', class: 'w-5 h-5 text-neutral-400' })]);
       return h('div', { class: 'flex items-center gap-3 min-w-0' }, [
         cover,
@@ -148,7 +148,7 @@ const artistColumns = computed<TableColumn<NormalizedArtist>[]>(() => [
           class: 'w-10 h-10 rounded-full object-cover shrink-0',
         })
         : h('div', {
-          class: 'w-10 h-10 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center shrink-0',
+          class: 'w-10 h-10 rounded-full bg-accented/50 flex items-center justify-center shrink-0',
         }, [h(UIcon, { name: 'i-heroicons-user', class: 'w-5 h-5 text-neutral-400' })]);
       return h('div', { class: 'flex items-center gap-3 min-w-0' }, [
         avatar,

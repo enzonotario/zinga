@@ -108,6 +108,7 @@ watch(viewMode, (mode) => {
     <template v-if="!provider.isUserLoggedIn.value">
       <div class="flex items-center justify-center min-h-[60vh]">
         <UEmpty
+          variant="outline"
           icon="i-heroicons-user-circle"
           :title="$t('pages.feed.loginTitle')"
           :description="$t('pages.feed.loginDescription')"

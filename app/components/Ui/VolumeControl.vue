@@ -126,7 +126,7 @@ onUnmounted(() => {
     :aria-valuenow="volumeDisplay"
     :aria-label="$t('common.volume', { volume: volumeDisplay })"
     :aria-busy="syncing"
-    class="flex items-center gap-1 self-stretch rounded bg-neutral-100 dark:bg-neutral-800 px-2 h-full focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:ring-offset-2 dark:focus:ring-offset-neutral-900 cursor-pointer transition-all"
+    class="flex items-center gap-1 self-stretch rounded glass-soft px-2 h-full focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 focus:ring-offset-2 dark:focus:ring-offset-neutral-900 cursor-pointer transition-all"
     :class="syncing ? 'opacity-70' : ''"
   >
     <UButton

@@ -352,9 +352,9 @@ watch(albumCover, (cover) => setPageBackground(cover), { immediate: true });
       <div v-if="albumArtists.length > 0" class="flex">
         <NuxtLink
           :to="`/artist/${albumArtists[0].id}`"
-          class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-elevated hover:bg-elevated-hover border border-border transition-colors group"
+          class="inline-flex items-center gap-2 px-3 py-1 rounded-full glass ring ring-default hover:bg-accented/40 transition-colors group"
         >
-          <div class="w-6 h-6 shrink-0 rounded-full overflow-hidden bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center">
+          <div class="w-6 h-6 shrink-0 rounded-full overflow-hidden bg-accented/50 flex items-center justify-center">
             <img
               v-if="primaryArtistPicture"
               :src="primaryArtistPicture"
@@ -501,7 +501,7 @@ watch(albumCover, (cover) => setPageBackground(cover), { immediate: true });
       </UCard>
       <div v-if="albumTracks.length > 0" class="flex flex-col gap-3">
         <div class="flex items-center justify-end py-2">
-          <div class="flex items-center gap-1 bg-neutral-100 dark:bg-neutral-800 rounded-lg p-1">
+          <div class="flex items-center gap-1 glass ring ring-default rounded-lg p-1">
             <UButton
               icon="i-heroicons-squares-2x2"
               :variant="viewMode === 'grid' ? 'solid' : 'ghost'"
@@ -524,7 +524,7 @@ watch(albumCover, (cover) => setPageBackground(cover), { immediate: true });
             :key="`grid-disc-${disc.number}`"
             class="flex flex-col gap-3"
           >
-            <div v-if="hasMultipleDiscs" class="flex flex-wrap items-center justify-between gap-3 bg-neutral-100/80 dark:bg-neutral-800/80 backdrop-blur-sm rounded-lg px-4 py-3">
+            <div v-if="hasMultipleDiscs" class="flex flex-wrap items-center justify-between gap-3 glass ring ring-default rounded-lg px-4 py-3">
               <div class="flex flex-col">
                 <h2 class="text-xl font-semibold">
                   CD {{ disc.number }}
@@ -562,7 +562,7 @@ watch(albumCover, (cover) => setPageBackground(cover), { immediate: true });
               >
                 <div class="flex flex-col gap-3">
                   <div class="flex items-start gap-3">
-                    <div class="flex items-center justify-center w-8 h-8 shrink-0 rounded-full bg-neutral-100 dark:bg-neutral-800">
+                    <div class="flex items-center justify-center w-8 h-8 shrink-0 rounded-full bg-accented/50">
                       <UIcon
                         v-if="currentPlayingTrackId === track.id && player.isPlaying.value"
                         name="i-heroicons-play"
@@ -640,7 +640,7 @@ watch(albumCover, (cover) => setPageBackground(cover), { immediate: true });
             :key="`list-disc-${disc.number}`"
             class="flex flex-col gap-3"
           >
-            <div v-if="hasMultipleDiscs" class="flex flex-wrap items-center justify-between gap-3 bg-neutral-100/80 dark:bg-neutral-800/80 backdrop-blur-sm rounded-lg px-4 py-3">
+            <div v-if="hasMultipleDiscs" class="flex flex-wrap items-center justify-between gap-3 glass ring ring-default rounded-lg px-4 py-3">
               <div class="flex flex-col">
                 <h2 class="text-xl font-semibold">
                   CD {{ disc.number }}
@@ -678,10 +678,10 @@ watch(albumCover, (cover) => setPageBackground(cover), { immediate: true });
                 <div
                   v-for="(track, index) in disc.tracks"
                   :key="track.id"
-                  class="flex items-center gap-4 px-4 py-3 hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-colors"
+                  class="flex items-center gap-4 px-4 py-3 hover:bg-accented/40 transition-colors"
                   :class="currentPlayingTrackId === track.id ? 'bg-primary/5' : ''"
                 >
-                  <div class="flex items-center justify-center w-8 h-8 shrink-0 rounded-full bg-neutral-100 dark:bg-neutral-800">
+                  <div class="flex items-center justify-center w-8 h-8 shrink-0 rounded-full bg-accented/50">
                     <UIcon
                       v-if="currentPlayingTrackId === track.id && player.isPlaying.value"
                       name="i-heroicons-play"
@@ -742,13 +742,14 @@ watch(albumCover, (cover) => setPageBackground(cover), { immediate: true });
     </div>
     <UEmpty
       v-else
+      variant="outline"
       icon="i-heroicons-musical-note"
       :title="t('album.notFound')"
       :description="t('album.notFoundDescription')"
     />
     <UModal v-model:open="showLoginModal">
       <template #content>
-        <UCard>
+        <UCard variant="soft">
           <template #header>
             <div class="flex items-center justify-between">
               <h3 class="text-lg font-semibold">

@@ -43,51 +43,40 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-4">
-    <UCard variant="soft">
-      <template #header>
-        <div class="flex items-center gap-2">
-          <UIcon name="i-heroicons-play-circle" class="w-5 h-5 text-(--ui-text-muted)" />
-          <h3 class="text-sm font-semibold">
-            {{ t('pages.settings.tidalPlayback') }}
-          </h3>
-        </div>
-      </template>
-      <div class="space-y-4">
-        <p class="text-sm text-(--ui-text-muted)">
-          {{ t('pages.settings.tidalPlaybackDescription') }}
-        </p>
-        <div class="flex items-center gap-2">
-          <UBadge
-            :color="status.loggedIn ? 'success' : 'neutral'"
-            variant="subtle"
-            :label="status.loggedIn ? t('pages.settings.connected') : t('pages.settings.disconnected')"
-          />
-          <span v-if="status.loggedIn && status.countryCode" class="text-sm text-(--ui-text-muted)">
-            {{ t('pages.settings.tidalPlaybackCountry', { country: status.countryCode }) }}
-          </span>
-        </div>
-        <UAlert v-if="error" color="error" :title="error" />
-        <div class="flex gap-2">
-          <UButton
-            v-if="!status.loggedIn"
-            icon="i-heroicons-arrow-right-on-rectangle"
-            :loading="connecting"
-            @click="handleConnect"
-          >
-            {{ t('pages.settings.tidalPlaybackConnect') }}
-          </UButton>
-          <UButton
-            v-else
-            icon="i-heroicons-arrow-left-on-rectangle"
-            variant="ghost"
-            :loading="disconnecting"
-            @click="handleDisconnect"
-          >
-            {{ t('pages.settings.tidalPlaybackDisconnect') }}
-          </UButton>
-        </div>
-      </div>
-    </UCard>
-  </div>
+  <SettingsGroup
+    icon="i-heroicons-play-circle"
+    :title="t('pages.settings.tidalPlayback')"
+    :description="t('pages.settings.tidalPlaybackDescription')"
+  >
+    <div class="flex items-center gap-2">
+      <UBadge
+        :color="status.loggedIn ? 'success' : 'neutral'"
+        variant="subtle"
+        :label="status.loggedIn ? t('pages.settings.connected') : t('pages.settings.disconnected')"
+      />
+      <span v-if="status.loggedIn && status.countryCode" class="text-sm text-(--ui-text-muted)">
+        {{ t('pages.settings.tidalPlaybackCountry', { country: status.countryCode }) }}
+      </span>
+    </div>
+    <UAlert v-if="error" color="error" :title="error" />
+    <div class="flex gap-2">
+      <UButton
+        v-if="!status.loggedIn"
+        icon="i-heroicons-arrow-right-on-rectangle"
+        :loading="connecting"
+        @click="handleConnect"
+      >
+        {{ t('pages.settings.tidalPlaybackConnect') }}
+      </UButton>
+      <UButton
+        v-else
+        icon="i-heroicons-arrow-left-on-rectangle"
+        variant="ghost"
+        :loading="disconnecting"
+        @click="handleDisconnect"
+      >
+        {{ t('pages.settings.tidalPlaybackDisconnect') }}
+      </UButton>
+    </div>
+  </SettingsGroup>
 </template>

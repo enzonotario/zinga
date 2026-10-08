@@ -12,9 +12,9 @@ defineProps<{
       v-for="album in albums"
       :key="album.id"
       :to="`/album/${album.id}`"
-      class="flex flex-col gap-2 p-3 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group"
+      class="flex flex-col gap-2 p-3 rounded-lg hover:bg-accented/40 transition-colors group"
     >
-      <div class="relative aspect-square w-full rounded-lg overflow-hidden bg-neutral-200 dark:bg-neutral-800">
+      <div class="relative aspect-square w-full rounded-lg overflow-hidden bg-accented/50">
         <img
           v-if="album.coverUrl"
           :src="album.coverUrl"

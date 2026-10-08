@@ -12,9 +12,9 @@ defineProps<{
       v-for="artist in artists"
       :key="artist.id"
       :to="`/artist/${artist.id}`"
-      class="flex flex-col items-center gap-3 p-3 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group"
+      class="flex flex-col items-center gap-3 p-3 rounded-lg hover:bg-accented/40 transition-colors group"
     >
-      <div class="w-24 h-24 md:w-28 md:h-28 rounded-full overflow-hidden bg-neutral-200 dark:bg-neutral-800 group-hover:scale-105 transition-transform">
+      <div class="w-24 h-24 md:w-28 md:h-28 rounded-full overflow-hidden bg-accented/50 group-hover:scale-105 transition-transform">
         <img
           v-if="artist.picture"
           :src="artist.picture"

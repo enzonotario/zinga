@@ -63,7 +63,7 @@ const queuePopoverOpen = ref(false);
 </script>
 
 <template>
-  <div class="border-t border-neutral-200 dark:border-neutral-800 bg-(--ui-bg)/80 shadow-lg">
+  <div class="glass border-t border-default">
     <div class="grid grid-cols-3 px-4 gap-4">
       <div class="flex flex-col min-w-0">
         <TrackProgress
@@ -146,7 +146,7 @@ const queuePopoverOpen = ref(false);
           </UButton>
           <template #content>
             <div class="flex flex-col max-h-96 w-80 overflow-hidden">
-              <div class="flex items-center justify-between p-3 border-b border-neutral-200 dark:border-neutral-700 shrink-0">
+              <div class="flex items-center justify-between p-3 border-b border-default shrink-0">
                 <div class="flex items-center gap-2 min-w-0">
                   <UIcon name="i-heroicons-queue-list" class="w-5 h-5 text-primary shrink-0" />
                   <span class="font-semibold">{{ t('nav.queue') }}</span>
@@ -173,7 +173,7 @@ const queuePopoverOpen = ref(false);
               <div class="overflow-y-auto flex-1 min-h-0">
                 <QueueList compact :max-items="5" />
               </div>
-              <div v-if="queue.items.value.length" class="p-2 border-t border-neutral-200 dark:border-neutral-700 shrink-0">
+              <div v-if="queue.items.value.length" class="p-2 border-t border-default shrink-0">
                 <NuxtLink to="/" class="block" @click="queuePopoverOpen = false">
                   <UButton
                     :label="t('nav.viewFullQueue')"

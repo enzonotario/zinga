@@ -23,6 +23,32 @@ p, span, h1, h2, h3, h4, h5, h6, label, input, textarea, [data-selectable] {
 	--color-error: var(--ui-color-error-500)
 }
 
+:root {
+	--ui-border: rgb(0 0 0 / 0.08);
+	--ui-border-muted: rgb(0 0 0 / 0.05);
+	--ui-border-accented: rgb(0 0 0 / 0.14);
+}
+
+.dark {
+	--ui-border: rgb(255 255 255 / 0.10);
+	--ui-border-muted: rgb(255 255 255 / 0.06);
+	--ui-border-accented: rgb(255 255 255 / 0.16);
+}
+
+@utility glass {
+	@apply bg-white/65 backdrop-blur-xl shadow-lg shadow-black/5 inset-shadow-[0_1px_0_0] inset-shadow-white/60;
+	@variant dark {
+		@apply bg-neutral-900/55 shadow-black/20 inset-shadow-white/5;
+	}
+}
+
+@utility glass-soft {
+	@apply bg-black/3;
+	@variant dark {
+		@apply bg-white/4;
+	}
+}
+
 @layer base {
 	-webkit-tap-highlight-color: transparent;
 }
