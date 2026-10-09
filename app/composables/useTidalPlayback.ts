@@ -1,9 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { ref } from 'vue';
+import useOpenExternalLink from './useOpenExternalLink';
 
 export const TIDAL_NOT_LOGGED_IN = 'TIDAL_NOT_LOGGED_IN';
-export const TIDAL_LOGIN_CANCELLED = 'TIDAL_LOGIN_CANCELLED';
+export const TIDAL_LOGIN_INVALID_URL = 'TIDAL_LOGIN_INVALID_URL';
+export const TIDAL_LOGIN_EXPIRED = 'TIDAL_LOGIN_EXPIRED';
 
 interface TidalPlaybackStatus {
   loggedIn: boolean
@@ -18,23 +19,24 @@ interface TidalLoginResult {
 const status = ref<TidalPlaybackStatus>({ loggedIn: false, countryCode: null });
 
 export default function useTidalPlayback() {
+  const { openExternalLink } = useOpenExternalLink();
+
   async function refresh() {
     status.value = await invoke<TidalPlaybackStatus>('tidal_session_status');
   }
 
-  async function login(): Promise<TidalLoginResult> {
-    let resolveFinished: (result: TidalLoginResult) => void = () => {};
-    const finished = new Promise<TidalLoginResult>((resolve) => {
-      resolveFinished = resolve;
-    });
-    const unlisten = await listen<TidalLoginResult>('tidal-login-finished', (event) => resolveFinished(event.payload));
+  async function startLogin() {
+    const url = await invoke<string>('tidal_login_url');
+    await openExternalLink(url);
+  }
+
+  async function completeLogin(redirectUrl: string): Promise<TidalLoginResult> {
     try {
-      await invoke('tidal_login_start');
-      const result = await finished;
+      await invoke('tidal_login_complete', { redirectUrl });
       await refresh();
-      return result;
-    } finally {
-      unlisten();
+      return { ok: true, error: null };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   }
 
@@ -46,7 +48,8 @@ export default function useTidalPlayback() {
   return {
     status,
     refresh,
-    login,
+    startLogin,
+    completeLogin,
     logout,
   };
 }

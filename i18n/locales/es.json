@@ -193,7 +193,16 @@
       "tidalPlaybackCountry": "País: {country}",
       "tidalPlaybackConnect": "Conectar TIDAL",
       "tidalPlaybackDisconnect": "Desconectar",
-      "tidalPlaybackLoginError": "No se pudo iniciar sesión en TIDAL"
+      "tidalPlaybackLoginError": "No se pudo iniciar sesión en TIDAL",
+      "tidalPlaybackNote": "Esta cuenta se usa solo para reproducir audio; TIDAL no permite reproducir con la conexión del catálogo.",
+      "tidalPlaybackStepLogin": "Iniciá sesión en la ventana del navegador que se abrió.",
+      "tidalPlaybackStepOops": "Al terminar, TIDAL muestra una página de error ('Oops'). Es normal.",
+      "tidalPlaybackStepPaste": "Copiá la dirección (URL) completa de esa página y pegala acá.",
+      "tidalPlaybackRedirectPlaceholder": "https://tidal.com/android/login/auth?code=…",
+      "tidalPlaybackComplete": "Completar",
+      "tidalPlaybackReopen": "Abrir de nuevo",
+      "tidalPlaybackInvalidUrl": "La dirección no es válida. Pegá la URL completa de la página 'Oops' de TIDAL; empieza con https://tidal.com/android/login/auth?code=",
+      "tidalPlaybackExpired": "El inicio de sesión expiró. Tocá 'Abrir de nuevo' y repetí los pasos."
     },
     "notFound": {
       "title": "Página no encontrada",

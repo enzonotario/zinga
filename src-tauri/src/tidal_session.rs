@@ -3,13 +3,13 @@ use base64::Engine;
 use rand::{Rng, RngCore};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, Manager, Url};
 use ureq::Agent;
 
 // Public PKCE client credentials shipped with the open-source tidalapi library.
@@ -26,10 +26,9 @@ const CLIENT_VERSION: &str = "2025.7.16";
 const USER_AGENT: &str = "Mozilla/5.0 (Linux; Android 12; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/91.0.4472.114 Safari/537.36";
 const SESSION_FILE: &str = "tidal-playback-session.json";
 const MIGRATION_MARKER_FILE: &str = "tidal-playback-session.migrated";
-const LOGIN_WINDOW_LABEL: &str = "tidal-login";
-const LOGIN_FINISHED_EVENT: &str = "tidal-login-finished";
 const NOT_LOGGED_IN: &str = "TIDAL_NOT_LOGGED_IN";
-const LOGIN_CANCELLED: &str = "TIDAL_LOGIN_CANCELLED";
+const LOGIN_INVALID_URL: &str = "TIDAL_LOGIN_INVALID_URL";
+const LOGIN_EXPIRED: &str = "TIDAL_LOGIN_EXPIRED";
 const TOKEN_EXPIRED_MESSAGE: &str = "The token has expired.";
 const EXPIRY_MARGIN_SECS: u64 = 60;
 
@@ -509,69 +508,39 @@ fn exchange_code(code: &str, pending: &PendingLogin) -> Result<Session, String> 
     Ok(session)
 }
 
-fn finish_login(app: &AppHandle, code: Option<String>, pending: PendingLogin) {
-    let result = code
-        .ok_or_else(|| "TIDAL login did not return an authorization code".to_string())
-        .and_then(|code| exchange_code(&code, &pending))
-        .and_then(set_session);
-    if let Err(e) = &result {
-        eprintln!("[TidalSession] Login failed: {e}");
+fn redirect_code(redirect_url: &str) -> Option<String> {
+    let url = Url::parse(redirect_url.trim()).ok()?;
+    let redirect = Url::parse(REDIRECT_URI).ok()?;
+    if url.scheme() != redirect.scheme()
+        || url.host_str() != redirect.host_str()
+        || url.path() != redirect.path()
+    {
+        return None;
     }
-    if let Some(window) = app.get_webview_window(LOGIN_WINDOW_LABEL) {
-        let _ = window.close();
-    }
-    let _ = app.emit(
-        LOGIN_FINISHED_EVENT,
-        json!({ "ok": result.is_ok(), "error": result.err() }),
-    );
+    url.query_pairs()
+        .find(|(key, _)| key == "code")
+        .map(|(_, value)| value.into_owned())
+        .filter(|code| !code.is_empty())
 }
 
 #[tauri::command]
-pub async fn tidal_login_start(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window(LOGIN_WINDOW_LABEL) {
-        let _ = window.set_focus();
-        return Ok(());
-    }
-
+pub fn tidal_login_url() -> Result<String, String> {
     let pending = new_pending_login();
     let url = login_url(&pending)?;
     *PENDING_LOGIN.lock().unwrap_or_else(|e| e.into_inner()) = Some(pending);
+    Ok(url.into())
+}
 
-    let handle = app.clone();
-    let window = WebviewWindowBuilder::new(&app, LOGIN_WINDOW_LABEL, WebviewUrl::External(url))
-        .title("TIDAL")
-        .inner_size(480.0, 720.0)
-        .on_navigation(move |url: &Url| {
-            if !url.as_str().starts_with(REDIRECT_URI) {
-                return true;
-            }
-            let Some(pending) = take_pending_login() else {
-                return false;
-            };
-            let code = url
-                .query_pairs()
-                .find(|(key, _)| key == "code")
-                .map(|(_, value)| value.into_owned());
-            let app = handle.clone();
-            tauri::async_runtime::spawn_blocking(move || finish_login(&app, code, pending));
-            false
-        })
-        .build()
-        .map_err(|e| {
-            take_pending_login();
-            e.to_string()
-        })?;
-
-    let handle = app.clone();
-    window.on_window_event(move |event| {
-        if matches!(event, WindowEvent::Destroyed) && take_pending_login().is_some() {
-            let _ = handle.emit(
-                LOGIN_FINISHED_EVENT,
-                json!({ "ok": false, "error": LOGIN_CANCELLED }),
-            );
-        }
-    });
-    Ok(())
+#[tauri::command]
+pub async fn tidal_login_complete(redirect_url: String) -> Result<(), String> {
+    let code = redirect_code(&redirect_url).ok_or(LOGIN_INVALID_URL)?;
+    let pending = take_pending_login().ok_or(LOGIN_EXPIRED)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        exchange_code(&code, &pending).and_then(set_session)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .inspect_err(|e| eprintln!("[TidalSession] Login failed: {e}"))
 }
 
 #[tauri::command]
@@ -593,6 +562,7 @@ pub fn tidal_logout() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn playback_info(mime: &str, manifest: &str) -> Value {
         json!({
@@ -617,6 +587,29 @@ mod tests {
             code_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
             "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
         );
+    }
+
+    #[test]
+    fn extracts_code_from_redirect_url() {
+        assert_eq!(
+            redirect_code("  https://tidal.com/android/login/auth?code=abc123&state=x\n").as_deref(),
+            Some("abc123")
+        );
+    }
+
+    #[test]
+    fn rejects_redirect_with_other_host_or_path() {
+        assert_eq!(redirect_code("https://evil.com/android/login/auth?code=abc"), None);
+        assert_eq!(redirect_code("https://tidal.com/login/auth?code=abc"), None);
+        assert_eq!(redirect_code("https://tidal.com.evil.com/android/login/auth?code=abc"), None);
+        assert_eq!(redirect_code("not a url"), None);
+    }
+
+    #[test]
+    fn rejects_redirect_without_code() {
+        assert_eq!(redirect_code("https://tidal.com/android/login/auth"), None);
+        assert_eq!(redirect_code("https://tidal.com/android/login/auth?state=x"), None);
+        assert_eq!(redirect_code("https://tidal.com/android/login/auth?code="), None);
     }
 
     #[test]

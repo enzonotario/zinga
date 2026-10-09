@@ -193,7 +193,16 @@
       "tidalPlaybackCountry": "Country: {country}",
       "tidalPlaybackConnect": "Connect TIDAL",
       "tidalPlaybackDisconnect": "Disconnect",
-      "tidalPlaybackLoginError": "Could not log in to TIDAL"
+      "tidalPlaybackLoginError": "Could not log in to TIDAL",
+      "tidalPlaybackNote": "This account is only used to play audio; TIDAL does not allow playback with the catalog connection.",
+      "tidalPlaybackStepLogin": "Log in in the browser window that just opened.",
+      "tidalPlaybackStepOops": "When you finish, TIDAL shows an error page ('Oops'). That is expected.",
+      "tidalPlaybackStepPaste": "Copy the full address (URL) of that page and paste it here.",
+      "tidalPlaybackRedirectPlaceholder": "https://tidal.com/android/login/auth?code=…",
+      "tidalPlaybackComplete": "Complete",
+      "tidalPlaybackReopen": "Open again",
+      "tidalPlaybackInvalidUrl": "That address is not valid. Paste the full URL of the TIDAL 'Oops' page; it starts with https://tidal.com/android/login/auth?code=",
+      "tidalPlaybackExpired": "The login expired. Click 'Open again' and repeat the steps."
     },
     "notFound": {
       "title": "Page not found",
