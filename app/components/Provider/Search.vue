@@ -30,6 +30,13 @@ const performSearch = useDebounceFn(async (searchQuery: string) => {
     loading.value = false;
   }
 }, 300);
+function leading(src: string | undefined, alt: string, icon: string, square = false) {
+  if (!src) return { icon };
+  return {
+    avatar: { src, alt },
+    ui: square ? { itemLeadingAvatar: 'rounded-sm' } : undefined,
+  };
+}
 watch(query, (newQuery) => performSearch(newQuery));
 const groups = computed(() => {
   const commandGroups: any[] = [];
@@ -40,8 +47,7 @@ const groups = computed(() => {
       items: results.value.artists.map((artist) => ({
         id: `artist-${artist.id}`,
         label: artist.name,
-        icon: 'i-heroicons-user',
-        avatar: artist.picture ? { src: artist.picture, alt: artist.name } : undefined,
+        ...leading(artist.picture, artist.name, 'i-heroicons-user'),
         to: `/artist/${artist.id}`,
       })),
     });
@@ -53,8 +59,7 @@ const groups = computed(() => {
       items: results.value.albums.map((album) => ({
         id: `album-${album.id}`,
         label: album.title,
-        icon: 'i-heroicons-musical-note',
-        avatar: album.coverUrl ? { src: album.coverUrl, alt: album.title } : undefined,
+        ...leading(album.coverUrl, album.title, 'i-heroicons-musical-note', true),
         to: `/album/${album.id}`,
       })),
     });
@@ -66,8 +71,7 @@ const groups = computed(() => {
       items: results.value.tracks.map((track) => ({
         id: `track-${track.id}`,
         label: track.title,
-        icon: 'i-heroicons-musical-note',
-        avatar: track.coverUrl ? { src: track.coverUrl, alt: track.title } : undefined,
+        ...leading(track.coverUrl, track.title, 'i-heroicons-musical-note', true),
         to: `/track/${track.id}`,
       })),
     });
