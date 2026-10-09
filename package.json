@@ -35,7 +35,7 @@
     "@tauri-apps/plugin-dialog": "2.6.0",
     "@tauri-apps/plugin-shell": "^2.3.5",
     "@tauri-apps/plugin-sql": "2.3.1",
-    "@tidal-music/api": "^0.21.0",
+    "@tidal-music/api": "^0.51.0",
     "@tidal-music/auth": "^1.6.0",
     "nuxt": "^4.4.2",
     "tailwindcss": "^4.2.4",

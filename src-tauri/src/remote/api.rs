@@ -157,7 +157,7 @@ pub async fn tidal_search(
     ))?;
 
     let url = format!(
-        "https://openapi.tidal.com/v2/searchResults/{}?countryCode=US&include=artists,albums,tracks",
+        "https://openapi.tidal.com/v2/searchResults?filter%5Bquery%5D={}&countryCode=US&include=artists,albums,tracks",
         urlencoding::encode(&query.q)
     );
 
@@ -178,7 +178,19 @@ pub async fn tidal_search(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
 
-    Ok(Json(result))
+    Ok(Json(unwrap_search_result(result)))
+}
+
+fn unwrap_search_result(mut document: serde_json::Value) -> serde_json::Value {
+    let search_result = document
+        .get("data")
+        .and_then(|data| data.as_array())
+        .and_then(|items| items.iter().find(|item| item["type"] == "searchResults"))
+        .cloned();
+    if let Some(search_result) = search_result {
+        document["data"] = search_result;
+    }
+    document
 }
 
 pub async fn tidal_artist(

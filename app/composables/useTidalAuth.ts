@@ -5,6 +5,7 @@ import {
   clearCache,
   CLIENT_ID,
   CLIENT_SECRET,
+  COLLECTION_OWNER_ID,
   deviceLoginInfo,
   deviceLoginPending,
   error,
@@ -15,6 +16,7 @@ import {
   isInitialized,
   isLoading,
   isUserLoggedIn,
+  searchCatalog,
   setCached,
   USER_SCOPES,
 } from '~/providers/tidal/service';
@@ -111,22 +113,7 @@ export default function useTidalAuth() {
         return await remote.apiFetch(`/api/tidal/search?q=${encodeURIComponent(query)}&type=artists&countryCode=${countryCode}`);
       }
       if (!isInitialized.value) await init();
-      const client = getAPIClient();
-      const response = await client.GET('/searchResults/{id}', {
-        params: {
-          path: { id: query },
-          query: { countryCode, include: ['artists'] },
-        },
-      });
-      if (response.error) throw new Error(`Search error: ${JSON.stringify(response.error)}`);
-      const searchData = response.data;
-      if (!searchData?.data) return { data: [], included: [] };
-      const relationships = searchData.data.relationships || {};
-      const included = searchData.included || [];
-      const artists = (relationships.artists?.data || []).map((ref: any) => {
-        const artist = included.find((item: any) => item.type === 'artists' && item.id === ref.id);
-        return artist || ref;
-      });
+      const { artists, included } = await searchCatalog(query, countryCode, ['artists']);
       return { data: artists, included };
     } catch (err) {
       console.error('Error searching artists:', err);
@@ -140,22 +127,7 @@ export default function useTidalAuth() {
         return await remote.apiFetch(`/api/tidal/search?q=${encodeURIComponent(query)}&type=albums&countryCode=${countryCode}`);
       }
       if (!isInitialized.value) await init();
-      const client = getAPIClient();
-      const response = await client.GET('/searchResults/{id}', {
-        params: {
-          path: { id: query },
-          query: { countryCode, include: ['albums'] },
-        },
-      });
-      if (response.error) throw new Error(`Search error: ${JSON.stringify(response.error)}`);
-      const searchData = response.data;
-      if (!searchData?.data) return { data: [], included: [] };
-      const relationships = searchData.data.relationships || {};
-      const included = searchData.included || [];
-      const albums = (relationships.albums?.data || []).map((ref: any) => {
-        const album = included.find((item: any) => item.type === 'albums' && item.id === ref.id);
-        return album || ref;
-      });
+      const { albums, included } = await searchCatalog(query, countryCode, ['albums']);
       return { data: albums, included };
     } catch (err) {
       console.error('Error searching albums:', err);
@@ -169,22 +141,7 @@ export default function useTidalAuth() {
         return await remote.apiFetch(`/api/tidal/search?q=${encodeURIComponent(query)}&type=tracks&countryCode=${countryCode}`);
       }
       if (!isInitialized.value) await init();
-      const client = getAPIClient();
-      const response = await client.GET('/searchResults/{id}', {
-        params: {
-          path: { id: query },
-          query: { countryCode, include: ['tracks'] },
-        },
-      });
-      if (response.error) throw new Error(`Search error: ${JSON.stringify(response.error)}`);
-      const searchData = response.data;
-      if (!searchData?.data) return { data: [], included: [] };
-      const relationships = searchData.data.relationships || {};
-      const included = searchData.included || [];
-      const tracks = (relationships.tracks?.data || []).map((ref: any) => {
-        const track = included.find((item: any) => item.type === 'tracks' && item.id === ref.id);
-        return track || ref;
-      });
+      const { tracks, included } = await searchCatalog(query, countryCode, ['tracks']);
       return { data: tracks, included };
     } catch (err) {
       console.error('Error searching tracks:', err);
@@ -198,33 +155,12 @@ export default function useTidalAuth() {
         return await remote.apiFetch(`/api/tidal/search?q=${encodeURIComponent(query)}&countryCode=${countryCode}`);
       }
       if (!isInitialized.value) await init();
-      const client = getAPIClient();
-      const response = await client.GET('/searchResults/{id}', {
-        params: {
-          path: { id: query },
-          query: { countryCode, include: ['artists', 'albums', 'tracks'] },
-        },
-      });
-      if (response.error) throw new Error(`Search error: ${JSON.stringify(response.error)}`);
-      const searchData = response.data;
-      if (!searchData?.data) {
-        return { artists: [], albums: [], tracks: [] };
-      }
-      const relationships = searchData.data.relationships || {};
-      const included = searchData.included || [];
-      const artists = (relationships.artists?.data || []).map((ref: any) => {
-        const artist = included.find((item: any) => item.type === 'artists' && item.id === ref.id);
-        return artist ? { ...artist, included } : { ...ref, included };
-      });
-      const albums = (relationships.albums?.data || []).map((ref: any) => {
-        const album = included.find((item: any) => item.type === 'albums' && item.id === ref.id);
-        return album ? { ...album, included } : { ...ref, included };
-      });
-      const tracks = (relationships.tracks?.data || []).map((ref: any) => {
-        const track = included.find((item: any) => item.type === 'tracks' && item.id === ref.id);
-        return track ? { ...track, included } : { ...ref, included };
-      });
-      return { artists, albums, tracks };
+      const { artists, albums, tracks, included } = await searchCatalog(query, countryCode, ['artists', 'albums', 'tracks']);
+      return {
+        artists: artists.map((artist) => ({ ...artist, included })),
+        albums: albums.map((album) => ({ ...album, included })),
+        tracks: tracks.map((track) => ({ ...track, included })),
+      };
     } catch (err) {
       console.error('Error in general search:', err);
       throw err;
@@ -403,17 +339,14 @@ export default function useTidalAuth() {
       throw err;
     }
   };
-  const getFavoriteAlbums = async (locale = 'en-US', countryCode = 'US', cursor?: string) => {
+  const getFavoriteAlbums = async (locale = 'en-US', _countryCode = 'US', cursor?: string) => {
     try {
       if (!isInitialized.value) await init();
-      const user = await getCurrentUser();
-      const userId = user?.data?.id;
-      if (!userId) throw new Error('Could not get user ID');
       const client = getAPIClient();
-      const response = await client.GET('/userCollections/{id}/relationships/albums', {
+      const response = await client.GET('/userCollectionAlbums/{id}/relationships/items', {
         params: {
-          path: { id: userId },
-          query: { locale, countryCode, include: ['albums'], ...cursorParam(cursor) },
+          path: { id: COLLECTION_OWNER_ID },
+          query: { locale, include: ['items'], ...cursorParam(cursor) },
         },
       });
       if (response.error) throw new Error(`Error getting favorite albums: ${JSON.stringify(response.error)}`);
@@ -433,15 +366,12 @@ export default function useTidalAuth() {
       return false;
     }
   };
-  const addAlbumToFavorites = async (albumId: string, countryCode = 'US') => {
+  const addAlbumToFavorites = async (albumId: string, _countryCode = 'US') => {
     try {
       if (!isInitialized.value) await init();
-      const user = await getCurrentUser();
-      const userId = user?.data?.id;
-      if (!userId) throw new Error('Could not get user ID');
       const client = getAPIClient();
-      const response = await client.POST('/userCollections/{id}/relationships/albums', {
-        params: { path: { id: userId }, query: { countryCode } },
+      const response = await client.POST('/userCollectionAlbums/{id}/relationships/items', {
+        params: { path: { id: COLLECTION_OWNER_ID } },
         body: { data: [{ id: albumId, type: 'albums' }] },
       });
       if (response.error) throw new Error(`Error adding album to favorites: ${JSON.stringify(response.error)}`);
@@ -452,15 +382,12 @@ export default function useTidalAuth() {
       throw err;
     }
   };
-  const removeAlbumFromFavorites = async (albumId: string, countryCode = 'US') => {
+  const removeAlbumFromFavorites = async (albumId: string, _countryCode = 'US') => {
     try {
       if (!isInitialized.value) await init();
-      const user = await getCurrentUser();
-      const userId = user?.data?.id;
-      if (!userId) throw new Error('Could not get user ID');
       const client = getAPIClient();
-      const response = await client.DELETE('/userCollections/{id}/relationships/albums', {
-        params: { path: { id: userId }, query: { countryCode } },
+      const response = await client.DELETE('/userCollectionAlbums/{id}/relationships/items', {
+        params: { path: { id: COLLECTION_OWNER_ID } },
         body: { data: [{ id: albumId, type: 'albums' }] },
       });
       if (response.error) throw new Error(`Error removing album from favorites: ${JSON.stringify(response.error)}`);
@@ -470,17 +397,14 @@ export default function useTidalAuth() {
       throw err;
     }
   };
-  const getFavoriteTracks = async (locale = 'en-US', countryCode = 'US', cursor?: string) => {
+  const getFavoriteTracks = async (locale = 'en-US', _countryCode = 'US', cursor?: string) => {
     try {
       if (!isInitialized.value) await init();
-      const user = await getCurrentUser();
-      const userId = user?.data?.id;
-      if (!userId) throw new Error('Could not get user ID');
       const client = getAPIClient();
-      const response = await client.GET('/userCollections/{id}/relationships/tracks', {
+      const response = await client.GET('/userCollectionTracks/{id}/relationships/items', {
         params: {
-          path: { id: userId },
-          query: { locale, countryCode, include: ['tracks'], ...cursorParam(cursor) },
+          path: { id: COLLECTION_OWNER_ID },
+          query: { locale, include: ['items'], ...cursorParam(cursor) },
         },
       });
       if (response.error) throw new Error(`Error getting favorite tracks: ${JSON.stringify(response.error)}`);
@@ -500,15 +424,12 @@ export default function useTidalAuth() {
       return false;
     }
   };
-  const addTrackToFavorites = async (trackId: string, countryCode = 'US') => {
+  const addTrackToFavorites = async (trackId: string, _countryCode = 'US') => {
     try {
       if (!isInitialized.value) await init();
-      const user = await getCurrentUser();
-      const userId = user?.data?.id;
-      if (!userId) throw new Error('Could not get user ID');
       const client = getAPIClient();
-      const response = await client.POST('/userCollections/{id}/relationships/tracks', {
-        params: { path: { id: userId }, query: { countryCode } },
+      const response = await client.POST('/userCollectionTracks/{id}/relationships/items', {
+        params: { path: { id: COLLECTION_OWNER_ID } },
         body: { data: [{ id: trackId, type: 'tracks' }] },
       });
       if (response.error) throw new Error(`Error adding track to favorites: ${JSON.stringify(response.error)}`);
@@ -518,15 +439,12 @@ export default function useTidalAuth() {
       throw err;
     }
   };
-  const removeTrackFromFavorites = async (trackId: string, countryCode = 'US') => {
+  const removeTrackFromFavorites = async (trackId: string, _countryCode = 'US') => {
     try {
       if (!isInitialized.value) await init();
-      const user = await getCurrentUser();
-      const userId = user?.data?.id;
-      if (!userId) throw new Error('Could not get user ID');
       const client = getAPIClient();
-      const response = await client.DELETE('/userCollections/{id}/relationships/tracks', {
-        params: { path: { id: userId }, query: { countryCode } },
+      const response = await client.DELETE('/userCollectionTracks/{id}/relationships/items', {
+        params: { path: { id: COLLECTION_OWNER_ID } },
         body: { data: [{ id: trackId, type: 'tracks' }] },
       });
       if (response.error) throw new Error(`Error removing track from favorites: ${JSON.stringify(response.error)}`);
@@ -536,17 +454,14 @@ export default function useTidalAuth() {
       throw err;
     }
   };
-  const getFollowedArtists = async (locale = 'en-US', countryCode = 'US', cursor?: string) => {
+  const getFollowedArtists = async (locale = 'en-US', _countryCode = 'US', cursor?: string) => {
     try {
       if (!isInitialized.value) await init();
-      const user = await getCurrentUser();
-      const userId = user?.data?.id;
-      if (!userId) throw new Error('Could not get user ID');
       const client = getAPIClient();
-      const response = await client.GET('/userCollections/{id}/relationships/artists', {
+      const response = await client.GET('/userCollectionArtists/{id}/relationships/items', {
         params: {
-          path: { id: userId },
-          query: { countryCode, locale, ...cursorParam(cursor) },
+          path: { id: COLLECTION_OWNER_ID },
+          query: { locale, ...cursorParam(cursor) },
         },
       });
       if (response.error) throw new Error(`Error getting followed artists: ${JSON.stringify(response.error)}`);
@@ -566,15 +481,12 @@ export default function useTidalAuth() {
       return false;
     }
   };
-  const followArtist = async (artistId: string, countryCode = 'US') => {
+  const followArtist = async (artistId: string, _countryCode = 'US') => {
     try {
       if (!isInitialized.value) await init();
-      const user = await getCurrentUser();
-      const userId = user?.data?.id;
-      if (!userId) throw new Error('Could not get user ID');
       const client = getAPIClient();
-      const response = await client.POST('/userCollections/{id}/relationships/artists', {
-        params: { path: { id: userId }, query: { countryCode } },
+      const response = await client.POST('/userCollectionArtists/{id}/relationships/items', {
+        params: { path: { id: COLLECTION_OWNER_ID } },
         body: { data: [{ id: artistId, type: 'artists' }] },
       });
       if (response.error) throw new Error(`Error following artist: ${JSON.stringify(response.error)}`);
@@ -585,15 +497,12 @@ export default function useTidalAuth() {
       throw err;
     }
   };
-  const unfollowArtist = async (artistId: string, countryCode = 'US') => {
+  const unfollowArtist = async (artistId: string, _countryCode = 'US') => {
     try {
       if (!isInitialized.value) await init();
-      const user = await getCurrentUser();
-      const userId = user?.data?.id;
-      if (!userId) throw new Error('Could not get user ID');
       const client = getAPIClient();
-      const response = await client.DELETE('/userCollections/{id}/relationships/artists', {
-        params: { path: { id: userId }, query: { countryCode } },
+      const response = await client.DELETE('/userCollectionArtists/{id}/relationships/items', {
+        params: { path: { id: COLLECTION_OWNER_ID } },
         body: { data: [{ id: artistId, type: 'artists' }] },
       });
       if (response.error) throw new Error(`Error unfollowing artist: ${JSON.stringify(response.error)}`);

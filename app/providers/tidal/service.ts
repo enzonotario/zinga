@@ -5,6 +5,7 @@ import { ref } from 'vue';
 export const CLIENT_ID = 'fX2JxdmntZWK0ixT';
 export const CLIENT_SECRET = '1Nn9AfDAjxrgJFJbKNWLeAyKGVGmINuXPPLHVXAvxAg=';
 export const USER_SCOPES = ['r_usr', 'w_usr'];
+export const COLLECTION_OWNER_ID = 'me';
 interface CacheEntry {
   data: any
   timestamp: number
@@ -33,6 +34,22 @@ export const getAPIClient = () => {
   }
   return apiClient;
 };
+type SearchType = 'artists' | 'albums' | 'tracks';
+
+export async function searchCatalog(query: string, countryCode: string, types: SearchType[]) {
+  const response = await getAPIClient().GET('/searchResults', {
+    params: { query: { 'filter[query]': query, countryCode, include: types } },
+    querySerializer: { allowReserved: false, array: { style: 'form', explode: false } },
+  });
+  if (response.error) throw new Error(`Search error: ${JSON.stringify(response.error)}`);
+  const included: any[] = response.data?.included || [];
+  const relationships = response.data?.data?.find((item) => item.type === 'searchResults')?.relationships;
+  const resolve = (type: SearchType) => {
+    const refs: { id: string, type: string }[] = relationships?.[type]?.data || [];
+    return refs.map((ref) => included.find((item) => item.type === type && item.id === ref.id) || ref);
+  };
+  return { artists: resolve('artists'), albums: resolve('albums'), tracks: resolve('tracks'), included };
+}
 export const isInitialized = ref(false);
 export const isUserLoggedIn = ref(false);
 export const error = ref<string | null>(null);

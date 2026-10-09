@@ -26,16 +26,17 @@ import {
   clearCache as clearTidalCache,
   CLIENT_ID,
   CLIENT_SECRET,
+  COLLECTION_OWNER_ID,
   deviceLoginInfo,
   deviceLoginPending,
   error,
   getAPIClient,
   getCached,
-  getCurrentUser,
   initAuth,
   isInitialized,
   isLoading,
   isUserLoggedIn,
+  searchCatalog,
   setCached,
   USER_SCOPES,
 } from './service';
@@ -158,28 +159,11 @@ export function createTidalProvider(): MusicProvider {
     },
     async searchAll(query: string, _limit = 10, countryCode = 'US'): Promise<SearchResults> {
       if (!isInitialized.value) await provider.init();
-      const client = getAPIClient();
-      const response = await client.GET('/searchResults/{id}', {
-        params: {
-          path: { id: query },
-          query: { countryCode, include: ['artists', 'albums', 'tracks'] },
-        },
-      });
-      if (response.error) throw new Error(`Search error: ${JSON.stringify(response.error)}`);
-      const searchData = response.data;
-      if (!searchData?.data) return { artists: [], albums: [], tracks: [] };
-      const relationships = (searchData.data as any).relationships || {};
-      const included = searchData.included || [];
+      const { artists, albums, tracks, included } = await searchCatalog(query, countryCode, ['artists', 'albums', 'tracks']);
       return {
-        artists: (relationships.artists?.data || []).map((ref: any) =>
-          normalizeSearchArtist(included.find((item: any) => item.type === 'artists' && item.id === ref.id) || ref, included),
-        ),
-        albums: (relationships.albums?.data || []).map((ref: any) =>
-          normalizeSearchAlbum(included.find((item: any) => item.type === 'albums' && item.id === ref.id) || ref, included),
-        ),
-        tracks: (relationships.tracks?.data || []).map((ref: any) =>
-          normalizeSearchTrack(included.find((item: any) => item.type === 'tracks' && item.id === ref.id) || ref, included),
-        ),
+        artists: artists.map((artist) => normalizeSearchArtist(artist, included)),
+        albums: albums.map((album) => normalizeSearchAlbum(album, included)),
+        tracks: tracks.map((track) => normalizeSearchTrack(track, included)),
       };
     },
     async getArtist(id: string, countryCode = 'US'): Promise<NormalizedArtist> {
@@ -389,15 +373,12 @@ export function createTidalProvider(): MusicProvider {
       const cached = getCached(cacheKey);
       if (cached !== null) return cached;
       try {
-        const user = await getCurrentUser();
-        const userId = user?.data?.id;
-        if (!userId) return [];
         const client = getAPIClient();
         const albumIds: string[] = [];
         let nextCursor: string | undefined;
         do {
-          const response = await client.GET('/userCollections/{id}/relationships/albums', {
-            params: { path: { id: userId }, query: { locale: 'en-US', countryCode, include: ['albums'], ...cursorParam(nextCursor) } },
+          const response = await client.GET('/userCollectionAlbums/{id}/relationships/items', {
+            params: { path: { id: COLLECTION_OWNER_ID }, query: { locale: 'en-US', include: ['items'], ...cursorParam(nextCursor) } },
           });
           if (response.error) break;
           albumIds.push(...(response.data?.data?.map((item: any) => item.id) || []));
@@ -413,105 +394,81 @@ export function createTidalProvider(): MusicProvider {
       const albumIds = await provider.getFavoriteAlbumIds(countryCode);
       return albumIds.includes(id);
     },
-    async addAlbumToFavorites(id: string, countryCode = 'US'): Promise<void> {
+    async addAlbumToFavorites(id: string, _countryCode = 'US'): Promise<void> {
       if (!isInitialized.value) await provider.init();
-      const user = await getCurrentUser();
-      const userId = user?.data?.id;
-      if (!userId) throw new Error('Could not get user ID');
       const client = getAPIClient();
-      const response = await client.POST('/userCollections/{id}/relationships/albums', {
-        params: { path: { id: userId }, query: { countryCode } },
+      const response = await client.POST('/userCollectionAlbums/{id}/relationships/items', {
+        params: { path: { id: COLLECTION_OWNER_ID } },
         body: { data: [{ id, type: 'albums' }] },
       });
       if (response.error) throw new Error(`Error adding album to favorites: ${JSON.stringify(response.error)}`);
       clearTidalCache();
     },
-    async removeAlbumFromFavorites(id: string, countryCode = 'US'): Promise<void> {
+    async removeAlbumFromFavorites(id: string, _countryCode = 'US'): Promise<void> {
       if (!isInitialized.value) await provider.init();
-      const user = await getCurrentUser();
-      const userId = user?.data?.id;
-      if (!userId) throw new Error('Could not get user ID');
-      const client = getAPIClient() as any;
-      const response = await client.DELETE('/userCollections/{id}/relationships/albums', {
-        params: { path: { id: userId }, query: { countryCode } },
+      const client = getAPIClient();
+      const response = await client.DELETE('/userCollectionAlbums/{id}/relationships/items', {
+        params: { path: { id: COLLECTION_OWNER_ID } },
         body: { data: [{ id, type: 'albums' }] },
       });
       if (response.error) throw new Error(`Error removing album from favorites: ${JSON.stringify(response.error)}`);
       clearTidalCache();
     },
-    async isArtistFollowed(id: string, countryCode = 'US'): Promise<boolean> {
+    async isArtistFollowed(id: string, _countryCode = 'US'): Promise<boolean> {
       try {
-        const user = await getCurrentUser();
-        const userId = user?.data?.id;
-        if (!userId) return false;
         const client = getAPIClient();
-        const response = await client.GET('/userCollections/{id}/relationships/artists', {
-          params: { path: { id: userId }, query: { countryCode, locale: 'en-US' } },
+        const response = await client.GET('/userCollectionArtists/{id}/relationships/items', {
+          params: { path: { id: COLLECTION_OWNER_ID }, query: { locale: 'en-US' } },
         });
         return response.data?.data?.map((item: any) => item.id).includes(id) || false;
       } catch {
         return false;
       }
     },
-    async followArtist(id: string, countryCode = 'US'): Promise<void> {
+    async followArtist(id: string, _countryCode = 'US'): Promise<void> {
       if (!isInitialized.value) await provider.init();
-      const user = await getCurrentUser();
-      const userId = user?.data?.id;
-      if (!userId) throw new Error('Could not get user ID');
       const client = getAPIClient();
-      const response = await client.POST('/userCollections/{id}/relationships/artists', {
-        params: { path: { id: userId }, query: { countryCode } },
+      const response = await client.POST('/userCollectionArtists/{id}/relationships/items', {
+        params: { path: { id: COLLECTION_OWNER_ID } },
         body: { data: [{ id, type: 'artists' }] },
       });
       if (response.error) throw new Error(`Error following artist: ${JSON.stringify(response.error)}`);
       clearTidalCache();
     },
-    async unfollowArtist(id: string, countryCode = 'US'): Promise<void> {
+    async unfollowArtist(id: string, _countryCode = 'US'): Promise<void> {
       if (!isInitialized.value) await provider.init();
-      const user = await getCurrentUser();
-      const userId = user?.data?.id;
-      if (!userId) throw new Error('Could not get user ID');
-      const client = getAPIClient() as any;
-      const response = await client.DELETE('/userCollections/{id}/relationships/artists', {
-        params: { path: { id: userId }, query: { countryCode } },
+      const client = getAPIClient();
+      const response = await client.DELETE('/userCollectionArtists/{id}/relationships/items', {
+        params: { path: { id: COLLECTION_OWNER_ID } },
         body: { data: [{ id, type: 'artists' }] },
       });
       if (response.error) throw new Error(`Error unfollowing artist: ${JSON.stringify(response.error)}`);
     },
-    async getFavoriteTrackIds(countryCode = 'US'): Promise<string[]> {
+    async getFavoriteTrackIds(_countryCode = 'US'): Promise<string[]> {
       try {
-        const user = await getCurrentUser();
-        const userId = user?.data?.id;
-        if (!userId) return [];
         const client = getAPIClient();
-        const response = await client.GET('/userCollections/{id}/relationships/tracks', {
-          params: { path: { id: userId }, query: { locale: 'en-US', countryCode, include: ['tracks'] } },
+        const response = await client.GET('/userCollectionTracks/{id}/relationships/items', {
+          params: { path: { id: COLLECTION_OWNER_ID }, query: { locale: 'en-US', include: ['items'] } },
         });
         return response.data?.data?.map((item: any) => item.id) || [];
       } catch {
         return [];
       }
     },
-    async addTrackToFavorites(id: string, countryCode = 'US'): Promise<void> {
+    async addTrackToFavorites(id: string, _countryCode = 'US'): Promise<void> {
       if (!isInitialized.value) await provider.init();
-      const user = await getCurrentUser();
-      const userId = user?.data?.id;
-      if (!userId) throw new Error('Could not get user ID');
       const client = getAPIClient();
-      const response = await client.POST('/userCollections/{id}/relationships/tracks', {
-        params: { path: { id: userId }, query: { countryCode } },
+      const response = await client.POST('/userCollectionTracks/{id}/relationships/items', {
+        params: { path: { id: COLLECTION_OWNER_ID } },
         body: { data: [{ id, type: 'tracks' }] },
       });
       if (response.error) throw new Error(`Error adding track to favorites: ${JSON.stringify(response.error)}`);
     },
-    async removeTrackFromFavorites(id: string, countryCode = 'US'): Promise<void> {
+    async removeTrackFromFavorites(id: string, _countryCode = 'US'): Promise<void> {
       if (!isInitialized.value) await provider.init();
-      const user = await getCurrentUser();
-      const userId = user?.data?.id;
-      if (!userId) throw new Error('Could not get user ID');
-      const client = getAPIClient() as any;
-      const response = await client.DELETE('/userCollections/{id}/relationships/tracks', {
-        params: { path: { id: userId }, query: { countryCode } },
+      const client = getAPIClient();
+      const response = await client.DELETE('/userCollectionTracks/{id}/relationships/items', {
+        params: { path: { id: COLLECTION_OWNER_ID } },
         body: { data: [{ id, type: 'tracks' }] },
       });
       if (response.error) throw new Error(`Error removing track from favorites: ${JSON.stringify(response.error)}`);
@@ -522,15 +479,12 @@ export function createTidalProvider(): MusicProvider {
       const cacheKey = `favoriteAlbums:${countryCode}:${fetchAll}`;
       const cached = getCached(cacheKey);
       if (cached !== null) return cached;
-      const user = await getCurrentUser();
-      const userId = user?.data?.id;
-      if (!userId) return [];
       const client = getAPIClient();
       const albumMetas = new Map<string, { addedAt?: string }>();
       let nextCursor: string | undefined;
       do {
-        const response = await client.GET('/userCollections/{id}/relationships/albums', {
-          params: { path: { id: userId }, query: { locale: 'en-US', countryCode, include: ['albums'], ...cursorParam(nextCursor) } },
+        const response = await client.GET('/userCollectionAlbums/{id}/relationships/items', {
+          params: { path: { id: COLLECTION_OWNER_ID }, query: { locale: 'en-US', include: ['items'], ...cursorParam(nextCursor) } },
         });
         if (response.error) break;
         (response.data?.data || []).forEach((album: any) => albumMetas.set(album.id, { addedAt: (album as any).meta?.addedAt }));
@@ -555,12 +509,9 @@ export function createTidalProvider(): MusicProvider {
     },
     async getFavoriteAlbumsPage(countryCode = 'US', cursor?: string): Promise<{ items: NormalizedAlbum[], nextCursor: string | null }> {
       if (!isInitialized.value) await provider.init();
-      const user = await getCurrentUser();
-      const userId = user?.data?.id;
-      if (!userId) return { items: [], nextCursor: null };
       const client = getAPIClient();
-      const response = await client.GET('/userCollections/{id}/relationships/albums', {
-        params: { path: { id: userId }, query: { locale: 'en-US', countryCode, include: ['albums'], ...cursorParam(cursor) } },
+      const response = await client.GET('/userCollectionAlbums/{id}/relationships/items', {
+        params: { path: { id: COLLECTION_OWNER_ID }, query: { locale: 'en-US', include: ['items'], ...cursorParam(cursor) } },
       });
       if (response.error || !response.data?.data) return { items: [], nextCursor: null };
       const albumMetas = new Map<string, { addedAt?: string }>();
@@ -587,15 +538,12 @@ export function createTidalProvider(): MusicProvider {
       const cacheKey = `followedArtists:${countryCode}:${fetchAll}`;
       const cached = getCached(cacheKey);
       if (cached !== null) return cached;
-      const user = await getCurrentUser();
-      const userId = user?.data?.id;
-      if (!userId) return [];
       const client = getAPIClient();
       const artistMetas = new Map<string, { addedAt?: string }>();
       let nextCursor: string | undefined;
       do {
-        const response = await client.GET('/userCollections/{id}/relationships/artists', {
-          params: { path: { id: userId }, query: { locale: 'en-US', countryCode, ...cursorParam(nextCursor) } },
+        const response = await client.GET('/userCollectionArtists/{id}/relationships/items', {
+          params: { path: { id: COLLECTION_OWNER_ID }, query: { locale: 'en-US', ...cursorParam(nextCursor) } },
         });
         if (response.error) break;
         (response.data?.data || []).forEach((artist: any) => artistMetas.set(artist.id, { addedAt: (artist as any).meta?.addedAt }));
@@ -620,12 +568,9 @@ export function createTidalProvider(): MusicProvider {
     },
     async getFollowedArtistsPage(countryCode = 'US', cursor?: string): Promise<{ items: NormalizedArtist[], nextCursor: string | null }> {
       if (!isInitialized.value) await provider.init();
-      const user = await getCurrentUser();
-      const userId = user?.data?.id;
-      if (!userId) return { items: [], nextCursor: null };
       const client = getAPIClient();
-      const response = await client.GET('/userCollections/{id}/relationships/artists', {
-        params: { path: { id: userId }, query: { locale: 'en-US', countryCode, ...cursorParam(cursor) } },
+      const response = await client.GET('/userCollectionArtists/{id}/relationships/items', {
+        params: { path: { id: COLLECTION_OWNER_ID }, query: { locale: 'en-US', ...cursorParam(cursor) } },
       });
       if (response.error || !response.data?.data) return { items: [], nextCursor: null };
       const artistMetas = new Map<string, { addedAt?: string }>();

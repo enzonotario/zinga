@@ -33,8 +33,8 @@ importers:
         specifier: 2.3.1
         version: 2.3.1
       '@tidal-music/api':
-        specifier: ^0.21.0
-        version: 0.21.0
+        specifier: ^0.51.0
+        version: 0.51.0
       '@tidal-music/auth':
         specifier: ^1.6.0
         version: 1.6.0
@@ -3139,8 +3139,8 @@ packages:
   '@tauri-apps/plugin-sql@2.3.1':
     resolution: {integrity: sha512-iNgHnFIR+jRkx9INKVKepzMlxXtNkJUaWuhagFjT4dOttPaNyRnVHgwTjpqZhyVjiklDh2UdEPAJkQKiCPAekw==}
 
-  '@tidal-music/api@0.21.0':
-    resolution: {integrity: sha512-mfOZu1brB7zxJZn1XBjmaGlufWvIFOpmk09m3s3DZub2XnxnAuFlb6FGxrxNz7dkBm7pZv3eSQuu3e41uu/DZg==}
+  '@tidal-music/api@0.51.0':
+    resolution: {integrity: sha512-0gCWRTpkO0gA83J1ZTk7VQj/bkKNOLrVyFUmPYKMBgNUWPM/Tj03H7EJoOjz3ebaVev8aDk+mmg6d65QRpj98Q==}
 
   '@tidal-music/auth@1.6.0':
     resolution: {integrity: sha512-mjl1mz8IsVnAXY6Dm6nUCjH2gnYe3/uONJZRVbUt5oq5nnd+BZLoxf+jwrnn/kavg6TCfO5E9t3ONBvKrTsd+A==}
@@ -11078,7 +11078,7 @@ snapshots:
     dependencies:
       '@tauri-apps/api': 2.9.1
 
-  '@tidal-music/api@0.21.0':
+  '@tidal-music/api@0.51.0':
     dependencies:
       openapi-fetch: 0.17.0
 
