@@ -53,6 +53,7 @@ export interface NormalizedTrack {
   explicit?: boolean
   isrc?: string
   copyright?: string
+  coverUrl?: string
 }
 export interface NormalizedCredit {
   name: string

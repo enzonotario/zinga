@@ -35,10 +35,16 @@ export const getAPIClient = () => {
   return apiClient;
 };
 type SearchType = 'artists' | 'albums' | 'tracks';
+const SEARCH_ARTWORK_INCLUDES: Record<SearchType, string> = {
+  artists: 'artists.profileArt',
+  albums: 'albums.coverArt',
+  tracks: 'tracks.albums.coverArt',
+};
 
-export async function searchCatalog(query: string, countryCode: string, types: SearchType[]) {
+export async function searchCatalog(query: string, countryCode: string, types: SearchType[], withArtwork = false) {
+  const include = withArtwork ? types.map((type) => SEARCH_ARTWORK_INCLUDES[type]) : types;
   const response = await getAPIClient().GET('/searchResults', {
-    params: { query: { 'filter[query]': query, countryCode, include: types } },
+    params: { query: { 'filter[query]': query, countryCode, include: include as SearchType[] } },
     querySerializer: { allowReserved: false, array: { style: 'form', explode: false } },
   });
   if (response.error) throw new Error(`Search error: ${JSON.stringify(response.error)}`);

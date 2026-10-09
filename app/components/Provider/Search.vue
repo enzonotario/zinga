@@ -67,6 +67,7 @@ const groups = computed(() => {
         id: `track-${track.id}`,
         label: track.title,
         icon: 'i-heroicons-musical-note',
+        avatar: track.coverUrl ? { src: track.coverUrl, alt: track.title } : undefined,
         to: `/track/${track.id}`,
       })),
     });

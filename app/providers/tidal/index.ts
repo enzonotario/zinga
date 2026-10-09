@@ -159,7 +159,7 @@ export function createTidalProvider(): MusicProvider {
     },
     async searchAll(query: string, _limit = 10, countryCode = 'US'): Promise<SearchResults> {
       if (!isInitialized.value) await provider.init();
-      const { artists, albums, tracks, included } = await searchCatalog(query, countryCode, ['artists', 'albums', 'tracks']);
+      const { artists, albums, tracks, included } = await searchCatalog(query, countryCode, ['artists', 'albums', 'tracks'], true);
       return {
         artists: artists.map((artist) => normalizeSearchArtist(artist, included)),
         albums: albums.map((album) => normalizeSearchAlbum(album, included)),

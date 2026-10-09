@@ -136,7 +136,7 @@ export function extractArtworkUrl(entity: any, included: any[], artworkType: 'pr
   if (!artworkId) return undefined;
   const artwork = included.find((item: any) => item.type === 'artworks' && item.id === artworkId);
   if (!artwork?.attributes?.files?.length) return undefined;
-  const files = artwork.attributes.files;
+  const files = [...artwork.attributes.files].sort((a: any, b: any) => (a.meta?.width ?? 0) - (b.meta?.width ?? 0));
   const suitable = files.find((f: any) => f.meta?.width >= minWidth) || files[files.length - 1];
   return suitable?.href;
 }
@@ -197,5 +197,10 @@ export function normalizeSearchTrack(data: any, included: any[] = []): Normalize
     artists,
     duration: parseISODurationToSeconds(data.attributes?.duration),
     explicit: data.attributes?.explicit,
+    coverUrl: extractArtworkUrl(findIncludedAlbum(data, included), included, 'coverArt', 320),
   };
+}
+function findIncludedAlbum(track: any, included: any[]) {
+  const albumId = track?.relationships?.albums?.data?.[0]?.id;
+  return included.find((item: any) => item.type === 'albums' && item.id === albumId);
 }
