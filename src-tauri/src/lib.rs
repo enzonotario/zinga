@@ -203,7 +203,20 @@ async fn remote_discover_servers() -> Result<Vec<remote::discovery::DiscoveredSe
     Ok(remote::discovery::discover_servers(3000).await)
 }
 
+// AppImage's AppRun pins GDK_BACKEND=x11, where WebKitGTK's DMABUF renderer often paints a blank window
+#[cfg(target_os = "linux")]
+fn apply_appimage_webkit_workaround() {
+    if std::env::var_os("APPIMAGE").is_some()
+        && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+    {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+}
+
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    apply_appimage_webkit_workaround();
+
     let migrations = vec![
         Migration {
             version: 1,
