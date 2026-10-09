@@ -37,6 +37,11 @@ function leading(src: string | undefined, alt: string, icon: string, square = fa
     ui: square ? { itemLeadingAvatar: 'rounded-sm' } : undefined,
   };
 }
+defineShortcuts({
+  meta_k: () => {
+    open.value = !open.value;
+  },
+});
 watch(query, (newQuery) => performSearch(newQuery));
 const groups = computed(() => {
   const commandGroups: any[] = [];
@@ -94,6 +99,12 @@ watch(open, (isOpen) => {
   <UModal v-model:open="open" class="sm:max-w-2xl">
     <UButton icon="i-heroicons-magnifying-glass" variant="ghost">
       {{ $t('search.button') }}
+      <template #trailing>
+        <span class="hidden sm:flex items-center gap-0.5">
+          <UKbd value="meta" size="sm" />
+          <UKbd value="k" size="sm" />
+        </span>
+      </template>
     </UButton>
     <template #content>
       <UCommandPalette
