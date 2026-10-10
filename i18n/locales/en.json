@@ -139,7 +139,10 @@
       "ffmpegDescription": "Streams audio to UPnP devices",
       "gstreamerPluginDescription": "GStreamer plugin for local playback",
       "installHint": "On Debian/Ubuntu, install them by running this in a terminal:",
-      "goToSetup": "Go to system check"
+      "goToSetup": "Go to system check",
+      "copyCommand": "Copy command",
+      "copied": "Copied",
+      "runInTerminal": "Run in terminal"
     },
     "settings": {
       "name": "Settings",
@@ -457,5 +460,13 @@
   },
   "app": {
     "description": "A cross-platform UPnP music player"
+  },
+  "terminal": {
+    "title": "Terminal",
+    "running": "Running",
+    "finished": "Finished",
+    "finishedWithCode": "Finished (exit code {code})",
+    "kill": "Stop",
+    "close": "Close terminal"
   }
 }

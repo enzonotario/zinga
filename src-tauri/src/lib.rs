@@ -34,6 +34,7 @@ mod library;
 mod local_player;
 mod remote;
 mod setup;
+mod terminal;
 mod tidal_session;
 mod window_shortcuts;
 
@@ -396,6 +397,7 @@ pub fn run() {
         .manage(CloseToTray(AtomicBool::new(true)))
         .manage(AppState::default())
         .manage(remote::state::RemoteState::new())
+        .manage(terminal::TerminalState::default())
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() != "main" {
@@ -489,6 +491,10 @@ pub fn run() {
             remote_broadcast_state,
             remote_discover_servers,
             setup::system_check,
+            terminal::terminal_start,
+            terminal::terminal_write,
+            terminal::terminal_resize,
+            terminal::terminal_kill,
             library::scan_folder
         ])
         .run(tauri::generate_context!())

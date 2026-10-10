@@ -8,9 +8,9 @@ export interface SystemCheck {
   ffmpeg: boolean
   gstreamerPlugins: PluginStatus[]
   ready: boolean
+  installCommand: string
+  canRunInstall: boolean
 }
-
-export const INSTALL_HINT = 'sudo apt install ffmpeg gstreamer1.0-plugins-good gstreamer1.0-plugins-base';
 
 const status = ref<SystemCheck | null>(null);
 const loading = ref(false);

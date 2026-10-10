@@ -25,6 +25,9 @@ const isFixedLayout = computed(() => route.meta.fixedLayout === true);
           </div>
         </UContainer>
       </div>
+      <ClientOnly>
+        <SystemTerminalPanel class="shrink-0" />
+      </ClientOnly>
       <NavBottomBar class="shrink-0" />
     </div>
     <UiImageFullscreen />

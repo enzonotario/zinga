@@ -1,6 +1,10 @@
 use gstreamer as gst;
 use serde::Serialize;
+use std::path::Path;
 use std::process::{Command, Stdio};
+
+pub(crate) const INSTALL_COMMAND: &str =
+    "sudo apt install ffmpeg gstreamer1.0-plugins-good gstreamer1.0-plugins-base";
 
 const GSTREAMER_PLUGINS: [&str; 5] = [
     "playbin",
@@ -23,32 +27,46 @@ pub struct SystemCheck {
     pub ffmpeg: bool,
     pub gstreamer_plugins: Vec<PluginStatus>,
     pub ready: bool,
+    pub install_command: String,
+    pub can_run_install: bool,
 }
 
+pub(crate) const EXTERNAL_ENV_DENYLIST: [&str; 19] = [
+    "APPDIR",
+    "APPIMAGE",
+    "APPIMAGE_SILENT_INSTALL",
+    "ARGV0",
+    "LD_LIBRARY_PATH",
+    "GST_PLUGIN_SYSTEM_PATH",
+    "GST_PLUGIN_SYSTEM_PATH_1_0",
+    "GIO_EXTRA_MODULES",
+    "GDK_PIXBUF_MODULE_FILE",
+    "GTK_EXE_PREFIX",
+    "GTK_DATA_PREFIX",
+    "GTK_PATH",
+    "GTK_IM_MODULE_FILE",
+    "GTK_MODULES",
+    "GTK3_MODULES",
+    "QT_PLUGIN_PATH",
+    "GSETTINGS_SCHEMA_DIR",
+    "PYTHONHOME",
+    "PYTHONPATH",
+];
+
 pub(crate) fn sanitize_external_env(command: &mut Command) {
-    for key in [
-        "APPDIR",
-        "APPIMAGE",
-        "APPIMAGE_SILENT_INSTALL",
-        "ARGV0",
-        "LD_LIBRARY_PATH",
-        "GST_PLUGIN_SYSTEM_PATH",
-        "GST_PLUGIN_SYSTEM_PATH_1_0",
-        "GIO_EXTRA_MODULES",
-        "GDK_PIXBUF_MODULE_FILE",
-        "GTK_EXE_PREFIX",
-        "GTK_DATA_PREFIX",
-        "GTK_PATH",
-        "GTK_IM_MODULE_FILE",
-        "GTK_MODULES",
-        "GTK3_MODULES",
-        "QT_PLUGIN_PATH",
-        "GSETTINGS_SCHEMA_DIR",
-        "PYTHONHOME",
-        "PYTHONPATH",
-    ] {
+    for key in EXTERNAL_ENV_DENYLIST {
         command.env_remove(key);
     }
+}
+
+fn is_on_path(program: &str) -> bool {
+    std::env::var_os("PATH").is_some_and(|paths| {
+        std::env::split_paths(&paths).any(|dir| Path::new(&dir).join(program).is_file())
+    })
+}
+
+pub(crate) fn can_run_install() -> bool {
+    cfg!(target_os = "linux") && ["apt", "sudo", "bash"].into_iter().all(is_on_path)
 }
 
 fn is_ffmpeg_available() -> bool {
@@ -73,18 +91,26 @@ fn gstreamer_plugins() -> Vec<PluginStatus> {
         .collect()
 }
 
-fn summarize(ffmpeg: bool, gstreamer_plugins: Vec<PluginStatus>) -> SystemCheck {
+fn summarize(
+    ffmpeg: bool,
+    gstreamer_plugins: Vec<PluginStatus>,
+    can_run_install: bool,
+) -> SystemCheck {
     let ready = ffmpeg && gstreamer_plugins.iter().all(|plugin| plugin.available);
     SystemCheck {
         ffmpeg,
         gstreamer_plugins,
         ready,
+        install_command: INSTALL_COMMAND.to_string(),
+        can_run_install,
     }
 }
 
 #[tauri::command]
 pub async fn system_check() -> Result<SystemCheck, String> {
-    tauri::async_runtime::spawn_blocking(|| summarize(is_ffmpeg_available(), gstreamer_plugins()))
+    tauri::async_runtime::spawn_blocking(|| {
+        summarize(is_ffmpeg_available(), gstreamer_plugins(), can_run_install())
+    })
         .await
         .map_err(|e| format!("System check failed: {e}"))
 }
@@ -106,15 +132,17 @@ mod tests {
 
     #[test]
     fn ready_requires_ffmpeg_and_every_plugin() {
-        assert!(summarize(true, plugins(&[true; 5])).ready);
-        assert!(!summarize(false, plugins(&[true; 5])).ready);
-        assert!(!summarize(true, plugins(&[true, true, false, true, true])).ready);
+        assert!(summarize(true, plugins(&[true; 5]), false).ready);
+        assert!(!summarize(false, plugins(&[true; 5]), false).ready);
+        assert!(!summarize(true, plugins(&[true, true, false, true, true]), false).ready);
     }
 
     #[test]
     fn serializes_in_camel_case() {
-        let value = serde_json::to_value(summarize(true, plugins(&[true; 5]))).unwrap();
+        let value = serde_json::to_value(summarize(true, plugins(&[true; 5]), true)).unwrap();
         assert_eq!(value["ready"], true);
+        assert_eq!(value["installCommand"], INSTALL_COMMAND);
+        assert_eq!(value["canRunInstall"], true);
         assert_eq!(value["gstreamerPlugins"][0]["name"], "playbin");
         assert_eq!(value["gstreamerPlugins"][0]["available"], true);
     }
