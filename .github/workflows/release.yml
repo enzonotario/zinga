@@ -50,7 +50,7 @@ jobs:
       - name: Build desktop app
         run: pnpm desktop:build
         env:
-          LINUXDEPLOY_EXCLUDED_LIBRARIES: 'libgst*'
+          LINUXDEPLOY_EXCLUDED_LIBRARIES: 'libgst*;libglib-2.0.so*;libgobject-2.0.so*;libgio-2.0.so*;libgmodule-2.0.so*;libgthread-2.0.so*'
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

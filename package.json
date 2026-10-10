@@ -22,8 +22,8 @@
     "docs:build": "pnpm run -C docs build",
     "docs:preview": "pnpm run -C docs preview",
     "desktop:dev": "tauri dev",
-    "desktop:build": "sh -c '[ -n \"$CI\" ] && export CI=true; export LINUXDEPLOY_EXCLUDED_LIBRARIES=\"libgst*\"; tauri build'",
-    "desktop:build:appimage": "sh -c '[ -n \"$CI\" ] && export CI=true; export LINUXDEPLOY_EXCLUDED_LIBRARIES=\"libgst*\"; tauri build -b appimage'",
+    "desktop:build": "sh -c '[ -n \"$CI\" ] && export CI=true; export LINUXDEPLOY_EXCLUDED_LIBRARIES=\"libgst*;libglib-2.0.so*;libgobject-2.0.so*;libgio-2.0.so*;libgmodule-2.0.so*;libgthread-2.0.so*\"; tauri build'",
+    "desktop:build:appimage": "sh -c '[ -n \"$CI\" ] && export CI=true; export LINUXDEPLOY_EXCLUDED_LIBRARIES=\"libgst*;libglib-2.0.so*;libgobject-2.0.so*;libgio-2.0.so*;libgmodule-2.0.so*;libgthread-2.0.so*\"; tauri build -b appimage'",
     "test": "vitest",
     "test:coverage": "vitest run --coverage"
   },
