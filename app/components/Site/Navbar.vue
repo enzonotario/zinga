@@ -53,6 +53,7 @@ const desktopItems = computed(() => [
         />
         <div class="items-center gap-2 flex">
           <ProviderSearch />
+          <RemoteClientModeSwitch />
           <ProviderAuthStatus />
           <UColorModeButton />
         </div>

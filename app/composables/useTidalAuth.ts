@@ -315,7 +315,7 @@ export default function useTidalAuth() {
         const cacheKey = `track:${trackId}:remote`;
         const cached = getCached(cacheKey);
         if (cached !== null) return cached;
-        const data = await remote.apiFetch(`/api/tidal/album/${trackId}?countryCode=${countryCode}`);
+        const data = await remote.apiFetch(`/api/tidal/track/${trackId}?countryCode=${countryCode}`);
         setCached(cacheKey, data);
         return data;
       }

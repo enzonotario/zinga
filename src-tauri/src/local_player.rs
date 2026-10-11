@@ -1,15 +1,23 @@
 use gst::prelude::*;
 use gstreamer as gst;
 use serde::Serialize;
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 static PLAYER: Mutex<Option<LocalPlayer>> = Mutex::new(None);
 const TEST_TONE_PIPELINE: &str = "audiotestsrc num-buffers=100 samplesperbuffer=441 volume=0.3 \
     ! audio/x-raw,rate=44100 ! audioconvert ! audioresample ! autoaudiosink";
 
+struct QueuedTrack {
+    play_uri: String,
+    track_uri: String,
+}
+
 struct LocalPlayer {
     playbin: gst::Element,
-    next_uri: Arc<Mutex<Option<String>>>,
+    next_track: Arc<Mutex<Option<QueuedTrack>>>,
+    pending_tracks: Arc<Mutex<VecDeque<String>>>,
+    heard_uri: String,
     track_uri: String,
     desired: gst::State,
     volume: u32,
@@ -24,7 +32,9 @@ pub struct LocalStatus {
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn make_element(factory: &str) -> Result<gst::Element, String> {
@@ -40,22 +50,28 @@ impl LocalPlayer {
         playbin.set_property("audio-sink", make_element("autoaudiosink")?);
         playbin.set_property("video-sink", make_element("fakesink")?);
 
-        let next_uri = Arc::new(Mutex::new(None::<String>));
-        let queued = Arc::clone(&next_uri);
-        // Runs on a streaming thread: it must never touch PLAYER, only the shared next_uri slot
+        let next_track = Arc::new(Mutex::new(None::<QueuedTrack>));
+        let pending_tracks = Arc::new(Mutex::new(VecDeque::new()));
+        let queued = Arc::clone(&next_track);
+        let pending = Arc::clone(&pending_tracks);
+        // Runs on a streaming thread: it must never touch PLAYER, only these shared slots.
+        // The next URI has to be set here, while decoded audio is still queued, or the switch is audible.
         playbin.connect("about-to-finish", false, move |args| {
-            let Some(uri) = lock(&queued).take() else {
+            let Some(track) = lock(&queued).take() else {
                 return None;
             };
             if let Some(Ok(playbin)) = args.first().map(|value| value.get::<gst::Element>()) {
-                playbin.set_property("uri", uri.as_str());
+                playbin.set_property("uri", track.play_uri.as_str());
             }
+            lock(&pending).push_back(track.track_uri);
             None
         });
 
         Ok(Self {
             playbin,
-            next_uri,
+            next_track,
+            pending_tracks,
+            heard_uri: String::new(),
             track_uri: String::new(),
             desired: gst::State::Null,
             volume: 100,
@@ -77,21 +93,36 @@ impl LocalPlayer {
         self.set_state(state)
     }
 
-    fn set_next(&self, uri: Option<String>) {
-        *lock(&self.next_uri) = uri;
+    fn set_next(&self, play_uri: Option<String>, track_uri: Option<String>) {
+        *lock(&self.next_track) = match (play_uri, track_uri) {
+            (Some(play_uri), Some(track_uri)) if !play_uri.is_empty() => Some(QueuedTrack {
+                play_uri,
+                track_uri,
+            }),
+            (Some(play_uri), None) if !play_uri.is_empty() => Some(QueuedTrack {
+                track_uri: play_uri.clone(),
+                play_uri,
+            }),
+            _ => None,
+        };
     }
 
     fn halt(&mut self) {
         self.desired = gst::State::Null;
         let _ = self.playbin.set_state(gst::State::Null);
-        self.set_next(None);
+        self.set_next(None, None);
+        lock(&self.pending_tracks).clear();
+        self.heard_uri.clear();
     }
 
-    fn play(&mut self, uri: &str) -> Result<(), String> {
+    fn play(&mut self, play_uri: &str, track_uri: &str) -> Result<(), String> {
         self.set_state(gst::State::Null)?;
-        self.set_next(None);
+        self.set_next(None, None);
+        lock(&self.pending_tracks).clear();
+        lock(&self.pending_tracks).push_back(track_uri.to_string());
+        self.heard_uri.clear();
         self.track_uri.clear();
-        self.playbin.set_property("uri", uri);
+        self.playbin.set_property("uri", play_uri);
         self.desired = gst::State::Playing;
         self.set_state(gst::State::Playing)
     }
@@ -120,10 +151,15 @@ impl LocalPlayer {
             match message.view() {
                 // current-uri switches before the previous track's tail is rendered; stream-start marks the audible switch
                 gst::MessageView::StreamStart(_) => {
-                    self.track_uri = self
+                    let current = self
                         .playbin
                         .property::<Option<String>>("current-uri")
                         .unwrap_or_default();
+                    if let Some(uri) =
+                        take_pending_track(&mut self.heard_uri, &self.pending_tracks, &current)
+                    {
+                        self.track_uri = uri;
+                    }
                 }
                 gst::MessageView::Error(err) => {
                     eprintln!(
@@ -185,17 +221,30 @@ async fn run<T: Send + 'static>(
 }
 
 #[tauri::command]
-pub async fn local_play(uri: String) -> Result<(), String> {
-    run(move |player| player.play(&uri)).await
+pub async fn local_play(uri: String, track_uri: String) -> Result<(), String> {
+    run(move |player| player.play(&uri, &track_uri)).await
 }
 
 #[tauri::command]
-pub async fn local_set_next(uri: Option<String>) -> Result<(), String> {
+pub async fn local_set_next(uri: Option<String>, track_uri: Option<String>) -> Result<(), String> {
     run(move |player| {
-        player.set_next(uri);
+        player.set_next(uri, track_uri);
         Ok(())
     })
     .await
+}
+
+// A second stream-start for the same URI is not a new track. Popping again would skip the queue.
+fn take_pending_track(
+    heard_uri: &mut String,
+    pending: &Mutex<VecDeque<String>>,
+    current_uri: &str,
+) -> Option<String> {
+    if current_uri.is_empty() || current_uri == heard_uri {
+        return None;
+    }
+    *heard_uri = current_uri.to_string();
+    lock(pending).pop_front()
 }
 
 #[tauri::command]
@@ -280,5 +329,28 @@ mod tests {
         assert_eq!(renderer_state(Paused, Paused), "PAUSED_PLAYBACK");
         assert_eq!(renderer_state(Null, Null), "STOPPED");
         assert_eq!(renderer_state(Playing, Null), "STOPPED");
+    }
+
+    #[test]
+    fn stream_start_reports_each_track_once() {
+        let pending = Mutex::new(VecDeque::from([
+            "stream://1".to_string(),
+            "stream://2".to_string(),
+        ]));
+        let mut heard = String::new();
+        assert_eq!(
+            take_pending_track(&mut heard, &pending, "file:///a.flac"),
+            Some("stream://1".to_string())
+        );
+        assert_eq!(
+            take_pending_track(&mut heard, &pending, "file:///a.flac"),
+            None
+        );
+        assert_eq!(take_pending_track(&mut heard, &pending, ""), None);
+        assert_eq!(
+            take_pending_track(&mut heard, &pending, "file:///b.flac"),
+            Some("stream://2".to_string())
+        );
+        assert!(lock(&pending).is_empty());
     }
 }

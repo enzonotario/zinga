@@ -1,7 +1,8 @@
 <script lang="ts" setup>
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import useDevices from '~/composables/useDevices';
 import usePlayer from '~/composables/usePlayer';
+import useRemoteClient from '~/composables/useRemoteClient';
 import { useSettings } from '~/composables/useSettings';
 
 definePageMeta({
@@ -33,7 +34,13 @@ const {
 } = useDevices();
 const { testSound, pause } = usePlayer();
 const { debugMode } = useSettings();
+const remote = useRemoteClient();
 const { t } = useI18n();
+const pageTitle = computed(() => (remote.isRemoteMode.value ? t('pages.devices.remoteTitle') : t('pages.devices.title')));
+const pageSubtitle = computed(() => (remote.isRemoteMode.value ? t('pages.devices.remoteSubtitle') : t('pages.devices.subtitle')));
+const localDescription = computed(() => (remote.isRemoteMode.value ? t('pages.devices.remoteLocalDescription') : t('pages.devices.localPlaybackDescription')));
+const devicesHeading = computed(() => (remote.isRemoteMode.value ? t('pages.devices.remoteSection') : t('pages.devices.upnpDevices')));
+const serverHost = computed(() => remote.serverUrl.value?.replace(/^https?:\/\//, '') || '');
 const expandedId = ref<string | null>(null);
 const debugDevice = ref<any>(null);
 onMounted(() => {
@@ -48,11 +55,23 @@ onMounted(() => {
         <div class="flex flex-col gap-4">
           <div class="flex items-center justify-between">
             <div>
-              <h1 class="text-xl font-semibold">
-                {{ t('pages.devices.title') }}
-              </h1>
+              <div class="flex items-center gap-2">
+                <h1 class="text-xl font-semibold">
+                  {{ pageTitle }}
+                </h1>
+                <UBadge
+                  v-if="remote.isRemoteMode.value"
+                  color="primary"
+                  variant="subtle"
+                  size="sm"
+                  :label="t('pages.devices.remoteBadge')"
+                />
+              </div>
               <p class="text-sm text-neutral-500 mt-1">
-                {{ t('pages.devices.subtitle') }}
+                {{ pageSubtitle }}
+              </p>
+              <p v-if="remote.isRemoteMode.value && serverHost" class="text-xs font-mono text-muted mt-1">
+                {{ serverHost }}
               </p>
             </div>
             <UButton
@@ -96,11 +115,18 @@ onMounted(() => {
                 />
                 <div class="flex flex-col">
                   <span class="font-medium text-sm">{{ t('pages.devices.localPlayback') }}</span>
-                  <span class="text-xs text-neutral-500">{{ t('pages.devices.localPlaybackDescription') }}</span>
+                  <span class="text-xs text-neutral-500">{{ localDescription }}</span>
                 </div>
               </div>
+              <UBadge
+                v-if="isLocalPlayback"
+                color="success"
+                variant="subtle"
+                size="sm"
+                :label="t('pages.devices.nowPlaying')"
+              />
               <UButton
-                v-if="!isLocalPlayback"
+                v-else
                 :label="t('common.select')"
                 size="xs"
                 variant="soft"
@@ -113,13 +139,13 @@ onMounted(() => {
         <div class="flex flex-col gap-3">
           <h2 class="font-medium flex items-center gap-2">
             <UIcon name="i-heroicons-list-bullet" />
-            {{ t('pages.devices.upnpDevices') }}
+            {{ devicesHeading }}
           </h2>
           <div v-if="!loading && devices.length === 0">
             <UEmpty
               icon="i-heroicons-wifi"
               :title="t('pages.devices.noDevicesFound')"
-              :description="t('pages.devices.noDevicesDescription')"
+              :description="remote.isRemoteMode.value ? t('pages.devices.remoteEmpty') : t('pages.devices.noDevicesDescription')"
             />
           </div>
           <div v-else class="flex flex-col gap-2">
@@ -148,8 +174,15 @@ onMounted(() => {
                     </div>
                   </div>
                   <div class="flex items-center gap-2">
+                    <UBadge
+                      v-if="selectedDeviceId === d.id"
+                      color="success"
+                      variant="subtle"
+                      size="sm"
+                      :label="t('pages.devices.nowPlaying')"
+                    />
                     <UButton
-                      v-if="selectedDeviceId !== d.id"
+                      v-else
                       :label="t('common.select')"
                       size="xs"
                       variant="soft"
@@ -248,6 +281,7 @@ onMounted(() => {
             </div>
             <div class="flex items-center gap-2">
               <UButton
+                v-if="!remote.isRemoteMode.value"
                 :label="t('pages.devices.testSound')"
                 icon="i-heroicons-play"
                 size="sm"

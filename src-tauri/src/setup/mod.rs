@@ -109,10 +109,14 @@ fn summarize(
 #[tauri::command]
 pub async fn system_check() -> Result<SystemCheck, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        summarize(is_ffmpeg_available(), gstreamer_plugins(), can_run_install())
+        summarize(
+            is_ffmpeg_available(),
+            gstreamer_plugins(),
+            can_run_install(),
+        )
     })
-        .await
-        .map_err(|e| format!("System check failed: {e}"))
+    .await
+    .map_err(|e| format!("System check failed: {e}"))
 }
 
 #[cfg(test)]

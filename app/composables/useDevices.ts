@@ -1,7 +1,9 @@
 import type { Device } from '~/types/device';
+import type { RemoteDevicesSnapshot } from '~/utils/remoteSnapshot';
 import { invoke } from '@tauri-apps/api/core';
 import { computed, ref, watch } from 'vue';
 import { VOLUME_POLLING_INTERVAL, VOLUME_UPDATE_RESET_DELAY } from '~/constants/polling';
+import { parseDevicesSnapshot } from '~/utils/remoteSnapshot';
 import useLocalRenderer from './useLocalRenderer';
 import useRemoteClient from './useRemoteClient';
 
@@ -20,6 +22,8 @@ const isUpdatingVolumeFromDevice = ref(false);
 const isPollingPaused = ref(false);
 const isVolumeSyncing = ref(false);
 let upnpVolumePollInFlight = false;
+let syncedDeviceId: string | null = null;
+let pendingRemoteDeviceId: string | null = null;
 if (import.meta.client) {
   const lastDeviceId = localStorage.getItem('lastSelectedDevice');
   if (lastDeviceId) {
@@ -43,37 +47,59 @@ function syncSelectionWithDevices(availableDevices: Device[]) {
     clearInvalidSelection();
   }
 }
+function sameDevices(current: Device[], next: RemoteDevicesSnapshot['devices']) {
+  if (current.length !== next.length) return false;
+  return current.every((device, index) => device.id === next[index]?.id && device.name === next[index]?.name);
+}
+function applyRemoteDevices(snapshot: RemoteDevicesSnapshot) {
+  if (pendingRemoteDeviceId && snapshot.selectedDeviceId !== pendingRemoteDeviceId) {
+    if (!sameDevices(devices.value, snapshot.devices)) devices.value = snapshot.devices;
+    return;
+  }
+  pendingRemoteDeviceId = null;
+  syncedDeviceId = snapshot.selectedDeviceId;
+  if (!sameDevices(devices.value, snapshot.devices)) devices.value = snapshot.devices;
+  if (selectedDeviceId.value !== snapshot.selectedDeviceId) selectedDeviceId.value = snapshot.selectedDeviceId;
+  if (!isUpdatingVolumeFromDevice.value && !isPollingPaused.value && volume.value !== snapshot.volume) {
+    volume.value = snapshot.volume;
+  }
+}
 function initializeVolumePolling() {
   if (import.meta.client) {
-    watch(selectedDeviceId, (newId) => {
+    const remote = useRemoteClient();
+    watch(remote.lastDevices, (snapshot) => {
+      if (!remote.isRemoteMode.value || !snapshot) return;
+      applyRemoteDevices(snapshot);
+    });
+    watch([selectedDeviceId, remote.isRemoteMode], ([newId, remoteMode]) => {
       if (volumePollingInterval.value) {
         clearInterval(volumePollingInterval.value);
         volumePollingInterval.value = null;
       }
-      if (newId && newId !== LOCAL_DEVICE_ID) {
-        volumePollingInterval.value = setInterval(async () => {
-          if (
-            !selectedDeviceId.value
-            || isUpdatingVolumeFromDevice.value
-            || isPollingPaused.value
-            || upnpVolumePollInFlight
-          ) {
-            return;
-          }
-          upnpVolumePollInFlight = true;
-          try {
-            const newVolume = await invoke<number>('upnp_get_volume', { deviceId: selectedDeviceId.value });
-            if (volume.value !== newVolume) {
-              volume.value = newVolume;
-            }
-          } catch {
-          } finally {
-            upnpVolumePollInFlight = false;
-          }
-        }, VOLUME_POLLING_INTERVAL);
-      } else {
-        volume.value = null;
+      if (remoteMode || !newId || newId === LOCAL_DEVICE_ID) {
+        if (!remoteMode) volume.value = null;
+        return;
       }
+      volumePollingInterval.value = setInterval(async () => {
+        if (
+          !selectedDeviceId.value
+          || isUpdatingVolumeFromDevice.value
+          || isPollingPaused.value
+          || upnpVolumePollInFlight
+        ) {
+          return;
+        }
+        upnpVolumePollInFlight = true;
+        try {
+          const newVolume = await invoke<number>('upnp_get_volume', { deviceId: selectedDeviceId.value });
+          if (volume.value !== newVolume) {
+            volume.value = newVolume;
+          }
+        } catch {
+        } finally {
+          upnpVolumePollInFlight = false;
+        }
+      }, VOLUME_POLLING_INTERVAL);
     }, { immediate: true });
   }
 }
@@ -88,9 +114,7 @@ export default function useDevices() {
     if (remote.isRemoteMode.value) {
       loading.value = true;
       try {
-        const result = await remote.apiFetch('/api/devices');
-        devices.value = result.devices || [];
-        syncSelectionWithDevices(devices.value);
+        applyRemoteDevices(parseDevicesSnapshot(await remote.apiFetch('/api/devices')));
         autoSearchCompleted.value = true;
       } catch (e) {
         error.value = (e as Error).message || t('devices.errorSearchingRemote');
@@ -131,6 +155,22 @@ export default function useDevices() {
       volume.value = null;
       return;
     }
+    if (remote.isRemoteMode.value) {
+      if (deviceId === syncedDeviceId || deviceId === pendingRemoteDeviceId) return;
+      pendingRemoteDeviceId = deviceId;
+      selectedDeviceId.value = deviceId;
+      try {
+        await remote.apiFetch('/api/devices/select', {
+          method: 'POST',
+          body: JSON.stringify({ deviceId }),
+        });
+      } catch (e) {
+        console.error('Failed to select remote device:', e);
+      } finally {
+        if (pendingRemoteDeviceId === deviceId) pendingRemoteDeviceId = null;
+      }
+      return;
+    }
     selectedDeviceId.value = deviceId;
     if (import.meta.client) {
       localStorage.setItem('lastSelectedDevice', deviceId);
@@ -150,6 +190,23 @@ export default function useDevices() {
   }
   async function setVolume(level: number) {
     if (!selectedDeviceId.value) return;
+    if (remote.isRemoteMode.value) {
+      isUpdatingVolumeFromDevice.value = true;
+      volume.value = level;
+      try {
+        await remote.apiFetch('/api/devices/volume', {
+          method: 'POST',
+          body: JSON.stringify({ level }),
+        });
+      } catch (e) {
+        console.error('Failed to set remote volume:', e);
+      } finally {
+        setTimeout(() => {
+          isUpdatingVolumeFromDevice.value = false;
+        }, VOLUME_UPDATE_RESET_DELAY);
+      }
+      return;
+    }
     if (isLocalPlayback.value) {
       try {
         await localRenderer.setVolume(level);

@@ -122,6 +122,13 @@ mod tests {
 }
 
 #[tauri::command]
+async fn remote_close_other_instances() -> Result<u32, String> {
+    tokio::task::spawn_blocking(remote::instances::close_other_instances)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn remote_server_start(
     remote_state: tauri::State<'_, Arc<remote::state::RemoteState>>,
     app_handle: tauri::AppHandle,
@@ -138,6 +145,7 @@ async fn remote_server_start(
     }
 
     let (ip, port, code) = remote::start_server(remote_state.inner().clone(), client_dir).await?;
+    remote_state.set_enabled(true).await;
 
     Ok(serde_json::json!({
         "ip": ip,
@@ -151,7 +159,15 @@ async fn remote_server_stop(
     remote_state: tauri::State<'_, Arc<remote::state::RemoteState>>,
 ) -> Result<(), String> {
     remote::stop_server(&remote_state).await;
+    remote_state.set_enabled(false).await;
     Ok(())
+}
+
+#[tauri::command]
+async fn remote_server_status(
+    remote_state: tauri::State<'_, Arc<remote::state::RemoteState>>,
+) -> Result<remote::state::RemoteServerStatus, String> {
+    Ok(remote_state.status(remote::REMOTE_SERVER_PORT).await)
 }
 
 #[tauri::command]
@@ -174,8 +190,11 @@ async fn remote_revoke_device(
     device_id: String,
     remote_state: tauri::State<'_, Arc<remote::state::RemoteState>>,
 ) -> Result<(), String> {
-    let mut devices = remote_state.paired_devices.lock().await;
-    devices.remove(&device_id);
+    {
+        let mut devices = remote_state.paired_devices.lock().await;
+        devices.remove(&device_id);
+    }
+    remote_state.save_persist().await;
     Ok(())
 }
 
@@ -193,9 +212,12 @@ async fn remote_set_tidal_token(
 async fn remote_broadcast_state(
     playback: Option<serde_json::Value>,
     queue: Option<serde_json::Value>,
+    devices: Option<serde_json::Value>,
     remote_state: tauri::State<'_, Arc<remote::state::RemoteState>>,
 ) -> Result<(), String> {
-    remote_state.update_snapshots(playback, queue).await;
+    remote_state
+        .update_snapshots(playback, queue, devices)
+        .await;
     Ok(())
 }
 
@@ -450,6 +472,34 @@ pub fn run() {
             tidal_session::init(app.handle());
             direct_stream::start(app.handle().clone());
 
+            let remote_state = app
+                .state::<Arc<remote::state::RemoteState>>()
+                .inner()
+                .clone();
+            let handle = app.handle().clone();
+            if let Ok(dir) = app.path().app_data_dir() {
+                tauri::async_runtime::spawn(async move {
+                    {
+                        let mut app_handle = remote_state.app_handle.lock().await;
+                        *app_handle = Some(handle.clone());
+                    }
+                    remote_state
+                        .load_persist(&dir.join("remote-server.json"))
+                        .await;
+                    if !remote_state.is_enabled().await {
+                        return;
+                    }
+                    let client_dir = handle
+                        .path()
+                        .resource_dir()
+                        .ok()
+                        .map(|path| path.join("remote-client"));
+                    if let Err(err) = remote::start_server(remote_state, client_dir).await {
+                        eprintln!("Remote autostart failed: {err}");
+                    }
+                });
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -462,6 +512,8 @@ pub fn run() {
             upnp::upnp_set_next_direct,
             upnp::upnp_get_sink_protocols,
             direct_stream::tidal_prepare_stream,
+            direct_stream::direct_player_uri,
+            direct_stream::direct_warm_stream,
             direct_stream::direct_register_file,
             direct_stream::direct_stream_base_url,
             tidal_session::tidal_login_url,
@@ -482,8 +534,10 @@ pub fn run() {
             upnp_connect,
             upnp_get_transport_info,
             upnp_get_position_info,
+            remote_close_other_instances,
             remote_server_start,
             remote_server_stop,
+            remote_server_status,
             remote_get_pairing_code,
             remote_get_paired_devices,
             remote_revoke_device,

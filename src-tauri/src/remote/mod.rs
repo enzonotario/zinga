@@ -2,6 +2,7 @@ pub mod api;
 pub mod auth;
 pub mod command;
 pub mod discovery;
+pub mod instances;
 pub mod state;
 pub mod ws;
 
@@ -15,7 +16,7 @@ use tower_http::cors::CorsLayer;
 
 use state::RemoteState;
 
-const REMOTE_SERVER_PORT: u16 = 9632;
+pub(crate) const REMOTE_SERVER_PORT: u16 = 9632;
 const SERVER_STOP_GRACE_DELAY_MS: u64 = 100;
 
 pub fn build_router(state: Arc<RemoteState>, client_dir: Option<std::path::PathBuf>) -> Router {
@@ -31,14 +32,17 @@ pub fn build_router(state: Arc<RemoteState>, client_dir: Option<std::path::PathB
         .route("/queue", get(api::queue_get))
         .route("/queue/add", post(api::queue_add))
         .route("/queue/clear", post(api::queue_clear))
+        .route("/queue/replace", post(api::queue_replace))
         .route("/queue/play-album", post(api::queue_play_album))
         .route("/tidal/search", get(api::tidal_search))
         .route("/tidal/artist/{id}", get(api::tidal_artist))
         .route("/tidal/artist/{id}/albums", get(api::tidal_artist_albums))
         .route("/tidal/album/{id}", get(api::tidal_album))
         .route("/tidal/album/{id}/tracks", get(api::tidal_album_tracks))
+        .route("/tidal/track/{id}", get(api::tidal_track))
         .route("/devices", get(api::devices_list))
-        .route("/devices/select", post(api::devices_select));
+        .route("/devices/select", post(api::devices_select))
+        .route("/devices/volume", post(api::devices_volume));
 
     let mut app = Router::new()
         .nest("/api", api_routes)
@@ -88,7 +92,13 @@ pub async fn start_server(
             addr.parse()
                 .map_err(|e| format!("Invalid address: {}", e))?,
         )
-        .map_err(|e| format!("Failed to bind to {}: {}", addr, e))?;
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::AddrInUse || e.raw_os_error() == Some(98) {
+                "PORT_IN_USE".to_string()
+            } else {
+                format!("Failed to bind to {}: {}", addr, e)
+            }
+        })?;
     let listener = socket
         .listen(1024)
         .map_err(|e| format!("Failed to listen on {}: {}", addr, e))?;

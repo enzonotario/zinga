@@ -873,10 +873,7 @@ pub fn upnp_get_transport_info(
     state: tauri::State<AppState>,
 ) -> Result<TransportInfo, String> {
     let inner = state.inner.lock().map_err(|_| "state poisoned")?;
-    let dev = inner
-        .devices
-        .get(&device_id)
-        .ok_or("device not found")?;
+    let dev = inner.devices.get(&device_id).ok_or("device not found")?;
     let av_url = dev
         .av_transport_url
         .clone()
@@ -942,10 +939,7 @@ pub fn upnp_get_position_info(
     state: tauri::State<AppState>,
 ) -> Result<PositionInfo, String> {
     let inner = state.inner.lock().map_err(|_| "state poisoned")?;
-    let dev = inner
-        .devices
-        .get(&device_id)
-        .ok_or("device not found")?;
+    let dev = inner.devices.get(&device_id).ok_or("device not found")?;
     let av_url = dev
         .av_transport_url
         .clone()

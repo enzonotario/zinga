@@ -67,12 +67,8 @@ fn sync_full_maximize_from_wm(
     };
 
     let atoms = read_net_wm_state_atom_values(&gdk_window);
-    let has_vert = atoms
-        .iter()
-        .any(|value| *value == maximized_vert.value());
-    let has_horz = atoms
-        .iter()
-        .any(|value| *value == maximized_horz.value());
+    let has_vert = atoms.iter().any(|value| *value == maximized_vert.value());
+    let has_horz = atoms.iter().any(|value| *value == maximized_horz.value());
 
     // Super+Up sets both atoms. Super+Left/Right only set MAXIMIZED_HORZ — leave those to the WM.
     let wants_full_maximize = has_vert && has_horz;

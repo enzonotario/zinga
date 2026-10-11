@@ -17,11 +17,14 @@ use tauri::{AppHandle, Manager};
 use crate::tidal_session::{self, PlaybackSource};
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, ChildStdout};
+use tokio::sync::Mutex as AsyncMutex;
 
 pub const DIRECT_STREAM_PORT: u16 = 9633;
 const MANIFEST_TTL: Duration = Duration::from_secs(30 * 60);
 const STREAM_CHUNK_SIZE: usize = 64 * 1024;
 const FFMPEG_EXIT_WAIT: Duration = Duration::from_secs(1);
+const WARM_BYTES: usize = 256 * 1024;
+const WARM_WAIT: Duration = Duration::from_secs(8);
 const DLNA_CONTENT_FEATURES: &str =
     "DLNA.ORG_OP=00;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000";
 const TIDAL_PROTOCOLS: &str = "file,https,tls,tcp,http,crypto";
@@ -273,12 +276,34 @@ async fn log_ffmpeg_exit(child: &mut Child, track_id: &str) {
     }
 }
 
+struct WarmStream {
+    key: String,
+    buffered: Bytes,
+    stdout: ChildStdout,
+    child: Child,
+}
+
+fn warm_slot() -> &'static AsyncMutex<Option<WarmStream>> {
+    static SLOT: OnceLock<AsyncMutex<Option<WarmStream>>> = OnceLock::new();
+    SLOT.get_or_init(|| AsyncMutex::new(None))
+}
+
 fn ffmpeg_body(stdout: ChildStdout, child: Child, track_id: String) -> Body {
+    ffmpeg_body_from(Bytes::new(), stdout, child, track_id)
+}
+
+fn ffmpeg_body_from(initial: Bytes, stdout: ChildStdout, child: Child, track_id: String) -> Body {
     // The Child lives in the stream state: when the client disconnects, the body is
     // dropped, which drops the Child and kill_on_drop terminates ffmpeg.
     let stream = futures_util::stream::unfold(
-        (stdout, child, track_id),
-        |(mut stdout, mut child, track_id)| async move {
+        (Some(initial), stdout, child, track_id),
+        |(initial, mut stdout, mut child, track_id)| async move {
+            if let Some(chunk) = initial.filter(|chunk| !chunk.is_empty()) {
+                return Some((
+                    Ok::<Bytes, std::io::Error>(chunk),
+                    (None, stdout, child, track_id),
+                ));
+            }
             let mut buf = vec![0u8; STREAM_CHUNK_SIZE];
             match stdout.read(&mut buf).await {
                 Ok(0) | Err(_) => {
@@ -289,7 +314,7 @@ fn ffmpeg_body(stdout: ChildStdout, child: Child, track_id: String) -> Body {
                     buf.truncate(n);
                     Some((
                         Ok::<Bytes, std::io::Error>(Bytes::from(buf)),
-                        (stdout, child, track_id),
+                        (None, stdout, child, track_id),
                     ))
                 }
             }
@@ -371,6 +396,12 @@ async fn stream_handler(
         return (StatusCode::OK, stream_headers(format)).into_response();
     }
 
+    if start_offset(&query) == 0.0 {
+        if let Some(warm) = take_warm(&file).await {
+            return warmed_response(warm, format);
+        }
+    }
+
     let id = track_id.to_string();
     let input = match tokio::task::spawn_blocking(move || ensure_source(&id)).await {
         Ok(Ok(input)) => input,
@@ -415,6 +446,12 @@ async fn file_handler(
         return (StatusCode::OK, stream_headers(format)).into_response();
     }
 
+    if start_offset(&query) == 0.0 {
+        if let Some(warm) = take_warm(&file).await {
+            return warmed_response(warm, format);
+        }
+    }
+
     ffmpeg_response(input, FILE_PROTOCOLS, start_offset(&query), format, token)
 }
 
@@ -440,6 +477,121 @@ pub fn start(app_handle: AppHandle) {
             eprintln!("[DirectStream] Server error: {e}");
         }
     });
+}
+
+fn to_player_uri(input: &str) -> Result<String, String> {
+    if input.starts_with("http://") || input.starts_with("https://") {
+        return Ok(input.to_string());
+    }
+    if !Path::new(input).is_absolute() {
+        return Err(format!("Playback path must be absolute: {input}"));
+    }
+    let mut uri = String::from("file://");
+    for &byte in input.as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' => {
+                uri.push(byte as char);
+            }
+            _ => uri.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    Ok(uri)
+}
+
+fn resolve_warm_input(track_id: &str) -> Result<(String, &'static str), String> {
+    if is_valid_track_id(track_id) {
+        return Ok((ensure_source(track_id)?, TIDAL_PROTOCOLS));
+    }
+    let path = registered_file(track_id).ok_or_else(|| format!("Unknown file: {track_id}"))?;
+    let input = path
+        .to_str()
+        .ok_or_else(|| format!("Unsupported file path: {track_id}"))?
+        .to_string();
+    Ok((input, FILE_PROTOCOLS))
+}
+
+async fn read_warm_prefix(stdout: &mut ChildStdout) -> Result<Bytes, String> {
+    let mut buffered = Vec::with_capacity(WARM_BYTES);
+    let deadline = tokio::time::Instant::now() + WARM_WAIT;
+    while buffered.len() < WARM_BYTES {
+        let rest = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if rest.is_zero() {
+            break;
+        }
+        let mut chunk = vec![0u8; (WARM_BYTES - buffered.len()).min(STREAM_CHUNK_SIZE)];
+        match tokio::time::timeout(rest, stdout.read(&mut chunk)).await {
+            Ok(Ok(0)) => break,
+            Ok(Ok(n)) => buffered.extend_from_slice(&chunk[..n]),
+            Ok(Err(err)) => return Err(format!("Failed to buffer next track: {err}")),
+            Err(_) => break,
+        }
+    }
+    if buffered.is_empty() {
+        return Err("Next track produced no audio".to_string());
+    }
+    Ok(Bytes::from(buffered))
+}
+
+async fn take_warm(file: &str) -> Option<WarmStream> {
+    let mut slot = warm_slot().lock().await;
+    if slot.as_ref().is_some_and(|warm| warm.key == file) {
+        return slot.take();
+    }
+    None
+}
+
+fn warmed_response(warm: WarmStream, format: OutputFormat) -> Response {
+    (
+        StatusCode::OK,
+        stream_headers(format),
+        ffmpeg_body_from(warm.buffered, warm.stdout, warm.child, warm.key),
+    )
+        .into_response()
+}
+
+#[tauri::command]
+pub async fn direct_player_uri(kind: String, id: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let input = match kind.as_str() {
+            "tidal" => ensure_source(&id)?,
+            "file" => registered_file(&id)
+                .ok_or_else(|| format!("Unknown file: {id}"))?
+                .display()
+                .to_string(),
+            other => return Err(format!("Unknown source: {other}")),
+        };
+        to_player_uri(&input)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn direct_warm_stream(track_id: String, format: String) -> Result<(), String> {
+    let output = parse_output_file(&format!("{track_id}.{format}"))
+        .map(|(_, output)| output)
+        .ok_or_else(|| format!("Unsupported stream format: {format}"))?;
+    let key = format!("{track_id}.{format}");
+    let id = track_id.clone();
+    let (input, protocols) = tokio::task::spawn_blocking(move || resolve_warm_input(&id))
+        .await
+        .map_err(|err| err.to_string())??;
+    let (mut stdout, child) = spawn_ffmpeg(&input, protocols, 0.0, output, &track_id)?;
+    let buffered = match read_warm_prefix(&mut stdout).await {
+        Ok(buffered) => buffered,
+        Err(err) => {
+            drop(stdout);
+            drop(child);
+            return Err(err);
+        }
+    };
+    *warm_slot().lock().await = Some(WarmStream {
+        key,
+        buffered,
+        stdout,
+        child,
+    });
+    Ok(())
 }
 
 #[tauri::command]
@@ -486,6 +638,19 @@ mod tests {
         assert!(OutputFormat::Flac.codec_args().contains(&"flac"));
         let mp3 = OutputFormat::Mp3.codec_args();
         assert!(mp3.contains(&"libmp3lame") && mp3.contains(&"320k") && mp3.contains(&"mp3"));
+    }
+
+    #[test]
+    fn player_uri_keeps_remote_urls_and_encodes_local_paths() {
+        assert_eq!(
+            to_player_uri("https://cdn.example/a.flac").unwrap(),
+            "https://cdn.example/a.flac"
+        );
+        assert_eq!(
+            to_player_uri("/tmp/abbey road.mpd").unwrap(),
+            "file:///tmp/abbey%20road.mpd"
+        );
+        assert!(to_player_uri("relative.flac").is_err());
     }
 
     #[test]

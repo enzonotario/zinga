@@ -5,6 +5,7 @@ import useDevices from '~/composables/useDevices';
 import useFeedSync from '~/composables/useFeedSync';
 import usePlayer from '~/composables/usePlayer';
 import usePlayQueue from '~/composables/usePlayQueue';
+import useRemoteClient from '~/composables/useRemoteClient';
 import { formatTime } from '~/utils/time';
 import QueueList from '../Queue/QueueList.vue';
 import DeviceSelector from '../Upnp/DeviceSelector.vue';
@@ -27,6 +28,11 @@ const {
   isVolumeSyncing,
 } = useBottomBar();
 const { selectedDeviceId, volume } = useDevices();
+const remote = useRemoteClient();
+const transportDeviceId = computed(() => {
+  if (remote.isRemoteMode.value) return selectedDeviceId.value || 'remote';
+  return selectedDeviceId.value;
+});
 const player = usePlayer();
 const queue = usePlayQueue();
 const feedSync = useFeedSync();
@@ -85,7 +91,7 @@ const queuePopoverOpen = ref(false);
         <PlaybackControls
           :is-playing="isPlaying"
           :pause-at-end-of-track="pauseAtEndOfTrack"
-          :selected-device-id="selectedDeviceId"
+          :selected-device-id="transportDeviceId"
           :has-track="hasTrack"
           class="py-3"
           @previous="handlePrevious"

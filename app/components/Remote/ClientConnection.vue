@@ -2,11 +2,12 @@
 import useRemoteClient from '~/composables/useRemoteClient';
 
 const { t } = useI18n();
-const { isRemoteMode, serverUrl, connectionStatus, connect, disconnect, discoverServers } = useRemoteClient();
+const { isRemoteMode, hasSavedSession, sessionRejected, serverUrl, connectionStatus, connect, setClientMode, disconnect, discoverServers } = useRemoteClient();
 const ip = ref('');
 const port = ref(9632);
 const code = ref('');
 const loading = ref(false);
+const reconnecting = ref(false);
 const error = ref<string | null>(null);
 const scanning = ref(false);
 const hasSearched = ref(false);
@@ -23,12 +24,37 @@ async function handleConnect() {
     loading.value = false;
   }
 }
+function applySavedAddress() {
+  if (!serverUrl.value) return;
+  try {
+    const url = new URL(serverUrl.value);
+    ip.value = url.hostname;
+    port.value = Number(url.port) || 9632;
+  } catch {}
+}
 function handleDisconnect() {
-  disconnect();
-  ip.value = '';
+  void setClientMode(false);
   code.value = '';
   error.value = null;
 }
+async function handleReconnect() {
+  reconnecting.value = true;
+  error.value = null;
+  try {
+    await setClientMode(true);
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    reconnecting.value = false;
+  }
+}
+function handleForget() {
+  disconnect();
+  code.value = '';
+  error.value = null;
+}
+applySavedAddress();
+watch(serverUrl, applySavedAddress);
 async function handleSearch() {
   scanning.value = true;
   hasSearched.value = false;
@@ -93,6 +119,27 @@ const statusLabel = computed(() => {
       </UButton>
     </template>
     <template v-else>
+      <div v-if="hasSavedSession" class="flex flex-col gap-3 p-3 rounded-lg glass-soft">
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-sm text-(--ui-text-muted)">{{ t('pages.settings.savedServer') }}</span>
+          <span class="text-sm font-mono font-medium truncate">{{ serverUrl }}</span>
+        </div>
+        <UButton
+          block
+          :loading="reconnecting"
+          @click="handleReconnect"
+        >
+          {{ t('pages.settings.reconnectToServer') }}
+        </UButton>
+        <UButton
+          color="error"
+          variant="ghost"
+          block
+          @click="handleForget"
+        >
+          {{ t('pages.settings.forgetServer') }}
+        </UButton>
+      </div>
       <UButton
         variant="soft"
         block
@@ -145,6 +192,7 @@ const statusLabel = computed(() => {
           maxlength="6"
         />
       </UFormField>
+      <UAlert v-if="sessionRejected" color="warning" :title="t('pages.settings.sessionRejected')" />
       <UAlert v-if="error" color="error" :title="error" />
       <UButton
         block

@@ -49,6 +49,12 @@ export default defineAppConfig({
       light: 'i-heroicons-sun',
       dark: 'i-heroicons-moon',
       system: 'i-heroicons-computer-desktop',
+      close: 'i-heroicons-x-mark',
+    },
+    toast: {
+      slots: {
+        close: 'p-1 rounded-md text-muted hover:text-default hover:bg-elevated',
+      },
     },
     button: {
       slots: {

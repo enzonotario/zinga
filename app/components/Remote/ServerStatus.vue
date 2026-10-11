@@ -2,7 +2,12 @@
 import useRemoteServer from '~/composables/useRemoteServer';
 
 const { t } = useI18n();
-const { isRunning, serverInfo, pairingUrl, loading, error, startServer, stopServer, refreshPairingCode } = useRemoteServer();
+const { isRunning, serverInfo, pairingUrl, loading, error, startServer, stopServer, refreshPairingCode, closeOtherInstances } = useRemoteServer();
+const portInUse = computed(() => error.value === 'PORT_IN_USE' || (error.value?.includes('os error 98') ?? false));
+const errorTitle = computed(() => (portInUse.value ? t('pages.settings.remotePortInUse') : error.value));
+async function closeOthers() {
+  await closeOtherInstances();
+}
 async function toggleServer() {
   if (isRunning.value) {
     await stopServer();
@@ -24,7 +29,16 @@ async function toggleServer() {
         @update:model-value="toggleServer"
       />
     </UFormField>
-    <UAlert v-if="error" color="error" :title="error" />
+    <UAlert v-if="error" color="error" :title="errorTitle || error" />
+    <UButton
+      v-if="portInUse"
+      icon="i-heroicons-x-mark"
+      color="error"
+      :loading="loading"
+      @click="closeOthers"
+    >
+      {{ t('pages.settings.closeOtherInstances') }}
+    </UButton>
     <template v-if="isRunning && serverInfo">
       <div class="flex flex-col gap-3 p-3 rounded-lg glass-soft">
         <div class="flex items-center justify-between">

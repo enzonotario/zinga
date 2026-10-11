@@ -1,6 +1,6 @@
 import type { QueueItem } from './playQueue';
 import { describe, expect, it } from 'vitest';
-import { buildPlaybackSnapshot, buildQueueSnapshot, parsePlaybackSnapshot, parseQueueSnapshot } from './remoteSnapshot';
+import { buildDevicesSnapshot, buildPlaybackSnapshot, buildQueueSnapshot, parseDevicesSnapshot, parsePlaybackSnapshot, parseQueueSnapshot } from './remoteSnapshot';
 
 function item(tlid: number): QueueItem {
   return { tlid, track: { uri: `tidal:track:${tlid}`, name: `Track ${tlid}`, artists: [{ name: 'Artist' }], length: 1000 } };
@@ -9,15 +9,23 @@ function item(tlid: number): QueueItem {
 describe('remoteSnapshot utils', () => {
   describe('buildPlaybackSnapshot', () => {
     it('should produce the remote playback shape in milliseconds', () => {
-      expect(buildPlaybackSnapshot('playing', 12.3456, item(2))).toEqual({
+      expect(buildPlaybackSnapshot('playing', 12.3456, item(2), { coverUrl: 'https://img/cover.jpg', artistPicture: 'https://img/artist.jpg' })).toEqual({
         state: 'playing',
         position: 12346,
         track: item(2),
+        coverUrl: 'https://img/cover.jpg',
+        artistPicture: 'https://img/artist.jpg',
       });
     });
     it('should strip extra fields and clamp negative positions', () => {
       const extended = { ...item(1), extra: true } as QueueItem;
-      expect(buildPlaybackSnapshot('stopped', -1, extended)).toEqual({ state: 'stopped', position: 0, track: item(1) });
+      expect(buildPlaybackSnapshot('stopped', -1, extended)).toEqual({
+        state: 'stopped',
+        position: 0,
+        track: item(1),
+        coverUrl: null,
+        artistPicture: null,
+      });
       expect(buildPlaybackSnapshot('paused', 0, null).track).toBeNull();
     });
   });
@@ -30,15 +38,23 @@ describe('remoteSnapshot utils', () => {
 
   describe('parsePlaybackSnapshot', () => {
     it('should convert a snapshot back to seconds and a queue item', () => {
-      expect(parsePlaybackSnapshot({ state: 'paused', position: 1500, track: item(3) })).toEqual({
+      expect(parsePlaybackSnapshot({
+        state: 'paused',
+        position: 1500,
+        track: item(3),
+        coverUrl: 'https://img/cover.jpg',
+        artistPicture: 'https://img/artist.jpg',
+      })).toEqual({
         state: 'paused',
         positionSec: 1.5,
         item: item(3),
+        coverUrl: 'https://img/cover.jpg',
+        artistPicture: 'https://img/artist.jpg',
       });
     });
     it('should fall back to a stopped state for invalid data', () => {
-      expect(parsePlaybackSnapshot(null)).toEqual({ state: 'stopped', positionSec: 0, item: null });
-      expect(parsePlaybackSnapshot({ state: 'weird', position: 'x', track: { tlid: 1 } })).toEqual({ state: 'stopped', positionSec: 0, item: null });
+      expect(parsePlaybackSnapshot(null)).toEqual({ state: 'stopped', positionSec: 0, item: null, coverUrl: null, artistPicture: null });
+      expect(parsePlaybackSnapshot({ state: 'weird', position: 'x', track: { tlid: 1 } })).toEqual({ state: 'stopped', positionSec: 0, item: null, coverUrl: null, artistPicture: null });
     });
   });
 
@@ -47,6 +63,22 @@ describe('remoteSnapshot utils', () => {
       expect(parseQueueSnapshot({ tracks: [item(1), { tlid: 'bad' }] })).toEqual([item(1)]);
       expect(parseQueueSnapshot([item(2)])).toEqual([item(2)]);
       expect(parseQueueSnapshot(null)).toEqual([]);
+    });
+  });
+
+  describe('devices snapshot', () => {
+    it('should keep the host renderer list and selected output', () => {
+      const snapshot = buildDevicesSnapshot(
+        [{ id: 'solo', name: 'Solo Uno', modelName: 'Solo' }],
+        'solo',
+        16,
+      );
+      expect(parseDevicesSnapshot(snapshot)).toEqual(snapshot);
+      expect(parseDevicesSnapshot({ devices: [{ id: 1 }], selectedDeviceId: 4, volume: null })).toEqual({
+        devices: [],
+        selectedDeviceId: null,
+        volume: null,
+      });
     });
   });
 });

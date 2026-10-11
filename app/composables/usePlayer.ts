@@ -74,22 +74,21 @@ export default function usePlayer() {
       await sendRemote('play');
       return;
     }
-    if (direct.isPaused.value) {
+    const item = queue.currentItem.value ?? queue.items.value[0];
+    if (!item) return;
+    const playingTlid = direct.playingItem.value?.tlid;
+    if (direct.isPaused.value && playingTlid === item.tlid) {
       await direct.resume();
       return;
     }
-    if (direct.isActive.value) return;
-    const item = queue.currentItem.value ?? queue.items.value[0];
-    if (!item) return;
+    if (direct.isActive.value && playingTlid === item.tlid) return;
     await startOn(targetDeviceId(), item.tlid);
   }
 
   async function playTracks(tracks: QueueTrack[], startIndex = 0) {
     if (tracks.length === 0) return;
     if (remote.isRemoteMode.value) {
-      if (!await postRemote('/api/queue/clear')) return;
-      if (!await postRemote('/api/queue/add', { uris: tracks.map((track) => track.uri) })) return;
-      await sendRemote('play');
+      await postRemote('/api/queue/replace', { tracks, startIndex });
       return;
     }
     const added = queue.replace(tracks);
@@ -221,6 +220,7 @@ export default function usePlayer() {
         toast.add({ title: t('player.playbackError'), description: message, color: 'error', duration: 8000 });
       });
       watch(selectedDeviceId, async (newId) => {
+        if (remote.isRemoteMode.value) return;
         const tlid = direct.playingItem.value?.tlid;
         if (!direct.isActive.value || tlid == null) return;
         const positionSec = direct.positionSec.value;

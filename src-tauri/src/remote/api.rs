@@ -59,7 +59,10 @@ async fn forward(state: &RemoteState, command: RemoteCommand) -> CommandResponse
         .send_command(command)
         .await
         .map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, e))?;
-    Ok((StatusCode::ACCEPTED, Json(serde_json::json!({ "ok": true }))))
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({ "ok": true })),
+    ))
 }
 
 pub async fn playback_state(State(state): State<Arc<RemoteState>>) -> Json<serde_json::Value> {
@@ -122,6 +125,34 @@ pub async fn queue_add(
 
 pub async fn queue_clear(State(state): State<Arc<RemoteState>>) -> CommandResponse {
     forward(&state, RemoteCommand::QueueClear).await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueReplaceRequest {
+    pub tracks: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub start_index: usize,
+}
+
+pub async fn queue_replace(
+    State(state): State<Arc<RemoteState>>,
+    Json(mut body): Json<QueueReplaceRequest>,
+) -> CommandResponse {
+    body.tracks.truncate(MAX_QUEUE_ADD_URIS);
+    let start_index = if body.tracks.is_empty() {
+        0
+    } else {
+        body.start_index.min(body.tracks.len() - 1)
+    };
+    forward(
+        &state,
+        RemoteCommand::QueueReplace {
+            tracks: body.tracks,
+            start_index,
+        },
+    )
+    .await
 }
 
 #[derive(Deserialize)]
@@ -232,6 +263,20 @@ pub async fn tidal_album(
     .await
 }
 
+pub async fn tidal_track(
+    State(state): State<Arc<RemoteState>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    tidal_proxy(
+        &state,
+        &format!(
+            "/v2/tracks/{}?countryCode=US&include=artists,albums,providers",
+            id
+        ),
+    )
+    .await
+}
+
 pub async fn tidal_album_tracks(
     State(state): State<Arc<RemoteState>>,
     Path(id): Path<String>,
@@ -274,20 +319,37 @@ async fn tidal_proxy(
     Ok(Json(result))
 }
 
-pub async fn devices_list(State(_state): State<Arc<RemoteState>>) -> Json<serde_json::Value> {
-    let volume = crate::local_player::local_get_volume().await.ok();
-    Json(serde_json::json!({ "volume": volume }))
+pub async fn devices_list(State(state): State<Arc<RemoteState>>) -> Json<serde_json::Value> {
+    Json(state.devices_snapshot.lock().await.clone())
 }
 
 #[derive(Deserialize)]
-#[allow(dead_code)]
+#[serde(rename_all = "camelCase")]
 pub struct SelectDeviceRequest {
     pub device_id: String,
 }
 
 pub async fn devices_select(
-    State(_state): State<Arc<RemoteState>>,
-    Json(_body): Json<SelectDeviceRequest>,
-) -> Json<serde_json::Value> {
-    Json(serde_json::json!({ "ok": true }))
+    State(state): State<Arc<RemoteState>>,
+    Json(body): Json<SelectDeviceRequest>,
+) -> CommandResponse {
+    forward(
+        &state,
+        RemoteCommand::SelectDevice {
+            device_id: body.device_id,
+        },
+    )
+    .await
+}
+
+#[derive(Deserialize)]
+pub struct VolumeRequest {
+    pub level: u8,
+}
+
+pub async fn devices_volume(
+    State(state): State<Arc<RemoteState>>,
+    Json(body): Json<VolumeRequest>,
+) -> CommandResponse {
+    forward(&state, RemoteCommand::SetVolume { level: body.level }).await
 }

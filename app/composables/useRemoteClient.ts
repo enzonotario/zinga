@@ -1,4 +1,6 @@
+import type { RemoteDevicesSnapshot } from '~/utils/remoteSnapshot';
 import { computed, ref, watch } from 'vue';
+import { parseDevicesSnapshot } from '~/utils/remoteSnapshot';
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 interface DiscoveredServer {
@@ -13,24 +15,64 @@ interface PlaybackState {
 }
 const STORAGE_KEY_URL = 'remoteClient:serverUrl';
 const STORAGE_KEY_TOKEN = 'remoteClient:token';
+const STORAGE_KEY_ACTIVE = 'remoteClient:active';
 const serverUrl = ref<string | null>(null);
 const token = ref<string | null>(null);
+const clientActive = ref(false);
+const sessionRejected = ref(false);
 const connectionStatus = ref<ConnectionStatus>('disconnected');
 const lastPlaybackState = ref<PlaybackState | null>(null);
 const lastQueueUpdate = ref<{ tracks: any[] } | null>(null);
+const lastDevices = ref<RemoteDevicesSnapshot | null>(null);
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let statePollTimer: ReturnType<typeof setInterval> | null = null;
 const playbackCallbacks: Set<(state: PlaybackState) => void> = new Set();
 const queueCallbacks: Set<(queue: { tracks: any[] }) => void> = new Set();
-if (import.meta.client) {
+class RemoteUnauthorizedError extends Error {
+  constructor() {
+    super('unauthorized');
+  }
+}
+function storageAvailable() {
+  return typeof localStorage !== 'undefined';
+}
+if (storageAvailable()) {
   serverUrl.value = localStorage.getItem(STORAGE_KEY_URL);
   token.value = localStorage.getItem(STORAGE_KEY_TOKEN);
+  clientActive.value = !!serverUrl.value && !!token.value && localStorage.getItem(STORAGE_KEY_ACTIVE) !== '0';
 }
-const isRemoteMode = computed(() => !!serverUrl.value && !!token.value);
+const isRemoteMode = computed(() => clientActive.value && !!serverUrl.value && !!token.value);
+const hasSavedSession = computed(() => !!serverUrl.value && !!token.value);
+function persistSession() {
+  if (!storageAvailable()) return;
+  if (serverUrl.value) localStorage.setItem(STORAGE_KEY_URL, serverUrl.value);
+  else localStorage.removeItem(STORAGE_KEY_URL);
+  if (token.value) localStorage.setItem(STORAGE_KEY_TOKEN, token.value);
+  else localStorage.removeItem(STORAGE_KEY_TOKEN);
+  if (serverUrl.value && token.value) localStorage.setItem(STORAGE_KEY_ACTIVE, clientActive.value ? '1' : '0');
+  else localStorage.removeItem(STORAGE_KEY_ACTIVE);
+}
+function clearSnapshots() {
+  lastPlaybackState.value = null;
+  lastQueueUpdate.value = null;
+  lastDevices.value = null;
+}
+function forgetSession(rejected = false) {
+  closeWebSocket();
+  stopStatePoll();
+  if (!rejected) serverUrl.value = null;
+  token.value = null;
+  clientActive.value = false;
+  connectionStatus.value = 'disconnected';
+  clearSnapshots();
+  sessionRejected.value = rejected;
+  persistSession();
+}
 function openWebSocket() {
   if (!serverUrl.value || !token.value) return;
   closeWebSocket();
-  const wsUrl = `${serverUrl.value.replace(/^http/, 'ws')}/ws`;
+  const wsUrl = `${serverUrl.value.replace(/^http/, 'ws')}/ws?token=${encodeURIComponent(token.value)}`;
   connectionStatus.value = 'connecting';
   const socket = new WebSocket(wsUrl);
   ws = socket;
@@ -47,6 +89,11 @@ function openWebSocket() {
       } else if (msg.type === 'queue_updated') {
         lastQueueUpdate.value = msg.data;
         queueCallbacks.forEach((cb) => cb(msg.data));
+      } else if (msg.type === 'device_changed') {
+        lastDevices.value = parseDevicesSnapshot(msg.data);
+      } else if (msg.type === 'error' && msg.data === 'unauthorized') {
+        forgetSession(true);
+        connectionStatus.value = 'error';
       }
     } catch {}
   };
@@ -72,6 +119,36 @@ function closeWebSocket() {
     ws = null;
   }
 }
+async function pollRemoteState() {
+  if (!clientActive.value || !serverUrl.value || !token.value) return;
+  try {
+    const [playback, queue, devices] = await Promise.all([
+      apiFetch('/api/playback/state'),
+      apiFetch('/api/queue'),
+      apiFetch('/api/devices'),
+    ]);
+    if (!clientActive.value) return;
+    lastPlaybackState.value = playback;
+    lastQueueUpdate.value = { tracks: Array.isArray(queue) ? queue : [] };
+    lastDevices.value = parseDevicesSnapshot(devices);
+    if (connectionStatus.value !== 'connected') connectionStatus.value = 'connected';
+  } catch (err) {
+    if (err instanceof RemoteUnauthorizedError) throw err;
+    if (ws?.readyState !== WebSocket.OPEN) connectionStatus.value = 'disconnected';
+  }
+}
+function startStatePoll() {
+  if (statePollTimer) return;
+  void pollRemoteState().catch(() => {});
+  statePollTimer = setInterval(() => {
+    void pollRemoteState().catch(() => {});
+  }, 1000);
+}
+function stopStatePoll() {
+  if (!statePollTimer) return;
+  clearInterval(statePollTimer);
+  statePollTimer = null;
+}
 function scheduleReconnect() {
   if (reconnectTimer) return;
   reconnectTimer = setTimeout(() => {
@@ -95,23 +172,31 @@ async function connect(ip: string, port: number, code: string): Promise<void> {
   const data = await res.json();
   serverUrl.value = url;
   token.value = data.token;
-  if (import.meta.client) {
-    localStorage.setItem(STORAGE_KEY_URL, url);
-    localStorage.setItem(STORAGE_KEY_TOKEN, data.token);
-  }
+  clientActive.value = true;
+  sessionRejected.value = false;
+  persistSession();
   openWebSocket();
 }
-function disconnect() {
-  closeWebSocket();
-  serverUrl.value = null;
-  token.value = null;
-  connectionStatus.value = 'disconnected';
-  lastPlaybackState.value = null;
-  lastQueueUpdate.value = null;
-  if (import.meta.client) {
-    localStorage.removeItem(STORAGE_KEY_URL);
-    localStorage.removeItem(STORAGE_KEY_TOKEN);
+async function setClientMode(enabled: boolean) {
+  if (!enabled) {
+    clientActive.value = false;
+    connectionStatus.value = 'disconnected';
+    clearSnapshots();
+    persistSession();
+    return;
   }
+  if (!serverUrl.value || !token.value) return;
+  clientActive.value = true;
+  connectionStatus.value = 'connecting';
+  persistSession();
+  try {
+    await pollRemoteState();
+  } catch (err) {
+    if (!(err instanceof RemoteUnauthorizedError)) throw err;
+  }
+}
+function disconnect() {
+  forgetSession(false);
 }
 async function apiFetch(path: string, options?: RequestInit): Promise<any> {
   if (!serverUrl.value || !token.value) throw new Error('Not connected to remote server');
@@ -123,6 +208,11 @@ async function apiFetch(path: string, options?: RequestInit): Promise<any> {
       ...(options?.headers || {}),
     },
   });
+  if (res.status === 401) {
+    forgetSession(true);
+    connectionStatus.value = 'error';
+    throw new RemoteUnauthorizedError();
+  }
   if (!res.ok) {
     const body = await res.text();
     throw new Error(body || `HTTP ${res.status}`);
@@ -151,8 +241,13 @@ function onQueueUpdated(callback: (queue: { tracks: any[] }) => void): () => voi
 }
 if (import.meta.client) {
   watch(isRemoteMode, (val) => {
-    if (val) openWebSocket();
-    else closeWebSocket();
+    if (val) {
+      openWebSocket();
+      startStatePoll();
+    } else {
+      closeWebSocket();
+      stopStatePoll();
+    }
   }, { immediate: true });
 }
 async function discoverServers(): Promise<DiscoveredServer[]> {
@@ -162,12 +257,16 @@ async function discoverServers(): Promise<DiscoveredServer[]> {
 export default function useRemoteClient() {
   return {
     isRemoteMode,
+    hasSavedSession,
+    sessionRejected: computed(() => sessionRejected.value),
     serverUrl: computed(() => serverUrl.value),
     token: computed(() => token.value),
     connectionStatus: computed(() => connectionStatus.value),
     lastPlaybackState: computed(() => lastPlaybackState.value),
     lastQueueUpdate: computed(() => lastQueueUpdate.value),
+    lastDevices: computed(() => lastDevices.value),
     connect,
+    setClientMode,
     disconnect,
     apiFetch,
     sendCommand,

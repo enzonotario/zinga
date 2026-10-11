@@ -22,8 +22,8 @@ interface DirectTrackMeta {
 interface RendererAdapter {
   status: ComputedRef<RendererStatus>
   tick: Ref<number>
-  play: (deviceId: string, uri: string, meta: DirectTrackMeta) => Promise<void>
-  setNext: (deviceId: string, uri: string | null, meta: DirectTrackMeta | null) => Promise<void>
+  play: (deviceId: string, uri: string, meta: DirectTrackMeta, trackUri?: string) => Promise<void>
+  setNext: (deviceId: string, uri: string | null, meta: DirectTrackMeta | null, trackUri?: string | null) => Promise<void>
   pause: (deviceId: string) => Promise<void>
   stop: (deviceId: string) => Promise<void>
   ensurePolling: (deviceId: string) => void
@@ -33,6 +33,7 @@ export type PlaybackState = 'playing' | 'paused' | 'stopped';
 
 const DIRECT_START_TIMEOUT_MS = 15000;
 const NATURAL_END_MARGIN_SEC = 3;
+const GAPLESS_SWITCH_GRACE_MS = 500;
 const FORMAT_MIME: Record<StreamFormat, string> = { flac: 'audio/flac', mp3: 'audio/mpeg' };
 const FLAC_MIMES = ['audio/flac', 'audio/x-flac'];
 
@@ -48,6 +49,7 @@ const lastError = ref<string | null>(null);
 let lastRelSec = -1;
 let lastTrackUri = '';
 let nextQueuedTlid: number | null | undefined;
+let stoppedAt = 0;
 let baseUrl: string | null = null;
 let watchersRegistered = false;
 let startRequestId = 0;
@@ -79,6 +81,25 @@ function findPlayable(list: QueueItem[], fromIndex: number, step: 1 | -1) {
 async function getBaseUrl() {
   baseUrl ??= await invoke<string>('direct_stream_base_url');
   return baseUrl;
+}
+
+async function playbackTarget(deviceId: string, tlid: number, prepared: PreparedSource, startSec: number, format: StreamFormat, base: string) {
+  const trackUri = buildStreamUrl(base, tlid, prepared, startSec, format);
+  if (deviceId !== LOCAL_DEVICE_ID || startSec > 0) return { playUri: trackUri, trackUri };
+  try {
+    const playUri = await invoke<string>('direct_player_uri', prepared.kind === 'tidal'
+      ? { kind: 'tidal', id: prepared.id }
+      : { kind: 'file', id: prepared.token });
+    return { playUri, trackUri };
+  } catch (err) {
+    console.warn('Native playback URI unavailable:', err);
+    return { playUri: trackUri, trackUri };
+  }
+}
+
+async function warmStream(prepared: PreparedSource, format: StreamFormat) {
+  const trackId = prepared.kind === 'tidal' ? prepared.id : prepared.token;
+  await invoke('direct_warm_stream', { trackId, format });
 }
 
 async function prepareSource(source: StreamSource): Promise<PreparedSource> {
@@ -135,8 +156,8 @@ export default function useDirectPlayer() {
   const localAdapter: RendererAdapter = {
     status: computed(() => local.status.value),
     tick: local.tick,
-    play: (_deviceId, uri) => local.play(uri),
-    setNext: (_deviceId, uri) => local.setNext(uri),
+    play: (_deviceId, uri, _meta, trackUri) => local.play(uri, trackUri ?? uri),
+    setNext: (_deviceId, uri, _meta, trackUri) => local.setNext(uri, trackUri ?? uri),
     pause: () => local.pause(),
     stop: () => local.stop(),
     ensurePolling: () => local.ensurePolling(),
@@ -223,6 +244,7 @@ export default function useDirectPlayer() {
     lastTrackUri = '';
     lastRelSec = -1;
     nextQueuedTlid = undefined;
+    stoppedAt = 0;
     currentIndexHint = -1;
   }
 
@@ -263,7 +285,17 @@ export default function useDirectPlayer() {
         getBaseUrl(),
       ]);
       if (directDeviceId.value !== deviceId || nextQueuedTlid !== targetTlid) return;
-      await renderer.setNext(deviceId, buildStreamUrl(base, next.tlid, prepared, 0, format), buildMeta(next, format));
+      const target = await playbackTarget(deviceId, next.tlid, prepared, 0, format, base);
+      if (directDeviceId.value !== deviceId || nextQueuedTlid !== targetTlid) return;
+      if (target.playUri === target.trackUri) {
+        try {
+          await warmStream(prepared, format);
+        } catch (err) {
+          console.warn('Direct playback warm failed:', err);
+        }
+        if (directDeviceId.value !== deviceId || nextQueuedTlid !== targetTlid) return;
+      }
+      await renderer.setNext(deviceId, target.playUri, buildMeta(next, format), target.trackUri);
     } catch (err) {
       if (nextQueuedTlid === targetTlid) nextQueuedTlid = undefined;
       console.error('Direct playback next track error:', err);
@@ -306,9 +338,17 @@ export default function useDirectPlayer() {
     if (pausedAtSec.value != null) return;
 
     if (rendererState === 'STOPPED') {
+      // A gapless renderer can report STOPPED for a moment while it opens the queued track.
+      const waitingForQueuedNext = nextQueuedTlid != null && !stopAfterCurrent.value;
+      if (waitingForQueuedNext) {
+        if (stoppedAt === 0) stoppedAt = performance.now();
+        if (performance.now() - stoppedAt < GAPLESS_SWITCH_GRACE_MS) return;
+      }
+      stoppedAt = 0;
       handleDeviceStopped();
       return;
     }
+    stoppedAt = 0;
 
     if (!parsed) return;
 
@@ -352,6 +392,7 @@ export default function useDirectPlayer() {
     pausedAtSec.value = null;
     lastTrackUri = '';
     nextQueuedTlid = undefined;
+    stoppedAt = 0;
     anchorAt.value = Number.POSITIVE_INFINITY;
     currentIndexHint = -1;
     lastError.value = null;
@@ -364,7 +405,9 @@ export default function useDirectPlayer() {
         getBaseUrl(),
       ]);
       if (!isCurrentRequest()) return;
-      await renderer.play(deviceId, buildStreamUrl(base, item.tlid, prepared, startSec, format), buildMeta(item, format));
+      const target = await playbackTarget(deviceId, item.tlid, prepared, startSec, format, base);
+      if (!isCurrentRequest()) return;
+      await renderer.play(deviceId, target.playUri, buildMeta(item, format), target.trackUri);
       if (requestId !== startRequestId) {
         // The pause may have reached the renderer before this play
         if (pausedAtSec.value != null && directDeviceId.value === deviceId) await renderer.pause(deviceId);

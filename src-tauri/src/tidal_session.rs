@@ -348,7 +348,11 @@ fn api_get(session: &Session, path: &str, params: &[(&str, &str)]) -> Result<Htt
     read_response(req.call())
 }
 
-fn authorized_get(session: &mut Session, path: &str, params: &[(&str, &str)]) -> Result<Value, String> {
+fn authorized_get(
+    session: &mut Session,
+    path: &str,
+    params: &[(&str, &str)],
+) -> Result<Value, String> {
     let mut res = api_get(session, path, params)?;
     if is_token_expired(&res) {
         refresh(session)?;
@@ -397,7 +401,9 @@ fn decode_playback_info(info: &Value) -> Result<PlaybackSource, String> {
             let bts: BtsManifest = serde_json::from_slice(&manifest)
                 .map_err(|e| format!("Invalid TIDAL BTS manifest: {e}"))?;
             if let Some(encryption) = bts.encryption_type.filter(|e| e != "NONE") {
-                return Err(format!("Encrypted TIDAL stream not supported: {encryption}"));
+                return Err(format!(
+                    "Encrypted TIDAL stream not supported: {encryption}"
+                ));
             }
             bts.urls
                 .into_iter()
@@ -578,7 +584,10 @@ mod tests {
         let session: MopidySession = serde_json::from_str(data).unwrap();
         assert_eq!(session.refresh_token.data, "rt");
         assert!(session.is_pkce.is_some_and(|flag| flag.data));
-        assert_eq!(session.session_id.and_then(|id| id.data).as_deref(), Some("sid"));
+        assert_eq!(
+            session.session_id.and_then(|id| id.data).as_deref(),
+            Some("sid")
+        );
     }
 
     #[test]
@@ -592,24 +601,37 @@ mod tests {
     #[test]
     fn extracts_code_from_redirect_url() {
         assert_eq!(
-            redirect_code("  https://tidal.com/android/login/auth?code=abc123&state=x\n").as_deref(),
+            redirect_code("  https://tidal.com/android/login/auth?code=abc123&state=x\n")
+                .as_deref(),
             Some("abc123")
         );
     }
 
     #[test]
     fn rejects_redirect_with_other_host_or_path() {
-        assert_eq!(redirect_code("https://evil.com/android/login/auth?code=abc"), None);
+        assert_eq!(
+            redirect_code("https://evil.com/android/login/auth?code=abc"),
+            None
+        );
         assert_eq!(redirect_code("https://tidal.com/login/auth?code=abc"), None);
-        assert_eq!(redirect_code("https://tidal.com.evil.com/android/login/auth?code=abc"), None);
+        assert_eq!(
+            redirect_code("https://tidal.com.evil.com/android/login/auth?code=abc"),
+            None
+        );
         assert_eq!(redirect_code("not a url"), None);
     }
 
     #[test]
     fn rejects_redirect_without_code() {
         assert_eq!(redirect_code("https://tidal.com/android/login/auth"), None);
-        assert_eq!(redirect_code("https://tidal.com/android/login/auth?state=x"), None);
-        assert_eq!(redirect_code("https://tidal.com/android/login/auth?code="), None);
+        assert_eq!(
+            redirect_code("https://tidal.com/android/login/auth?state=x"),
+            None
+        );
+        assert_eq!(
+            redirect_code("https://tidal.com/android/login/auth?code="),
+            None
+        );
     }
 
     #[test]
@@ -628,7 +650,9 @@ mod tests {
         let info = playback_info("application/vnd.tidal.bts", bts);
         assert_eq!(
             decode_playback_info(&info),
-            Ok(PlaybackSource::Url("https://example.com/a.flac".to_string()))
+            Ok(PlaybackSource::Url(
+                "https://example.com/a.flac".to_string()
+            ))
         );
     }
 

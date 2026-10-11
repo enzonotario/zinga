@@ -74,6 +74,22 @@ export function setCurrentItem(state: QueueState, tlid: number | null): QueueSta
   return { ...state, currentTlid: tlid };
 }
 
+export function queueTracksFromRemote(value: unknown): QueueTrack[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((track) => {
+    if (!isQueueItem({ tlid: 1, track })) return [];
+    const item = track as QueueTrack;
+    const albumName = item.album?.name;
+    return [{
+      uri: item.uri,
+      name: item.name,
+      artists: item.artists.filter((artist) => artist?.name).map((artist) => ({ name: artist.name })),
+      album: albumName ? { name: albumName, uri: item.album?.uri } : undefined,
+      length: typeof item.length === 'number' ? item.length : undefined,
+    }];
+  });
+}
+
 export function isQueueItem(value: any): value is QueueItem {
   return Number.isInteger(value?.tlid)
     && typeof value.track?.uri === 'string'

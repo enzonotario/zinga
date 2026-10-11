@@ -1,14 +1,23 @@
 import type { QueueTrack } from '~/utils/playQueue';
 import { computed, ref, watch } from 'vue';
+import { parsePlaybackSnapshot } from '~/utils/remoteSnapshot';
 import { fetchTidalMetadata } from '~/utils/tidalMetadata';
 import useDevices from './useDevices';
 import useDirectPlayer from './useDirectPlayer';
 import usePlayer from './usePlayer';
 import usePlayQueue from './usePlayQueue';
+import useRemoteClient from './useRemoteClient';
 import useTidalArtwork from './useTidalArtwork';
 import useTidalAuth from './useTidalAuth';
 
 const currentTidalData = ref<any>(null);
+
+export function currentPlaybackArtwork() {
+  return {
+    coverUrl: currentTidalData.value?.coverUrl ?? null,
+    artistPicture: currentTidalData.value?.artistPicture ?? null,
+  };
+}
 export default function useBottomBar() {
   const { t } = useI18n();
   const { selectedDeviceId, volume, setVolume, pauseVolumePolling, resumeVolumePolling, syncVolumeFromDevice, isVolumeSyncing } = useDevices();
@@ -17,6 +26,8 @@ export default function useBottomBar() {
   const direct = useDirectPlayer();
   const tidalArtwork = useTidalArtwork();
   const tidalAuth = useTidalAuth();
+  const remote = useRemoteClient();
+  const remotePlayback = computed(() => parsePlaybackSnapshot(remote.lastPlaybackState.value));
   const hasQueue = computed(() => queue.items.value.length > 0 || direct.isActive.value);
   async function fetchCurrentTidalData(uri?: string) {
     if (!uri) {
@@ -34,8 +45,8 @@ export default function useBottomBar() {
       title: track.name || t('player.unknownTitle'),
       artist: track.artists?.[0]?.name || t('player.unknownArtist'),
       album: track.album?.name || t('player.unknownAlbum'),
-      coverUrl: currentTidalData.value?.coverUrl || null,
-      artistPicture: currentTidalData.value?.artistPicture || null,
+      coverUrl: (remote.isRemoteMode.value ? remotePlayback.value.coverUrl : null) || currentTidalData.value?.coverUrl || null,
+      artistPicture: (remote.isRemoteMode.value ? remotePlayback.value.artistPicture : null) || currentTidalData.value?.artistPicture || null,
       duration,
       position: positionSeconds,
       uri: track.uri,

@@ -1,12 +1,22 @@
 import type { QueueTrack } from './playQueue';
 import { describe, expect, it } from 'vitest';
-import { addTracks, clearItems, createQueueState, parseQueueState, removeItem, replaceTracks, setCurrentItem } from './playQueue';
+import { addTracks, clearItems, createQueueState, parseQueueState, queueTracksFromRemote, removeItem, replaceTracks, setCurrentItem } from './playQueue';
 
 function track(id: number): QueueTrack {
   return { uri: `tidal:track:${id}`, name: `Track ${id}`, artists: [{ name: 'Artist' }], length: 1000 };
 }
 
 describe('playQueue utils', () => {
+  describe('queueTracksFromRemote', () => {
+    it('should keep playable tracks and drop malformed entries', () => {
+      expect(queueTracksFromRemote([
+        track(4),
+        { name: 'Missing uri' },
+        null,
+      ])).toEqual([track(4)]);
+    });
+  });
+
   describe('addTracks', () => {
     it('should assign sequential tlids starting at nextTlid', () => {
       const { state, added } = addTracks(createQueueState(), [track(1), track(2)]);

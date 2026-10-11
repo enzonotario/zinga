@@ -4,9 +4,12 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useDebounceFn } from '@vueuse/core';
 import { effectScope, watch } from 'vue';
+import { queueTracksFromRemote } from '~/utils/playQueue';
 import { tidalTrackInfoToQueueTrack, toQueueTrack } from '~/utils/queueTracks';
-import { buildPlaybackSnapshot, buildQueueSnapshot } from '~/utils/remoteSnapshot';
+import { buildDevicesSnapshot, buildPlaybackSnapshot, buildQueueSnapshot } from '~/utils/remoteSnapshot';
 import { getTidalTrackInfo } from '~/utils/tidal';
+import { currentPlaybackArtwork } from './useBottomBar';
+import useDevices from './useDevices';
 import usePlayer from './usePlayer';
 import usePlayQueue from './usePlayQueue';
 import useProvider from './useProvider';
@@ -18,7 +21,10 @@ type RemoteCommand
   = | { action: 'play' | 'pause' | 'next' | 'previous' | 'queue_clear' }
     | { action: 'seek', position: number }
     | { action: 'queue_add', uris: string[] }
-    | { action: 'queue_play_album', albumId: string };
+    | { action: 'queue_replace', tracks: unknown, startIndex?: number }
+    | { action: 'queue_play_album', albumId: string }
+    | { action: 'select_device', deviceId: string }
+    | { action: 'set_volume', level: number };
 
 const REMOTE_COMMAND_EVENT = 'remote-command';
 const PUSH_DEBOUNCE_MS = 250;
@@ -36,6 +42,7 @@ export default function useRemoteHostBridge() {
   const queue = usePlayQueue();
   const provider = useProvider();
   const tidalAuth = useTidalAuth();
+  const devices = useDevices();
   let queueDirty = true;
   let pendingCommand = Promise.resolve();
 
@@ -45,14 +52,24 @@ export default function useRemoteHostBridge() {
     return 'stopped';
   }
 
+  async function hostServerRunning() {
+    try {
+      const status = await invoke<{ running: boolean }>('remote_server_status');
+      return status.running;
+    } catch {
+      return server.isRunning.value;
+    }
+  }
+
   async function push() {
-    if (!server.isRunning.value || remote.isRemoteMode.value) return;
+    if (remote.isRemoteMode.value || !await hostServerRunning()) return;
     const includeQueue = queueDirty;
     queueDirty = false;
     try {
       await invoke('remote_broadcast_state', {
-        playback: buildPlaybackSnapshot(playbackStatus(), player.position.value, player.currentItem.value),
+        playback: buildPlaybackSnapshot(playbackStatus(), player.position.value, player.currentItem.value, currentPlaybackArtwork()),
         queue: includeQueue ? buildQueueSnapshot(queue.items.value) : null,
+        devices: buildDevicesSnapshot(devices.devices.value, devices.selectedDeviceId.value, devices.volume.value),
       });
     } catch (err) {
       queueDirty ||= includeQueue;
@@ -89,8 +106,17 @@ export default function useRemoteHostBridge() {
         return player.clear();
       case 'queue_add':
         return player.addTracks(await resolveTrackUris(command.uris));
+      case 'queue_replace': {
+        const tracks = queueTracksFromRemote(command.tracks);
+        if (!tracks.length) return;
+        return player.playTracks(tracks, command.startIndex ?? 0);
+      }
       case 'queue_play_album':
         return player.playTracks(await loadAlbumTracks(command.albumId));
+      case 'select_device':
+        return devices.select(command.deviceId);
+      case 'set_volume':
+        return devices.setVolume(command.level);
     }
   }
 
@@ -100,7 +126,18 @@ export default function useRemoteHostBridge() {
       schedulePush();
     });
     watch(
-      () => [playbackStatus(), player.currentItem.value?.tlid, Math.floor(player.position.value)],
+      () => {
+        const artwork = currentPlaybackArtwork();
+        return [playbackStatus(), player.currentItem.value?.tlid, Math.floor(player.position.value), artwork.coverUrl, artwork.artistPicture];
+      },
+      () => schedulePush(),
+    );
+    watch(
+      () => [
+        devices.selectedDeviceId.value,
+        devices.volume.value,
+        devices.devices.value.map((device) => `${device.id}:${device.name}`).join('|'),
+      ],
       () => schedulePush(),
     );
     watch(server.isRunning, (running) => {
@@ -115,4 +152,8 @@ export default function useRemoteHostBridge() {
       .then(() => execute(event.payload))
       .catch((err) => console.error('Remote command error:', err));
   }).catch((err) => console.error('Remote command listener error:', err));
+
+  setInterval(() => {
+    void push();
+  }, PUSH_MAX_WAIT_MS);
 }

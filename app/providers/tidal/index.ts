@@ -10,6 +10,7 @@ import type {
 } from '../types';
 import * as auth from '@tidal-music/auth';
 import { computed } from 'vue';
+import useRemoteClient from '~/composables/useRemoteClient';
 import {
   extractArtworkUrl,
   normalizeAlbum,
@@ -67,6 +68,10 @@ function saveToPersistentArtworkCache(key: string, url: string | null): void {
   try {
     localStorage.setItem(ARTWORK_CACHE_PREFIX + key, JSON.stringify({ url, timestamp: Date.now() }));
   } catch {}
+}
+async function remoteArtworkUrl(path: string, artworkType: 'coverArt' | 'profileArt', minWidth: number) {
+  const data = await useRemoteClient().apiFetch(path);
+  return extractArtworkUrl(data?.data, data?.included || [], artworkType, minWidth) || null;
 }
 async function artworkHrefFromApi(
   client: ReturnType<typeof getAPIClient>,
@@ -602,6 +607,12 @@ export function createTidalProvider(): MusicProvider {
       if (pendingArtworkRequests.has(cacheKey)) return pendingArtworkRequests.get(cacheKey)!;
       const requestPromise = (async () => {
         try {
+          if (useRemoteClient().isRemoteMode.value) {
+            const url = await remoteArtworkUrl(`/api/tidal/artist/${id}?countryCode=${countryCode}`, 'profileArt', minWidth);
+            artistPictureCache.set(cacheKey, url);
+            saveToPersistentArtworkCache(cacheKey, url);
+            return url;
+          }
           if (!isInitialized.value) await provider.init();
           const client = getAPIClient();
           const response = await client.GET('/artists/{id}', {
@@ -646,6 +657,12 @@ export function createTidalProvider(): MusicProvider {
       if (pendingArtworkRequests.has(cacheKey)) return pendingArtworkRequests.get(cacheKey)!;
       const requestPromise = (async () => {
         try {
+          if (useRemoteClient().isRemoteMode.value) {
+            const url = await remoteArtworkUrl(`/api/tidal/album/${id}?countryCode=${countryCode}`, 'coverArt', minWidth);
+            albumCoverCache.set(cacheKey, url);
+            saveToPersistentArtworkCache(cacheKey, url);
+            return url;
+          }
           if (!isInitialized.value) await provider.init();
           const client = getAPIClient();
           const response = await client.GET('/albums/{id}', {

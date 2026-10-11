@@ -54,18 +54,18 @@ function ensurePolling() {
   }, POSITION_UI_TICK_INTERVAL);
 }
 
-async function play(uri: string) {
+async function play(uri: string, trackUri = uri) {
   if (!storedVolumeApplied) {
     storedVolumeApplied = true;
     const stored = getStoredVolume();
     if (stored != null) await invoke('local_set_volume', { level: stored });
   }
-  await invoke('local_play', { uri });
+  await invoke('local_play', { uri, trackUri });
   await freshStatus();
 }
 
-async function setNext(uri: string | null) {
-  await invoke('local_set_next', { uri });
+async function setNext(uri: string | null, trackUri: string | null = uri) {
+  await invoke('local_set_next', { uri, trackUri });
 }
 
 async function pause() {

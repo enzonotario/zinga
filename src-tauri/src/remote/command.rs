@@ -14,9 +14,21 @@ pub enum RemoteCommand {
         uris: Vec<String>,
     },
     QueueClear,
+    QueueReplace {
+        tracks: Vec<serde_json::Value>,
+        #[serde(default, rename = "startIndex")]
+        start_index: usize,
+    },
     QueuePlayAlbum {
         #[serde(rename = "albumId")]
         album_id: String,
+    },
+    SelectDevice {
+        #[serde(rename = "deviceId")]
+        device_id: String,
+    },
+    SetVolume {
+        level: u8,
     },
 }
 
@@ -45,11 +57,26 @@ mod tests {
 
     #[test]
     fn maps_ws_playback_actions() {
-        assert_eq!(RemoteCommand::from_ws("play", None), Some(RemoteCommand::Play));
-        assert_eq!(RemoteCommand::from_ws("pause", None), Some(RemoteCommand::Pause));
-        assert_eq!(RemoteCommand::from_ws("next", None), Some(RemoteCommand::Next));
-        assert_eq!(RemoteCommand::from_ws("prev", None), Some(RemoteCommand::Previous));
-        assert_eq!(RemoteCommand::from_ws("previous", None), Some(RemoteCommand::Previous));
+        assert_eq!(
+            RemoteCommand::from_ws("play", None),
+            Some(RemoteCommand::Play)
+        );
+        assert_eq!(
+            RemoteCommand::from_ws("pause", None),
+            Some(RemoteCommand::Pause)
+        );
+        assert_eq!(
+            RemoteCommand::from_ws("next", None),
+            Some(RemoteCommand::Next)
+        );
+        assert_eq!(
+            RemoteCommand::from_ws("prev", None),
+            Some(RemoteCommand::Previous)
+        );
+        assert_eq!(
+            RemoteCommand::from_ws("previous", None),
+            Some(RemoteCommand::Previous)
+        );
         assert_eq!(RemoteCommand::from_ws("unknown", None), None);
     }
 
@@ -86,6 +113,29 @@ mod tests {
         assert_eq!(
             serde_json::to_value(RemoteCommand::QueueClear).unwrap(),
             json!({ "action": "queue_clear" })
+        );
+        assert_eq!(
+            serde_json::to_value(RemoteCommand::QueueReplace {
+                tracks: vec![json!({ "uri": "tidal:track:1", "name": "Never Lost" })],
+                start_index: 2,
+            })
+            .unwrap(),
+            json!({
+                "action": "queue_replace",
+                "tracks": [{ "uri": "tidal:track:1", "name": "Never Lost" }],
+                "startIndex": 2
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(RemoteCommand::SelectDevice {
+                device_id: "solo".to_string()
+            })
+            .unwrap(),
+            json!({ "action": "select_device", "deviceId": "solo" })
+        );
+        assert_eq!(
+            serde_json::to_value(RemoteCommand::SetVolume { level: 16 }).unwrap(),
+            json!({ "action": "set_volume", "level": 16 })
         );
     }
 }

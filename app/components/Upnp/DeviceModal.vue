@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import useDevices from '../../composables/useDevices';
 import usePlayer from '../../composables/usePlayer';
+import useRemoteClient from '../../composables/useRemoteClient';
 
 const props = defineProps<{
   modelValue: boolean
@@ -20,7 +21,12 @@ const {
   selectLocal,
 } = useDevices();
 const { testSound } = usePlayer();
+const remote = useRemoteClient();
 const { t } = useI18n();
+const localTitle = computed(() => (remote.isRemoteMode.value ? t('pages.devices.remoteLocalOption') : t('pages.devices.localPlayback')));
+const localDescription = computed(() => (remote.isRemoteMode.value ? t('pages.devices.remoteLocalDescription') : t('pages.devices.localPlaybackDescription')));
+const outputsHeading = computed(() => (remote.isRemoteMode.value ? t('pages.devices.remoteSection') : t('pages.devices.upnpDevices')));
+const emptyDescription = computed(() => (remote.isRemoteMode.value ? t('pages.devices.remoteEmpty') : t('upnp.noDevicesDescription')));
 const expandedId = ref<string | null>(null);
 const debugOpen = ref<Record<string, boolean>>({});
 const isOpen = computed({
@@ -58,9 +64,18 @@ async function selectLocalPlayback() {
       >
         <template #header>
           <div class="flex items-center justify-between gap-2">
-            <h3 class="text-lg font-semibold">
-              {{ t('upnp.selectDevice') }}
-            </h3>
+            <div class="flex items-center gap-2 min-w-0">
+              <h3 class="text-lg font-semibold">
+                {{ remote.isRemoteMode.value ? t('pages.devices.remoteTitle') : t('upnp.selectDevice') }}
+              </h3>
+              <UBadge
+                v-if="remote.isRemoteMode.value"
+                color="primary"
+                variant="subtle"
+                size="sm"
+                :label="t('pages.devices.remoteBadge')"
+              />
+            </div>
             <UButton
               :label="loading ? t('pages.devices.searching') : t('upnp.searchDevices')"
               :disabled="loading"
@@ -74,7 +89,7 @@ async function selectLocalPlayback() {
         <div class="space-y-4">
           <div class="space-y-2">
             <h4 class="text-xs font-semibold uppercase tracking-wider text-muted">
-              {{ t('pages.devices.localPlayback') }}
+              {{ localTitle }}
             </h4>
             <div
               class="ring ring-default rounded-lg p-3 hover:bg-accented/40 transition-colors flex items-center gap-3 cursor-pointer"
@@ -92,14 +107,14 @@ async function selectLocalPlayback() {
               />
               <div class="flex-1 min-w-0">
                 <div class="font-medium truncate">
-                  {{ t('pages.devices.localPlayback') }}
+                  {{ localTitle }}
                 </div>
                 <div class="text-sm text-muted truncate">
-                  {{ t('pages.devices.localPlaybackDescription') }}
+                  {{ localDescription }}
                 </div>
               </div>
               <UButton
-                v-if="isLocalPlayback"
+                v-if="isLocalPlayback && !remote.isRemoteMode.value"
                 icon="i-heroicons-play"
                 size="xs"
                 variant="ghost"
@@ -110,7 +125,7 @@ async function selectLocalPlayback() {
           <USeparator />
           <div class="space-y-2">
             <h4 class="text-xs font-semibold uppercase tracking-wider text-muted">
-              {{ t('pages.devices.upnpDevices') }}
+              {{ outputsHeading }}
             </h4>
             <ul v-if="devices.length > 0" class="space-y-2">
               <li
@@ -135,12 +150,12 @@ async function selectLocalPlayback() {
                       {{ device.name }}
                     </div>
                     <div class="text-sm text-muted truncate">
-                      {{ device.ip || device.location || device.usn }}
+                      {{ remote.isRemoteMode.value ? t('pages.devices.remoteOutput') : (device.ip || device.location || device.usn) }}
                     </div>
                   </div>
                   <div class="flex items-center gap-1">
                     <UButton
-                      v-if="selectedDeviceId === device.id"
+                      v-if="selectedDeviceId === device.id && !remote.isRemoteMode.value"
                       icon="i-heroicons-play"
                       size="xs"
                       variant="ghost"
@@ -199,7 +214,7 @@ async function selectLocalPlayback() {
               v-else-if="!loading"
               icon="i-heroicons-magnifying-glass"
               :title="t('upnp.noDevicesFound')"
-              :description="t('upnp.noDevicesDescription')"
+              :description="emptyDescription"
             />
             <UEmpty
               v-else

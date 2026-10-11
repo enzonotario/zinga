@@ -5,6 +5,9 @@ interface ServerInfo {
   port: number
   pairingCode: string
 }
+interface ServerStatus extends ServerInfo {
+  running: boolean
+}
 interface PairedDevice {
   id: string
   name: string
@@ -18,7 +21,9 @@ const loading = ref(false);
 const error = ref<string | null>(null);
 let tokenSyncInterval: ReturnType<typeof setInterval> | null = null;
 let eventUnlisten: (() => void) | null = null;
+let restoreStarted = false;
 export default function useRemoteServer() {
+  const { t } = useI18n();
   const serverUrl = computed(() => {
     if (!serverInfo.value) return null;
     return `http://${serverInfo.value.ip}:${serverInfo.value.port}`;
@@ -27,6 +32,25 @@ export default function useRemoteServer() {
     if (!serverInfo.value) return null;
     return `${serverUrl.value}?code=${serverInfo.value.pairingCode}`;
   });
+  async function closeOtherInstances() {
+    loading.value = true;
+    error.value = null;
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const closed = await invoke<number>('remote_close_other_instances');
+      if (closed === 0) {
+        error.value = t('pages.settings.noOtherInstances');
+        return 0;
+      }
+      await startServer();
+      return closed;
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : String(err);
+      return 0;
+    } finally {
+      loading.value = false;
+    }
+  }
   async function startServer() {
     loading.value = true;
     error.value = null;
@@ -126,6 +150,32 @@ export default function useRemoteServer() {
       eventUnlisten = null;
     }
   }
+  async function restoreServer() {
+    if (restoreStarted) return;
+    restoreStarted = true;
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const status = await invoke<ServerStatus>('remote_server_status');
+        if (status.running) {
+          serverInfo.value = {
+            ip: status.ip,
+            port: status.port,
+            pairingCode: status.pairingCode,
+          };
+          isRunning.value = true;
+          await refreshPairedDevices();
+          startTokenSync();
+          listenForPairingEvents();
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    } catch (err) {
+      console.error('Remote server restore error:', err);
+    }
+  }
+  if (import.meta.client) void restoreServer();
   return {
     serverInfo: computed(() => serverInfo.value),
     isRunning: computed(() => isRunning.value),
@@ -135,6 +185,7 @@ export default function useRemoteServer() {
     serverUrl,
     pairingUrl,
     startServer,
+    closeOtherInstances,
     stopServer,
     refreshPairingCode,
     refreshPairedDevices,
