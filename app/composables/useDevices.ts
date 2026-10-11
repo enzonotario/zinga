@@ -2,7 +2,7 @@ import type { Device } from '~/types/device';
 import type { RemoteDevicesSnapshot } from '~/utils/remoteSnapshot';
 import { invoke } from '@tauri-apps/api/core';
 import { computed, ref, watch } from 'vue';
-import { VOLUME_POLLING_INTERVAL, VOLUME_UPDATE_RESET_DELAY } from '~/constants/polling';
+import { VOLUME_POLLING_INTERVAL } from '~/constants/polling';
 import { parseDevicesSnapshot } from '~/utils/remoteSnapshot';
 import useLocalRenderer from './useLocalRenderer';
 import useRemoteClient from './useRemoteClient';
@@ -21,9 +21,20 @@ const volumePollingInterval = ref<ReturnType<typeof setInterval> | null>(null);
 const isUpdatingVolumeFromDevice = ref(false);
 const isPollingPaused = ref(false);
 const isVolumeSyncing = ref(false);
+const VOLUME_HOLD_MS = 4000;
 let upnpVolumePollInFlight = false;
 let syncedDeviceId: string | null = null;
 let pendingRemoteDeviceId: string | null = null;
+let volumeHoldTicket = 0;
+function holdOutgoingVolume(level: number) {
+  const ticket = ++volumeHoldTicket;
+  volume.value = level;
+  isUpdatingVolumeFromDevice.value = true;
+  setTimeout(() => {
+    if (ticket !== volumeHoldTicket) return;
+    isUpdatingVolumeFromDevice.value = false;
+  }, VOLUME_HOLD_MS);
+}
 if (import.meta.client) {
   const lastDeviceId = localStorage.getItem('lastSelectedDevice');
   if (lastDeviceId) {
@@ -90,8 +101,10 @@ function initializeVolumePolling() {
           return;
         }
         upnpVolumePollInFlight = true;
+        const ticket = volumeHoldTicket;
         try {
           const newVolume = await invoke<number>('upnp_get_volume', { deviceId: selectedDeviceId.value });
+          if (ticket !== volumeHoldTicket || isUpdatingVolumeFromDevice.value) return;
           if (volume.value !== newVolume) {
             volume.value = newVolume;
           }
@@ -190,42 +203,25 @@ export default function useDevices() {
   }
   async function setVolume(level: number) {
     if (!selectedDeviceId.value) return;
-    if (remote.isRemoteMode.value) {
-      isUpdatingVolumeFromDevice.value = true;
-      volume.value = level;
-      try {
+    const next = Math.max(0, Math.min(100, Math.round(level)));
+    const previous = volume.value;
+    holdOutgoingVolume(next);
+    try {
+      if (remote.isRemoteMode.value) {
         await remote.apiFetch('/api/devices/volume', {
           method: 'POST',
-          body: JSON.stringify({ level }),
+          body: JSON.stringify({ level: next }),
         });
-      } catch (e) {
-        console.error('Failed to set remote volume:', e);
-      } finally {
-        setTimeout(() => {
-          isUpdatingVolumeFromDevice.value = false;
-        }, VOLUME_UPDATE_RESET_DELAY);
+        return;
       }
-      return;
-    }
-    if (isLocalPlayback.value) {
-      try {
-        await localRenderer.setVolume(level);
-        volume.value = level;
-      } catch (e) {
-        console.error('Failed to set local volume:', e);
+      if (isLocalPlayback.value) {
+        await localRenderer.setVolume(next);
+        return;
       }
-      return;
-    }
-    try {
-      isUpdatingVolumeFromDevice.value = true;
-      await invoke('upnp_set_volume', { deviceId: selectedDeviceId.value, level });
-      volume.value = level;
-      setTimeout(() => {
-        isUpdatingVolumeFromDevice.value = false;
-      }, VOLUME_UPDATE_RESET_DELAY);
+      await invoke('upnp_set_volume', { deviceId: selectedDeviceId.value, level: next });
     } catch (e) {
       console.error('Failed to set volume:', e);
-      isUpdatingVolumeFromDevice.value = false;
+      if (volume.value === next) volume.value = previous;
     }
   }
   function selectLocal() {

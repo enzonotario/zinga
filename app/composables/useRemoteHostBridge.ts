@@ -101,7 +101,15 @@ export default function useRemoteHostBridge() {
     }
   }
 
-  const schedulePush = useDebounceFn(push, PUSH_DEBOUNCE_MS, { maxWait: PUSH_MAX_WAIT_MS });
+  let pushTail: Promise<void> = Promise.resolve();
+
+  function enqueuePush() {
+    pushTail = pushTail.then(() => push()).catch((err) => {
+      console.error('Remote state push error:', err);
+    });
+  }
+
+  const schedulePush = useDebounceFn(enqueuePush, PUSH_DEBOUNCE_MS, { maxWait: PUSH_MAX_WAIT_MS });
 
   async function resolveTrackUris(uris: string[]) {
     const infos = await Promise.all(uris.map((uri) => getTidalTrackInfo(uri, 'US', tidalAuth).catch(() => null)));
@@ -188,17 +196,18 @@ export default function useRemoteHostBridge() {
     watch(server.isRunning, (running) => {
       if (!running) return;
       queueDirty = true;
-      push();
+      enqueuePush();
     }, { immediate: true });
   });
 
   listen<RemoteCommand>(REMOTE_COMMAND_EVENT, (event) => {
-    pendingCommand = pendingCommand
-      .then(() => execute(event.payload))
-      .catch((err) => console.error('Remote command error:', err));
+    const run = () => execute(event.payload).catch((err) => console.error('Remote command error:', err));
+    if (event.payload?.action === 'set_volume') {
+      void run();
+      return;
+    }
+    pendingCommand = pendingCommand.then(run);
   }).catch((err) => console.error('Remote command listener error:', err));
 
-  setInterval(() => {
-    void push();
-  }, PUSH_MAX_WAIT_MS);
+  setInterval(enqueuePush, PUSH_MAX_WAIT_MS);
 }
