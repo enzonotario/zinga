@@ -1,7 +1,8 @@
 use axum::{
+    body::Body,
     extract::{Path, Query, State},
-    http::StatusCode,
-    response::Json,
+    http::{header::CONTENT_TYPE, StatusCode},
+    response::{IntoResponse, Json, Response},
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -67,6 +68,60 @@ async fn forward(state: &RemoteState, command: RemoteCommand) -> CommandResponse
 
 pub async fn playback_state(State(state): State<Arc<RemoteState>>) -> Json<serde_json::Value> {
     Json(state.playback_snapshot.lock().await.clone())
+}
+
+const MAX_COVER_BYTES: usize = 1_500_000;
+
+pub(crate) fn playback_cover_url(snapshot: &serde_json::Value) -> Option<String> {
+    let url = snapshot.get("coverUrl").and_then(|value| value.as_str())?;
+    if url.starts_with("https://") || url.starts_with("http://") {
+        Some(url.to_string())
+    } else {
+        None
+    }
+}
+
+fn fetch_cover(url: &str) -> Result<(Vec<u8>, String), String> {
+    let mut response = ureq::get(url).call().map_err(|err| err.to_string())?;
+    if response.status().as_u16() != 200 {
+        return Err(format!("cover status {}", response.status()));
+    }
+    let content_type = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .split(';')
+        .next()
+        .unwrap_or("application/octet-stream")
+        .trim()
+        .to_string();
+    if !content_type.starts_with("image/") && content_type != "application/octet-stream" {
+        return Err(format!("cover type {content_type}"));
+    }
+    let bytes = response
+        .body_mut()
+        .read_to_vec()
+        .map_err(|err| err.to_string())?;
+    if bytes.is_empty() || bytes.len() > MAX_COVER_BYTES {
+        return Err("cover size".to_string());
+    }
+    Ok((bytes, content_type))
+}
+
+pub async fn playback_cover(State(state): State<Arc<RemoteState>>) -> Response {
+    let snapshot = state.playback_snapshot.lock().await.clone();
+    let Some(url) = playback_cover_url(&snapshot) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    match tokio::task::spawn_blocking(move || fetch_cover(&url)).await {
+        Ok(Ok((bytes, content_type))) => Response::builder()
+            .status(StatusCode::OK)
+            .header(CONTENT_TYPE, content_type)
+            .body(Body::from(bytes))
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+        _ => StatusCode::BAD_GATEWAY.into_response(),
+    }
 }
 
 pub async fn playback_play(State(state): State<Arc<RemoteState>>) -> CommandResponse {
@@ -352,4 +407,20 @@ pub async fn devices_volume(
     Json(body): Json<VolumeRequest>,
 ) -> CommandResponse {
     forward(&state, RemoteCommand::SetVolume { level: body.level }).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::playback_cover_url;
+
+    #[test]
+    fn cover_url_accepts_only_http_sources_from_the_snapshot() {
+        let snapshot = serde_json::json!({ "coverUrl": "https://img.example/cover.jpg" });
+        assert_eq!(
+            playback_cover_url(&snapshot).as_deref(),
+            Some("https://img.example/cover.jpg")
+        );
+        assert!(playback_cover_url(&serde_json::json!({ "coverUrl": null })).is_none());
+        assert!(playback_cover_url(&serde_json::json!({ "coverUrl": "file:///tmp/a.jpg" })).is_none());
+    }
 }

@@ -13,6 +13,7 @@ import useDevices from './useDevices';
 import usePlayer from './usePlayer';
 import usePlayQueue from './usePlayQueue';
 import useProvider from './useProvider';
+import useLyrics from './useLyrics';
 import useRemoteClient from './useRemoteClient';
 import useRemoteServer from './useRemoteServer';
 import useTidalAuth from './useTidalAuth';
@@ -43,6 +44,7 @@ export default function useRemoteHostBridge() {
   const provider = useProvider();
   const tidalAuth = useTidalAuth();
   const devices = useDevices();
+  const lyricsState = useLyrics();
   let queueDirty = true;
   let pendingCommand = Promise.resolve();
 
@@ -67,7 +69,10 @@ export default function useRemoteHostBridge() {
     queueDirty = false;
     try {
       await invoke('remote_broadcast_state', {
-        playback: buildPlaybackSnapshot(playbackStatus(), player.position.value, player.currentItem.value, currentPlaybackArtwork()),
+        playback: buildPlaybackSnapshot(playbackStatus(), player.position.value, player.currentItem.value, currentPlaybackArtwork(), {
+          plain: lyricsState.lyrics.value,
+          synced: lyricsState.syncedLyrics.value,
+        }),
         queue: includeQueue ? buildQueueSnapshot(queue.items.value) : null,
         devices: buildDevicesSnapshot(devices.devices.value, devices.selectedDeviceId.value, devices.volume.value),
       });
@@ -128,9 +133,23 @@ export default function useRemoteHostBridge() {
     watch(
       () => {
         const artwork = currentPlaybackArtwork();
-        return [playbackStatus(), player.currentItem.value?.tlid, Math.floor(player.position.value), artwork.coverUrl, artwork.artistPicture];
+        return [playbackStatus(), player.currentItem.value?.tlid, Math.floor(player.position.value), artwork.coverUrl, artwork.artistPicture, lyricsState.lyrics.value, lyricsState.syncedLyrics.value];
       },
       () => schedulePush(),
+    );
+    watch(
+      () => {
+        const track = player.currentItem.value?.track;
+        return [track?.name ?? '', track?.artists?.[0]?.name ?? ''] as const;
+      },
+      ([name, artist]) => {
+        if (!name || !artist) {
+          lyricsState.clearLyrics();
+          return;
+        }
+        void lyricsState.fetchLyrics(name, artist);
+      },
+      { immediate: true },
     );
     watch(
       () => [

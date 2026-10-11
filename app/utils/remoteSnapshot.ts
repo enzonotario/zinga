@@ -3,12 +3,21 @@ import { isQueueItem } from './playQueue';
 
 export type RemotePlaybackStatus = 'playing' | 'paused' | 'stopped';
 
+export const REMOTE_COVER_PATH = '/api/playback/cover'
+
+export interface RemoteLyricsSnapshot {
+  plain: string | null
+  synced: string | null
+}
+
 export interface RemotePlaybackSnapshot {
   state: RemotePlaybackStatus
   position: number
   track: QueueItem | null
   coverUrl: string | null
   artistPicture: string | null
+  coverPath: string | null
+  lyrics: RemoteLyricsSnapshot | null
 }
 
 export interface RemotePlayback {
@@ -17,6 +26,8 @@ export interface RemotePlayback {
   item: QueueItem | null
   coverUrl: string | null
   artistPicture: string | null
+  coverPath: string | null
+  lyrics: RemoteLyricsSnapshot | null
 }
 
 export interface RemoteDevice {
@@ -38,18 +49,29 @@ function toQueueItem(item: QueueItem): QueueItem {
   return { tlid: item.tlid, track: item.track };
 }
 
+function cleanText(value: string | null | undefined): string | null {
+  const text = value?.trim()
+  return text || null
+}
+
 export function buildPlaybackSnapshot(
   state: RemotePlaybackStatus,
   positionSec: number,
   item: QueueItem | null | undefined,
   artwork?: { coverUrl?: string | null, artistPicture?: string | null },
+  lyrics?: RemoteLyricsSnapshot | null,
 ): RemotePlaybackSnapshot {
+  const coverUrl = artwork?.coverUrl || null
+  const plain = cleanText(lyrics?.plain)
+  const synced = cleanText(lyrics?.synced)
   return {
     state,
     position: Math.max(0, Math.round(positionSec * 1000)),
     track: item ? toQueueItem(item) : null,
-    coverUrl: artwork?.coverUrl || null,
+    coverUrl,
     artistPicture: artwork?.artistPicture || null,
+    coverPath: coverUrl ? REMOTE_COVER_PATH : null,
+    lyrics: plain || synced ? { plain, synced } : null,
   };
 }
 
@@ -74,15 +96,28 @@ export function buildQueueSnapshot(items: QueueItem[]): QueueItem[] {
   return items.map(toQueueItem);
 }
 
+function parseLyrics(value: any): RemoteLyricsSnapshot | null {
+  if (!value || typeof value !== 'object') return null
+  const plain = cleanText(typeof value.plain === 'string' ? value.plain : null)
+  const synced = cleanText(typeof value.synced === 'string' ? value.synced : null)
+  return plain || synced ? { plain, synced } : null
+}
+
 export function parsePlaybackSnapshot(data: any): RemotePlayback {
   const state = STATUSES.includes(data?.state) ? data.state : 'stopped';
   const position = Number(data?.position);
+  const coverUrl = typeof data?.coverUrl === 'string' && data.coverUrl ? data.coverUrl : null
+  const coverPath = typeof data?.coverPath === 'string' && data.coverPath.startsWith('/')
+    ? data.coverPath
+    : (coverUrl ? REMOTE_COVER_PATH : null)
   return {
     state,
     positionSec: Number.isFinite(position) && position > 0 ? position / 1000 : 0,
     item: isQueueItem(data?.track) ? data.track : null,
-    coverUrl: typeof data?.coverUrl === 'string' && data.coverUrl ? data.coverUrl : null,
+    coverUrl,
     artistPicture: typeof data?.artistPicture === 'string' && data.artistPicture ? data.artistPicture : null,
+    coverPath,
+    lyrics: parseLyrics(data?.lyrics),
   };
 }
 
