@@ -39,6 +39,12 @@ impl RemoteCommand {
             "pause" => Some(Self::Pause),
             "next" => Some(Self::Next),
             "prev" | "previous" => Some(Self::Previous),
+            "set_volume" => data
+                .and_then(|d| d.get("level"))
+                .and_then(|level| level.as_u64())
+                .map(|level| Self::SetVolume {
+                    level: level.min(100) as u8,
+                }),
             "seek" => data
                 .and_then(|d| d.get("time_position").or_else(|| d.get("position")))
                 .and_then(|p| p.as_f64())
@@ -72,6 +78,10 @@ mod tests {
         assert_eq!(
             RemoteCommand::from_ws("prev", None),
             Some(RemoteCommand::Previous)
+        );
+        assert_eq!(
+            RemoteCommand::from_ws("set_volume", Some(&json!({ "level": 16 }))),
+            Some(RemoteCommand::SetVolume { level: 16 })
         );
         assert_eq!(
             RemoteCommand::from_ws("previous", None),

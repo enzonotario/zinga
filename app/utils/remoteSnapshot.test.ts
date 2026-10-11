@@ -9,7 +9,11 @@ function item(tlid: number): QueueItem {
 describe('remoteSnapshot utils', () => {
   describe('buildPlaybackSnapshot', () => {
     it('should produce the remote playback shape in milliseconds', () => {
-      expect(buildPlaybackSnapshot('playing', 12.3456, item(2), { coverUrl: 'https://img/cover.jpg', artistPicture: 'https://img/artist.jpg' }, { plain: 'Hola', synced: '[00:01.00]Hola' })).toEqual({
+      expect(buildPlaybackSnapshot('playing', 12.3456, item(2), { coverUrl: 'https://img/cover.jpg', artistPicture: 'https://img/artist.jpg' }, { plain: 'Hola', synced: '[00:01.00]Hola' }, [
+        { role: 'Trumpet', names: ['Sheila'] },
+        { role: ' Trumpet ', names: ['Sheila'] },
+        { role: 'Bass', names: ['Duane'] },
+      ])).toEqual({
         state: 'playing',
         position: 12346,
         track: item(2),
@@ -17,6 +21,7 @@ describe('remoteSnapshot utils', () => {
         artistPicture: 'https://img/artist.jpg',
         coverPath: '/api/playback/cover',
         lyrics: { plain: 'Hola', synced: '[00:01.00]Hola' },
+        credits: [{ role: 'Trumpet', names: ['Sheila'] }, { role: 'Bass', names: ['Duane'] }],
       });
     });
     it('should strip extra fields and clamp negative positions', () => {
@@ -29,6 +34,7 @@ describe('remoteSnapshot utils', () => {
         artistPicture: null,
         coverPath: null,
         lyrics: null,
+        credits: null,
       });
       expect(buildPlaybackSnapshot('paused', 0, null).track).toBeNull();
     });
@@ -57,11 +63,12 @@ describe('remoteSnapshot utils', () => {
         artistPicture: 'https://img/artist.jpg',
         coverPath: '/api/playback/cover',
         lyrics: { plain: 'linea', synced: null },
+        credits: null,
       });
     });
     it('should fall back to a stopped state for invalid data', () => {
-      expect(parsePlaybackSnapshot(null)).toEqual({ state: 'stopped', positionSec: 0, item: null, coverUrl: null, artistPicture: null, coverPath: null, lyrics: null });
-      expect(parsePlaybackSnapshot({ state: 'weird', position: 'x', track: { tlid: 1 } })).toEqual({ state: 'stopped', positionSec: 0, item: null, coverUrl: null, artistPicture: null, coverPath: null, lyrics: null });
+      expect(parsePlaybackSnapshot(null)).toEqual({ state: 'stopped', positionSec: 0, item: null, coverUrl: null, artistPicture: null, coverPath: null, lyrics: null, credits: null });
+      expect(parsePlaybackSnapshot({ state: 'weird', position: 'x', track: { tlid: 1 } })).toEqual({ state: 'stopped', positionSec: 0, item: null, coverUrl: null, artistPicture: null, coverPath: null, lyrics: null, credits: null });
     });
   });
 

@@ -10,6 +10,11 @@ export interface RemoteLyricsSnapshot {
   synced: string | null
 }
 
+export interface RemoteCreditGroup {
+  role: string
+  names: string[]
+}
+
 export interface RemotePlaybackSnapshot {
   state: RemotePlaybackStatus
   position: number
@@ -18,6 +23,7 @@ export interface RemotePlaybackSnapshot {
   artistPicture: string | null
   coverPath: string | null
   lyrics: RemoteLyricsSnapshot | null
+  credits: RemoteCreditGroup[] | null
 }
 
 export interface RemotePlayback {
@@ -28,6 +34,7 @@ export interface RemotePlayback {
   artistPicture: string | null
   coverPath: string | null
   lyrics: RemoteLyricsSnapshot | null
+  credits: RemoteCreditGroup[] | null
 }
 
 export interface RemoteDevice {
@@ -54,16 +61,41 @@ function cleanText(value: string | null | undefined): string | null {
   return text || null
 }
 
+export function groupRemoteCredits(credits: { role?: string | null, name?: string | null }[] | null | undefined): RemoteCreditGroup[] {
+  return normalizeCreditGroups((credits ?? []).map(credit => ({
+    role: credit.role ?? '',
+    names: credit.name ? [credit.name] : [],
+  })))
+}
+
+function normalizeCreditGroups(credits?: { role?: string | null, names?: (string | null)[] | null }[] | null): RemoteCreditGroup[] {
+  const grouped: RemoteCreditGroup[] = []
+  for (const credit of credits ?? []) {
+    const role = cleanText(credit.role)
+    if (!role) continue
+    for (const rawName of credit.names ?? []) {
+      const name = cleanText(rawName)
+      if (!name) continue
+      const existing = grouped.find(group => group.role === role)
+      if (!existing) grouped.push({ role, names: [name] })
+      else if (!existing.names.includes(name)) existing.names.push(name)
+    }
+  }
+  return grouped.slice(0, 12)
+}
+
 export function buildPlaybackSnapshot(
   state: RemotePlaybackStatus,
   positionSec: number,
   item: QueueItem | null | undefined,
   artwork?: { coverUrl?: string | null, artistPicture?: string | null },
   lyrics?: RemoteLyricsSnapshot | null,
+  credits?: RemoteCreditGroup[] | null,
 ): RemotePlaybackSnapshot {
   const coverUrl = artwork?.coverUrl || null
   const plain = cleanText(lyrics?.plain)
   const synced = cleanText(lyrics?.synced)
+  const grouped = normalizeCreditGroups(credits)
   return {
     state,
     position: Math.max(0, Math.round(positionSec * 1000)),
@@ -72,6 +104,7 @@ export function buildPlaybackSnapshot(
     artistPicture: artwork?.artistPicture || null,
     coverPath: coverUrl ? REMOTE_COVER_PATH : null,
     lyrics: plain || synced ? { plain, synced } : null,
+    credits: grouped.length ? grouped : null,
   };
 }
 
@@ -118,7 +151,18 @@ export function parsePlaybackSnapshot(data: any): RemotePlayback {
     artistPicture: typeof data?.artistPicture === 'string' && data.artistPicture ? data.artistPicture : null,
     coverPath,
     lyrics: parseLyrics(data?.lyrics),
+    credits: parseCredits(data?.credits),
   };
+}
+
+function parseCredits(value: any): RemoteCreditGroup[] | null {
+  if (!Array.isArray(value)) return null
+  const grouped = groupRemoteCredits(value.flatMap((row) => {
+    const role = typeof row?.role === 'string' ? row.role : ''
+    const names = Array.isArray(row?.names) ? row.names : []
+    return names.map((name: unknown) => ({ role, name: typeof name === 'string' ? name : '' }))
+  }))
+  return grouped.length ? grouped : null
 }
 
 export function parseDevicesSnapshot(data: any): RemoteDevicesSnapshot {

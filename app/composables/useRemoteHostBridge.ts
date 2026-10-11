@@ -3,10 +3,11 @@ import type { RemotePlaybackStatus } from '~/utils/remoteSnapshot';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useDebounceFn } from '@vueuse/core';
-import { effectScope, watch } from 'vue';
+import { effectScope, ref, watch } from 'vue';
 import { queueTracksFromRemote } from '~/utils/playQueue';
 import { tidalTrackInfoToQueueTrack, toQueueTrack } from '~/utils/queueTracks';
-import { buildDevicesSnapshot, buildPlaybackSnapshot, buildQueueSnapshot } from '~/utils/remoteSnapshot';
+import { buildDevicesSnapshot, buildPlaybackSnapshot, buildQueueSnapshot, groupRemoteCredits } from '~/utils/remoteSnapshot';
+import type { RemoteCreditGroup } from '~/utils/remoteSnapshot';
 import { getTidalTrackInfo } from '~/utils/tidal';
 import { currentPlaybackArtwork } from './useBottomBar';
 import useDevices from './useDevices';
@@ -45,7 +46,25 @@ export default function useRemoteHostBridge() {
   const tidalAuth = useTidalAuth();
   const devices = useDevices();
   const lyricsState = useLyrics();
+  const creditGroups = ref<RemoteCreditGroup[] | null>(null);
   let queueDirty = true;
+
+  function tidalTrackId(uri?: string) {
+    return uri?.match(/tidal:track:([^:/]+)/)?.[1] ?? null;
+  }
+
+  async function loadCredits(uri: string) {
+    const id = tidalTrackId(uri);
+    if (!id) {
+      creditGroups.value = null;
+      return;
+    }
+    try {
+      creditGroups.value = groupRemoteCredits(await provider.getTrackCredits(id));
+    } catch {
+      creditGroups.value = null;
+    }
+  }
   let pendingCommand = Promise.resolve();
 
   function playbackStatus(): RemotePlaybackStatus {
@@ -72,7 +91,7 @@ export default function useRemoteHostBridge() {
         playback: buildPlaybackSnapshot(playbackStatus(), player.position.value, player.currentItem.value, currentPlaybackArtwork(), {
           plain: lyricsState.lyrics.value,
           synced: lyricsState.syncedLyrics.value,
-        }),
+        }, creditGroups.value),
         queue: includeQueue ? buildQueueSnapshot(queue.items.value) : null,
         devices: buildDevicesSnapshot(devices.devices.value, devices.selectedDeviceId.value, devices.volume.value),
       });
@@ -133,9 +152,16 @@ export default function useRemoteHostBridge() {
     watch(
       () => {
         const artwork = currentPlaybackArtwork();
-        return [playbackStatus(), player.currentItem.value?.tlid, Math.floor(player.position.value), artwork.coverUrl, artwork.artistPicture, lyricsState.lyrics.value, lyricsState.syncedLyrics.value];
+        return [playbackStatus(), player.currentItem.value?.tlid, Math.floor(player.position.value), artwork.coverUrl, artwork.artistPicture, lyricsState.lyrics.value, lyricsState.syncedLyrics.value, creditGroups.value];
       },
       () => schedulePush(),
+    );
+    watch(
+      () => player.currentItem.value?.track?.uri ?? '',
+      (uri) => {
+        void loadCredits(uri);
+      },
+      { immediate: true },
     );
     watch(
       () => {
