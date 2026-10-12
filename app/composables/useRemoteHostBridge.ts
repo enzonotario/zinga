@@ -88,10 +88,10 @@ export default function useRemoteHostBridge() {
     queueDirty = false;
     try {
       await invoke('remote_broadcast_state', {
-        playback: buildPlaybackSnapshot(playbackStatus(), player.position.value, player.currentItem.value, currentPlaybackArtwork(), {
+        playback: buildPlaybackSnapshot(playbackStatus(), player.position.value, player.currentItem.value ?? queue.items.value[0] ?? null, currentPlaybackArtwork(), {
           plain: lyricsState.lyrics.value,
           synced: lyricsState.syncedLyrics.value,
-        }, creditGroups.value),
+        }, creditGroups.value, queue.items.value.length > 0),
         queue: includeQueue ? buildQueueSnapshot(queue.items.value) : null,
         devices: buildDevicesSnapshot(devices.devices.value, devices.selectedDeviceId.value, devices.volume.value),
       });

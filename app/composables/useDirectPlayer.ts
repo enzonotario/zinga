@@ -315,8 +315,13 @@ export default function useDirectPlayer() {
       void restartAt(nextItem, 0);
       return;
     }
-    if (nextItem) queue.setCurrent(nextItem.tlid);
+    if (nextItem) {
+      queue.setCurrent(nextItem.tlid);
+      void stop();
+      return;
+    }
     void stop();
+    if (endedNaturally) queue.clear();
   }
 
   function syncFromDevice() {
@@ -476,6 +481,7 @@ export default function useDirectPlayer() {
     const target = getNextItem();
     if (!target) {
       await stop();
+      queue.clear();
       return;
     }
     await restartAt(target, 0);

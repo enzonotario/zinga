@@ -22,6 +22,7 @@ describe('remoteSnapshot utils', () => {
         coverPath: '/api/playback/cover',
         lyrics: { plain: 'Hola', synced: '[00:01.00]Hola' },
         credits: [{ role: 'Trumpet', names: ['Sheila'] }, { role: 'Bass', names: ['Duane'] }],
+        hasQueue: false,
       });
     });
     it('should strip extra fields and clamp negative positions', () => {
@@ -35,8 +36,12 @@ describe('remoteSnapshot utils', () => {
         coverPath: null,
         lyrics: null,
         credits: null,
+        hasQueue: false,
       });
-      expect(buildPlaybackSnapshot('paused', 0, null).track).toBeNull();
+      expect(buildPlaybackSnapshot('paused', 0, null, undefined, null, null, true)).toMatchObject({
+        track: null,
+        hasQueue: true,
+      });
     });
   });
 

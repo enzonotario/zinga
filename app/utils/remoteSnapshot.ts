@@ -24,6 +24,7 @@ export interface RemotePlaybackSnapshot {
   coverPath: string | null
   lyrics: RemoteLyricsSnapshot | null
   credits: RemoteCreditGroup[] | null
+  hasQueue: boolean
 }
 
 export interface RemotePlayback {
@@ -91,6 +92,7 @@ export function buildPlaybackSnapshot(
   artwork?: { coverUrl?: string | null, artistPicture?: string | null },
   lyrics?: RemoteLyricsSnapshot | null,
   credits?: RemoteCreditGroup[] | null,
+  hasQueue = false,
 ): RemotePlaybackSnapshot {
   const coverUrl = artwork?.coverUrl || null
   const plain = cleanText(lyrics?.plain)
@@ -105,6 +107,7 @@ export function buildPlaybackSnapshot(
     coverPath: coverUrl ? REMOTE_COVER_PATH : null,
     lyrics: plain || synced ? { plain, synced } : null,
     credits: grouped.length ? grouped : null,
+    hasQueue,
   };
 }
 
