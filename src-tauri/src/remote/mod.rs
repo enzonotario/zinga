@@ -33,6 +33,7 @@ pub fn build_router(state: Arc<RemoteState>, client_dir: Option<std::path::PathB
         .route("/queue", get(api::queue_get))
         .route("/queue/add", post(api::queue_add))
         .route("/queue/clear", post(api::queue_clear))
+        .route("/queue/remove", post(api::queue_remove))
         .route("/queue/replace", post(api::queue_replace))
         .route("/queue/play-album", post(api::queue_play_album))
         .route("/tidal/search", get(api::tidal_search))
@@ -42,6 +43,7 @@ pub fn build_router(state: Arc<RemoteState>, client_dir: Option<std::path::PathB
         .route("/tidal/album/{id}/tracks", get(api::tidal_album_tracks))
         .route("/tidal/track/{id}", get(api::tidal_track))
         .route("/devices", get(api::devices_list))
+        .route("/devices/discover", post(api::devices_discover))
         .route("/devices/select", post(api::devices_select))
         .route("/devices/volume", post(api::devices_volume));
 

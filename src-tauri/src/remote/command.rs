@@ -14,6 +14,9 @@ pub enum RemoteCommand {
         uris: Vec<String>,
     },
     QueueClear,
+    QueueRemove {
+        tlid: u64,
+    },
     QueueReplace {
         tracks: Vec<serde_json::Value>,
         #[serde(default, rename = "startIndex")]
@@ -27,6 +30,7 @@ pub enum RemoteCommand {
         #[serde(rename = "deviceId")]
         device_id: String,
     },
+    DiscoverDevices,
     SetVolume {
         level: u8,
     },
@@ -125,6 +129,10 @@ mod tests {
             json!({ "action": "queue_clear" })
         );
         assert_eq!(
+            serde_json::to_value(RemoteCommand::QueueRemove { tlid: 7 }).unwrap(),
+            json!({ "action": "queue_remove", "tlid": 7 })
+        );
+        assert_eq!(
             serde_json::to_value(RemoteCommand::QueueReplace {
                 tracks: vec![json!({ "uri": "tidal:track:1", "name": "Never Lost" })],
                 start_index: 2,
@@ -142,6 +150,10 @@ mod tests {
             })
             .unwrap(),
             json!({ "action": "select_device", "deviceId": "solo" })
+        );
+        assert_eq!(
+            serde_json::to_value(RemoteCommand::DiscoverDevices).unwrap(),
+            json!({ "action": "discover_devices" })
         );
         assert_eq!(
             serde_json::to_value(RemoteCommand::SetVolume { level: 16 }).unwrap(),

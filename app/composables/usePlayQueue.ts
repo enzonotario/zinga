@@ -35,6 +35,13 @@ function replace(tracks: QueueTrack[]) {
 }
 
 function remove(tlid: number) {
+  if (remote.isRemoteMode.value) {
+    void remote.apiFetch('/api/queue/remove', {
+      method: 'POST',
+      body: JSON.stringify({ tlid }),
+    }).catch((err) => console.error('Remote queue remove error:', err));
+    return;
+  }
   state.value = removeItem(state.value, tlid);
 }
 

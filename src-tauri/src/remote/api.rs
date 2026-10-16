@@ -374,6 +374,23 @@ async fn tidal_proxy(
     Ok(Json(result))
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueRemoveRequest {
+    pub tlid: u64,
+}
+
+pub async fn queue_remove(
+    State(state): State<Arc<RemoteState>>,
+    Json(body): Json<QueueRemoveRequest>,
+) -> CommandResponse {
+    forward(&state, RemoteCommand::QueueRemove { tlid: body.tlid }).await
+}
+
+pub async fn devices_discover(State(state): State<Arc<RemoteState>>) -> CommandResponse {
+    forward(&state, RemoteCommand::DiscoverDevices).await
+}
+
 pub async fn devices_list(State(state): State<Arc<RemoteState>>) -> Json<serde_json::Value> {
     Json(state.devices_snapshot.lock().await.clone())
 }

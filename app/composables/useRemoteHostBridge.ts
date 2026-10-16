@@ -1,5 +1,5 @@
 import type { QueueTrack } from '~/utils/playQueue';
-import type { RemotePlaybackStatus } from '~/utils/remoteSnapshot';
+import type { RemoteCreditGroup, RemotePlaybackStatus } from '~/utils/remoteSnapshot';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useDebounceFn } from '@vueuse/core';
@@ -7,14 +7,13 @@ import { effectScope, ref, watch } from 'vue';
 import { queueTracksFromRemote } from '~/utils/playQueue';
 import { tidalTrackInfoToQueueTrack, toQueueTrack } from '~/utils/queueTracks';
 import { buildDevicesSnapshot, buildPlaybackSnapshot, buildQueueSnapshot, groupRemoteCredits } from '~/utils/remoteSnapshot';
-import type { RemoteCreditGroup } from '~/utils/remoteSnapshot';
 import { getTidalTrackInfo } from '~/utils/tidal';
 import { currentPlaybackArtwork } from './useBottomBar';
 import useDevices from './useDevices';
+import useLyrics from './useLyrics';
 import usePlayer from './usePlayer';
 import usePlayQueue from './usePlayQueue';
 import useProvider from './useProvider';
-import useLyrics from './useLyrics';
 import useRemoteClient from './useRemoteClient';
 import useRemoteServer from './useRemoteServer';
 import useTidalAuth from './useTidalAuth';
@@ -23,9 +22,11 @@ type RemoteCommand
   = | { action: 'play' | 'pause' | 'next' | 'previous' | 'queue_clear' }
     | { action: 'seek', position: number }
     | { action: 'queue_add', uris: string[] }
+    | { action: 'queue_remove', tlid: number }
     | { action: 'queue_replace', tracks: unknown, startIndex?: number }
     | { action: 'queue_play_album', albumId: string }
     | { action: 'select_device', deviceId: string }
+    | { action: 'discover_devices' }
     | { action: 'set_volume', level: number };
 
 const REMOTE_COMMAND_EVENT = 'remote-command';
@@ -136,6 +137,9 @@ export default function useRemoteHostBridge() {
         return player.seek(command.position / 1000);
       case 'queue_clear':
         return player.clear();
+      case 'queue_remove':
+        queue.remove(command.tlid);
+        return;
       case 'queue_add':
         return player.addTracks(await resolveTrackUris(command.uris));
       case 'queue_replace': {
@@ -147,6 +151,8 @@ export default function useRemoteHostBridge() {
         return player.playTracks(await loadAlbumTracks(command.albumId));
       case 'select_device':
         return devices.select(command.deviceId);
+      case 'discover_devices':
+        return devices.discover();
       case 'set_volume':
         return devices.setVolume(command.level);
     }

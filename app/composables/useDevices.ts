@@ -8,6 +8,7 @@ import useLocalRenderer from './useLocalRenderer';
 import useRemoteClient from './useRemoteClient';
 
 export const LOCAL_DEVICE_ID = 'local';
+const REMOTE_DISCOVER_WAIT_MS = 4000;
 const loading = ref(false);
 const devices = ref<Device[]>([]);
 const selectedDeviceId = ref<string | null>(null);
@@ -126,7 +127,10 @@ export default function useDevices() {
   async function discover() {
     if (remote.isRemoteMode.value) {
       loading.value = true;
+      error.value = '';
       try {
+        await remote.apiFetch('/api/devices/discover', { method: 'POST' });
+        await new Promise((resolve) => setTimeout(resolve, REMOTE_DISCOVER_WAIT_MS));
         applyRemoteDevices(parseDevicesSnapshot(await remote.apiFetch('/api/devices')));
         autoSearchCompleted.value = true;
       } catch (e) {
