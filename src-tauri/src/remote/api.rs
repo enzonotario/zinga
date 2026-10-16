@@ -421,6 +421,8 @@ mod tests {
             Some("https://img.example/cover.jpg")
         );
         assert!(playback_cover_url(&serde_json::json!({ "coverUrl": null })).is_none());
-        assert!(playback_cover_url(&serde_json::json!({ "coverUrl": "file:///tmp/a.jpg" })).is_none());
+        assert!(
+            playback_cover_url(&serde_json::json!({ "coverUrl": "file:///tmp/a.jpg" })).is_none()
+        );
     }
 }

@@ -868,6 +868,12 @@ pub fn upnp_pause(device_id: String, state: tauri::State<AppState>) -> Result<()
 }
 
 #[tauri::command]
+pub fn upnp_resume(device_id: String, state: tauri::State<AppState>) -> Result<(), String> {
+    let av_url = av_transport_url(&state, &device_id)?;
+    send_play_with_retry(&av_url)
+}
+
+#[tauri::command]
 pub fn upnp_get_transport_info(
     device_id: String,
     state: tauri::State<AppState>,

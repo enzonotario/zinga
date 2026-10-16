@@ -26,10 +26,12 @@ fn set_close_to_tray(enabled: bool, state: tauri::State<CloseToTray>) {
 mod upnp;
 use upnp::{
     upnp_connect, upnp_discover, upnp_get_position_info, upnp_get_services,
-    upnp_get_transport_info, upnp_get_volume, upnp_pause, upnp_set_volume, upnp_stop, AppState,
+    upnp_get_transport_info, upnp_get_volume, upnp_pause, upnp_resume, upnp_set_volume, upnp_stop,
+    AppState,
 };
 
 mod direct_stream;
+mod gapless;
 mod library;
 mod local_player;
 mod remote;
@@ -514,6 +516,10 @@ pub fn run() {
             direct_stream::tidal_prepare_stream,
             direct_stream::direct_player_uri,
             direct_stream::direct_warm_stream,
+            gapless::direct_gapless_open,
+            gapless::direct_gapless_append,
+            gapless::direct_gapless_finish,
+            gapless::direct_gapless_close,
             direct_stream::direct_register_file,
             direct_stream::direct_stream_base_url,
             tidal_session::tidal_login_url,
@@ -530,6 +536,7 @@ pub fn run() {
             local_player::local_get_volume,
             local_player::local_test_tone,
             upnp_pause,
+            upnp_resume,
             upnp_stop,
             upnp_connect,
             upnp_get_transport_info,

@@ -27,8 +27,8 @@ const WARM_BYTES: usize = 256 * 1024;
 const WARM_WAIT: Duration = Duration::from_secs(8);
 const DLNA_CONTENT_FEATURES: &str =
     "DLNA.ORG_OP=00;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000";
-const TIDAL_PROTOCOLS: &str = "file,https,tls,tcp,http,crypto";
-const FILE_PROTOCOLS: &str = "file";
+pub(crate) const TIDAL_PROTOCOLS: &str = "file,https,tls,tcp,http,crypto";
+pub(crate) const FILE_PROTOCOLS: &str = "file";
 const FILE_TOKEN_BYTES: usize = 16;
 
 static MPD_DIR: OnceLock<PathBuf> = OnceLock::new();
@@ -115,7 +115,7 @@ fn register_file(path: &str) -> Result<String, String> {
     Ok(token)
 }
 
-fn registered_file(token: &str) -> Option<PathBuf> {
+pub(crate) fn registered_file(token: &str) -> Option<PathBuf> {
     file_registry().lock().ok()?.get(token).cloned()
 }
 
@@ -339,7 +339,7 @@ fn is_allowed_peer(app: &AppHandle, peer: IpAddr) -> bool {
             .is_some_and(|state| state.renderer_hosts().contains(&peer))
 }
 
-fn reject_peer(app: &AppHandle, peer: IpAddr) -> Option<Response> {
+pub(crate) fn reject_peer(app: &AppHandle, peer: IpAddr) -> Option<Response> {
     if is_allowed_peer(app, peer) {
         return None;
     }
@@ -471,6 +471,10 @@ pub fn start(app_handle: AppHandle) {
                 get(stream_handler).head(stream_handler),
             )
             .route("/file/{tlid}/{file}", get(file_handler).head(file_handler))
+            .route(
+                "/gapless/{file}",
+                get(crate::gapless::gapless_handler).head(crate::gapless::gapless_handler),
+            )
             .with_state(app_handle);
         let service = router.into_make_service_with_connect_info::<SocketAddr>();
         if let Err(e) = axum::serve(listener, service).await {

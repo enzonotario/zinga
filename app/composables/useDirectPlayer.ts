@@ -1,10 +1,12 @@
 import type { ComputedRef, Ref } from 'vue';
 import type { RendererStatus } from './useLocalRenderer';
 import type { PreparedSource, StreamFormat, StreamSource } from '~/utils/directStream';
+import type { GaplessSpan } from '~/utils/gapless';
 import type { QueueItem } from '~/utils/playQueue';
 import { invoke } from '@tauri-apps/api/core';
 import { computed, effectScope, ref, shallowRef, watch } from 'vue';
 import { buildStreamUrl, getStreamSource, parseStreamUri } from '~/utils/directStream';
+import { gaplessUrl, isGaplessUrl, locateGaplessTrack } from '~/utils/gapless';
 import { timeToSeconds } from '~/utils/time';
 import { LOCAL_DEVICE_ID } from './useDevices';
 import useLocalRenderer from './useLocalRenderer';
@@ -25,6 +27,7 @@ interface RendererAdapter {
   play: (deviceId: string, uri: string, meta: DirectTrackMeta, trackUri?: string) => Promise<void>
   setNext: (deviceId: string, uri: string | null, meta: DirectTrackMeta | null, trackUri?: string | null) => Promise<void>
   pause: (deviceId: string) => Promise<void>
+  resume: (deviceId: string) => Promise<void>
   stop: (deviceId: string) => Promise<void>
   ensurePolling: (deviceId: string) => void
 }
@@ -50,6 +53,7 @@ let lastRelSec = -1;
 let lastTrackUri = '';
 let nextQueuedTlid: number | null | undefined;
 let stoppedAt = 0;
+let gaplessSession: { id: string, tracks: GaplessSpan[] } | null = null;
 let baseUrl: string | null = null;
 let watchersRegistered = false;
 let startRequestId = 0;
@@ -95,6 +99,33 @@ async function playbackTarget(deviceId: string, tlid: number, prepared: Prepared
     console.warn('Native playback URI unavailable:', err);
     return { playUri: trackUri, trackUri };
   }
+}
+
+function playableTail(items: QueueItem[], startTlid: number) {
+  const index = items.findIndex((item) => item.tlid === startTlid);
+  const tail = index >= 0 ? items.slice(index) : [];
+  return tail.filter((item) => hasStreamSource(item) && !!item.track.length);
+}
+
+async function gaplessRequests(items: QueueItem[]) {
+  const tracks = [];
+  for (const item of items) {
+    const source = getStreamSource(item.track.uri);
+    const durationMs = item.track.length;
+    if (!source || !durationMs) continue;
+    if (source.kind === 'file') {
+      const prepared = await prepareSource(source);
+      tracks.push({ tlid: item.tlid, kind: 'file' as const, id: prepared.token, durationMs });
+    } else {
+      tracks.push({ tlid: item.tlid, kind: 'tidal' as const, id: source.id, durationMs });
+    }
+  }
+  return tracks;
+}
+
+function closeGapless(id?: string) {
+  if (!id) return;
+  void invoke('direct_gapless_close', { id }).catch((err) => console.error('Gapless close error:', err));
 }
 
 async function warmStream(prepared: PreparedSource, format: StreamFormat) {
@@ -147,6 +178,9 @@ export default function useDirectPlayer() {
     pause: async (deviceId) => {
       await upnp.pause(deviceId);
     },
+    resume: async (deviceId) => {
+      await invoke('upnp_resume', { deviceId });
+    },
     stop: async (deviceId) => {
       await upnp.stop(deviceId);
     },
@@ -159,6 +193,7 @@ export default function useDirectPlayer() {
     play: (_deviceId, uri, _meta, trackUri) => local.play(uri, trackUri ?? uri),
     setNext: (_deviceId, uri, _meta, trackUri) => local.setNext(uri, trackUri ?? uri),
     pause: () => local.pause(),
+    resume: () => local.resume(),
     stop: () => local.stop(),
     ensurePolling: () => local.ensurePolling(),
   };
@@ -189,14 +224,19 @@ export default function useDirectPlayer() {
     const status = renderer.status.value;
     if (status.state === 'PLAYING' && Number.isFinite(anchorAt.value)) {
       void renderer.tick.value;
-      return startOffsetSec.value + (performance.now() - anchorAt.value) / 1000;
+      return trackPosition(startOffsetSec.value + (performance.now() - anchorAt.value) / 1000);
     }
     const parsed = parseStreamUri(status.trackUri);
     const matchesCurrent = parsed?.tlid === playingTlid.value
       && Math.abs(parsed.startSec - startOffsetSec.value) < 0.01;
-    if (!matchesCurrent) return startOffsetSec.value;
-    return startOffsetSec.value + status.positionSec;
+    if (!matchesCurrent) return trackPosition(startOffsetSec.value);
+    return trackPosition(startOffsetSec.value + status.positionSec);
   });
+
+  function trackPosition(absolute: number) {
+    if (!gaplessSession) return absolute;
+    return locateGaplessTrack(gaplessSession.tracks, absolute)?.offsetSec ?? 0;
+  }
 
   function findItem(tlid: number | null) {
     if (tlid == null) return undefined;
@@ -245,12 +285,15 @@ export default function useDirectPlayer() {
     lastRelSec = -1;
     nextQueuedTlid = undefined;
     stoppedAt = 0;
+    gaplessSession = null;
     currentIndexHint = -1;
   }
 
   async function stop() {
     const deviceId = directDeviceId.value;
+    const sessionId = gaplessSession?.id;
     endSession();
+    closeGapless(sessionId);
     if (!deviceId) return;
     try {
       await adapterFor(deviceId).stop(deviceId);
@@ -265,7 +308,27 @@ export default function useDirectPlayer() {
     stop().catch((stopErr) => console.error('Direct playback stop error:', stopErr));
   }
 
+  async function appendGapless() {
+    const session = gaplessSession;
+    if (!session) return;
+    const known = new Set(session.tracks.map((track) => track.tlid));
+    const extra = queue.items.value.filter((item) => !known.has(item.tlid) && hasStreamSource(item) && item.track.length);
+    if (!extra.length) return;
+    try {
+      const tracks = await gaplessRequests(extra);
+      if (!tracks.length || gaplessSession?.id !== session.id) return;
+      await invoke('direct_gapless_append', { id: session.id, tracks });
+      session.tracks.push(...tracks.map((track) => ({ tlid: track.tlid, durationSec: track.durationMs / 1000 })));
+    } catch (err) {
+      console.warn('Gapless append failed:', err);
+    }
+  }
+
   async function queueNext() {
+    if (gaplessSession) {
+      await appendGapless();
+      return;
+    }
     const deviceId = directDeviceId.value;
     if (!deviceId) return;
     const renderer = adapterFor(deviceId);
@@ -324,11 +387,55 @@ export default function useDirectPlayer() {
     if (endedNaturally) queue.clear();
   }
 
+  function syncGapless(rendererState: string, rel: number, now: number) {
+    const session = gaplessSession;
+    if (!session) return;
+    const request = pending.value;
+    if (request) {
+      if (!(request.acked && rendererState === 'PLAYING')) return;
+      pending.value = null;
+    }
+    if (pausedAtSec.value != null) return;
+    if (rendererState === 'STOPPED') {
+      const absolute = Number.isFinite(anchorAt.value)
+        ? startOffsetSec.value + (now - anchorAt.value) / 1000
+        : 0;
+      const total = session.tracks.reduce((sum, track) => sum + track.durationSec, 0);
+      stoppedAt = 0;
+      if (absolute >= total - NATURAL_END_MARGIN_SEC) queue.clear();
+      void stop();
+      return;
+    }
+    stoppedAt = 0;
+    if (rendererState === 'PLAYING' && rel !== lastRelSec && rel > 0) {
+      anchorAt.value = Math.min(anchorAt.value, now - rel * 1000);
+    }
+    lastRelSec = rel;
+    const absolute = Number.isFinite(anchorAt.value)
+      ? startOffsetSec.value + (now - anchorAt.value) / 1000
+      : rel;
+    const place = locateGaplessTrack(session.tracks, absolute);
+    if (!place || place.tlid === playingTlid.value) return;
+    if (stopAfterCurrent.value) {
+      void stop();
+      return;
+    }
+    playingTlid.value = place.tlid;
+    playingItemCache.value = findItem(place.tlid) ?? null;
+    queue.setCurrent(place.tlid);
+    resolveCurrentIndex();
+  }
+
   function syncFromDevice() {
     if (!isActive.value) return;
     const { state: rendererState, trackUri, positionSec: rel } = adapter().status.value;
     const parsed = parseStreamUri(trackUri);
     const now = performance.now();
+
+    if (gaplessSession && (isGaplessUrl(trackUri, gaplessSession.id) || rendererState === 'PLAYING' || rendererState === 'STOPPED')) {
+      syncGapless(rendererState, rel, now);
+      return;
+    }
 
     const request = pending.value;
     if (request) {
@@ -402,8 +509,47 @@ export default function useDirectPlayer() {
     currentIndexHint = -1;
     lastError.value = null;
     resolveCurrentIndex();
+    const replacedSession = gaplessSession?.id;
+    gaplessSession = null;
+    closeGapless(replacedSession);
 
     try {
+      const tail = startSec === 0 ? playableTail(queue.items.value, item.tlid) : [];
+      if (tail.length > 1) {
+        const [format, base] = await Promise.all([
+          getStreamFormat(deviceId),
+          getBaseUrl(),
+        ]);
+        if (!isCurrentRequest()) return;
+        const tracks = await gaplessRequests(tail);
+        if (!isCurrentRequest()) return;
+        if (tracks.length > 1) {
+          const opened = await invoke<{ id: string }>('direct_gapless_open', { tracks, format });
+          if (!isCurrentRequest()) {
+            closeGapless(opened.id);
+            return;
+          }
+          gaplessSession = {
+            id: opened.id,
+            tracks: tracks.map((track) => ({ tlid: track.tlid, durationSec: track.durationMs / 1000 })),
+          };
+          const url = gaplessUrl(base, opened.id, format);
+          await renderer.play(deviceId, url, buildMeta(item, format), url);
+          if (requestId !== startRequestId) {
+            if (pausedAtSec.value != null && directDeviceId.value === deviceId) await renderer.pause(deviceId);
+            return;
+          }
+          await invoke('direct_gapless_finish', { id: opened.id });
+          const request = pending.value;
+          if (!request) return;
+          request.acked = true;
+          renderer.ensurePolling(deviceId);
+          setTimeout(() => {
+            if (requestId === startRequestId && pending.value === request) fail(new Error('Playback start timed out'));
+          }, DIRECT_START_TIMEOUT_MS);
+          return;
+        }
+      }
       const [prepared, format, base] = await Promise.all([
         prepareSource(source),
         getStreamFormat(deviceId),
@@ -461,6 +607,20 @@ export default function useDirectPlayer() {
   }
 
   async function resume() {
+    const deviceId = directDeviceId.value;
+    if (gaplessSession && deviceId) {
+      const offset = pausedAtSec.value ?? 0;
+      pausedAtSec.value = null;
+      anchorAt.value = Number.POSITIVE_INFINITY;
+      lastRelSec = -1;
+      try {
+        await adapterFor(deviceId).resume(deviceId);
+        return;
+      } catch (err) {
+        console.warn('Gapless resume failed:', err);
+        pausedAtSec.value = offset;
+      }
+    }
     const item = playingItem.value;
     if (!item) return;
     await restartAt(item, pausedAtSec.value ?? 0);
