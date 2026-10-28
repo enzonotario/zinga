@@ -470,7 +470,8 @@
   },
   "devices": {
     "errorSearchingRemote": "Error searching remote devices",
-    "errorDiscoveringUpnp": "Error discovering UPnP devices"
+    "errorDiscoveringUpnp": "Error discovering UPnP devices",
+    "deviceUnreachable": "The audio device is not responding. Searching again…"
   },
   "setup": {
     "unknownError": "Unknown error"

@@ -409,7 +409,16 @@ pub fn run() {
         },
     ];
 
-    tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default();
+    #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app);
+        }));
+    }
+
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -445,14 +454,24 @@ pub fn run() {
             let quit_i = MenuItem::with_id(app, "quit", "Salir", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
 
+            // Ubuntu GNOME top bar is dark; the window icon is a black silhouette and disappears.
+            // Use a white tray glyph so AppIndicators can show it.
+            let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon.png"))
+                .unwrap_or_else(|_| {
+                    app.default_window_icon()
+                        .expect("missing default window icon")
+                        .clone()
+                });
+
             let _tray = TrayIconBuilder::new()
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .tooltip("Zinga")
-                .icon(app.default_window_icon().unwrap().clone())
+                .icon(tray_icon)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show_main_window(app),
                     "quit" => {
+                        remote::instances::cleanup_ffmpeg_on_exit();
                         app.exit(0);
                     }
                     other => {
@@ -496,8 +515,39 @@ pub fn run() {
                         .resource_dir()
                         .ok()
                         .map(|path| path.join("remote-client"));
-                    if let Err(err) = remote::start_server(remote_state, client_dir).await {
-                        eprintln!("Remote autostart failed: {err}");
+                    match remote::start_server(remote_state.clone(), client_dir.clone()).await {
+                        Ok(_) => {}
+                        Err(err) if err == "PORT_IN_USE" => {
+                            match tokio::task::spawn_blocking(remote::instances::close_other_instances)
+                                .await
+                            {
+                                Ok(Ok(closed)) => {
+                                    eprintln!(
+                                        "Remote autostart: closed {closed} other instance(s), retrying"
+                                    );
+                                    if let Err(retry_err) =
+                                        remote::start_server(remote_state, client_dir).await
+                                    {
+                                        eprintln!(
+                                            "Remote autostart failed after recovery: {retry_err}"
+                                        );
+                                    }
+                                }
+                                Ok(Err(close_err)) => {
+                                    eprintln!(
+                                        "Remote autostart: PORT_IN_USE and close failed: {close_err}"
+                                    );
+                                }
+                                Err(join_err) => {
+                                    eprintln!(
+                                        "Remote autostart: PORT_IN_USE and close panicked: {join_err}"
+                                    );
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            eprintln!("Remote autostart failed: {err}");
+                        }
                     }
                 });
             }

@@ -27,6 +27,17 @@ let upnpVolumePollInFlight = false;
 let syncedDeviceId: string | null = null;
 let pendingRemoteDeviceId: string | null = null;
 let volumeHoldTicket = 0;
+let deviceRecoverInFlight = false;
+
+export function isSelectedDeviceGoneError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return lower.includes('device not found')
+    || lower.includes('request error')
+    || lower.includes('connection refused')
+    || lower.includes('timed out')
+    || lower.includes('timeout')
+    || lower.includes('unreachable');
+}
 function holdOutgoingVolume(level: number) {
   const ticket = ++volumeHoldTicket;
   volume.value = level;
@@ -205,6 +216,26 @@ export default function useDevices() {
       volume.value = await localRenderer.getVolume().catch(() => null);
     }
   }
+  async function recoverSelectedDevice(reason: string) {
+    if (remote.isRemoteMode.value || deviceRecoverInFlight) return false;
+    const targetId = selectedDeviceId.value;
+    if (!targetId || targetId === LOCAL_DEVICE_ID) return false;
+    deviceRecoverInFlight = true;
+    error.value = reason;
+    try {
+      await discover();
+      if (devices.value.some((device) => device.id === targetId)) {
+        await select(targetId);
+        error.value = '';
+        return true;
+      }
+      error.value = reason;
+      return false;
+    } finally {
+      deviceRecoverInFlight = false;
+    }
+  }
+
   async function setVolume(level: number) {
     if (!selectedDeviceId.value) return;
     const next = Math.max(0, Math.min(100, Math.round(level)));
@@ -226,6 +257,10 @@ export default function useDevices() {
     } catch (e) {
       console.error('Failed to set volume:', e);
       if (volume.value === next) volume.value = previous;
+      const message = e instanceof Error ? e.message : String(e);
+      if (isSelectedDeviceGoneError(message)) {
+        await recoverSelectedDevice(t('devices.deviceUnreachable'));
+      }
     }
   }
   function selectLocal() {
@@ -286,6 +321,7 @@ export default function useDevices() {
     increaseVolume,
     isVolumeSyncing,
     syncVolumeFromDevice,
+    recoverSelectedDevice,
     pauseVolumePolling: () => (isPollingPaused.value = true),
     resumeVolumePolling: () => (isPollingPaused.value = false),
   };

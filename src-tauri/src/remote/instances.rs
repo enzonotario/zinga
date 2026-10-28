@@ -19,19 +19,36 @@ pub fn looks_like_zinga(comm: &str, exe_name: Option<&str>) -> bool {
 pub fn close_other_instances() -> Result<u32, String> {
     let self_pid = std::process::id();
     let pids = other_zinga_pids(self_pid);
-    if pids.is_empty() {
+    let mut ffmpeg_pids = Vec::new();
+    for pid in &pids {
+        ffmpeg_pids.extend(descendant_ffmpeg(*pid));
+    }
+    ffmpeg_pids.extend(
+        zinga_marked_ffmpeg()
+            .into_iter()
+            .filter(|pid| !shares_process_tree(*pid, self_pid)),
+    );
+    ffmpeg_pids.sort_unstable();
+    ffmpeg_pids.dedup();
+
+    if pids.is_empty() && ffmpeg_pids.is_empty() {
         return Ok(0);
     }
+
     for pid in &pids {
         signal(*pid, "-TERM");
     }
+    for pid in &ffmpeg_pids {
+        signal(*pid, "-TERM");
+    }
+
     let deadline = Instant::now() + Duration::from_secs(2);
     while Instant::now() < deadline {
         let alive = pids
             .iter()
             .any(|pid| Path::new(&format!("/proc/{pid}")).exists());
         if !alive && !port_in_use(REMOTE_SERVER_PORT) {
-            return Ok(pids.len() as u32);
+            break;
         }
         thread::sleep(Duration::from_millis(100));
     }
@@ -40,8 +57,31 @@ pub fn close_other_instances() -> Result<u32, String> {
             signal(*pid, "-KILL");
         }
     }
+    for pid in &ffmpeg_pids {
+        if Path::new(&format!("/proc/{pid}")).exists() {
+            signal(*pid, "-KILL");
+        }
+    }
     thread::sleep(Duration::from_millis(200));
+    sweep_orphan_zinga_ffmpeg(self_pid);
     Ok(pids.len() as u32)
+}
+
+pub fn cleanup_ffmpeg_on_exit() {
+    let self_pid = std::process::id();
+    let mut ffmpeg_pids = descendant_ffmpeg(self_pid);
+    ffmpeg_pids.extend(zinga_marked_ffmpeg());
+    ffmpeg_pids.sort_unstable();
+    ffmpeg_pids.dedup();
+    for pid in &ffmpeg_pids {
+        signal(*pid, "-TERM");
+    }
+    thread::sleep(Duration::from_millis(150));
+    for pid in &ffmpeg_pids {
+        if Path::new(&format!("/proc/{pid}")).exists() {
+            signal(*pid, "-KILL");
+        }
+    }
 }
 
 fn other_zinga_pids(self_pid: u32) -> Vec<u32> {
@@ -119,6 +159,76 @@ fn parent_pid(pid: u32) -> Option<u32> {
     None
 }
 
+fn descendant_ffmpeg(root: u32) -> Vec<u32> {
+    let Ok(entries) = fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    let mut pids = Vec::new();
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        if pid == root || !process_is_ffmpeg(pid) {
+            continue;
+        }
+        if shares_process_tree(pid, root) {
+            pids.push(pid);
+        }
+    }
+    pids
+}
+
+fn zinga_marked_ffmpeg() -> Vec<u32> {
+    let Ok(entries) = fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    let mut pids = Vec::new();
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        if process_is_ffmpeg(pid) && cmdline_looks_like_zinga_ffmpeg(pid) {
+            pids.push(pid);
+        }
+    }
+    pids
+}
+
+fn sweep_orphan_zinga_ffmpeg(self_pid: u32) {
+    for pid in zinga_marked_ffmpeg() {
+        if shares_process_tree(pid, self_pid) {
+            continue;
+        }
+        signal(pid, "-KILL");
+    }
+}
+
+fn process_is_ffmpeg(pid: u32) -> bool {
+    let comm = fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
+    comm.trim().eq_ignore_ascii_case("ffmpeg")
+}
+
+fn cmdline_looks_like_zinga_ffmpeg(pid: u32) -> bool {
+    let Ok(bytes) = fs::read(format!("/proc/{pid}/cmdline")) else {
+        return false;
+    };
+    let cmdline = String::from_utf8_lossy(&bytes).replace('\0', " ");
+    cmdline_looks_like_zinga_ffmpeg_str(&cmdline)
+}
+
+fn cmdline_looks_like_zinga_ffmpeg_str(cmdline: &str) -> bool {
+    let lower = cmdline.to_ascii_lowercase();
+    lower.contains("zinga-mpd") || lower.contains("com.enzonotario.zinga")
+}
+
 fn signal(pid: u32, signal: &str) {
     let _ = Command::new("kill")
         .args([signal, &pid.to_string()])
@@ -137,7 +247,7 @@ fn port_in_use(port: u16) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::looks_like_zinga;
+    use super::{cmdline_looks_like_zinga_ffmpeg_str, looks_like_zinga};
 
     #[test]
     fn matches_zinga_process_names() {
@@ -148,6 +258,16 @@ mod tests {
         assert!(!looks_like_zinga(
             "WebKitWebProces",
             Some("WebKitWebProcess")
+        ));
+    }
+
+    #[test]
+    fn matches_zinga_ffmpeg_cmdline() {
+        assert!(cmdline_looks_like_zinga_ffmpeg_str(
+            "ffmpeg -i /home/enzo/.cache/com.enzonotario.zinga/zinga-mpd/123.mpd -f s16le pipe:1"
+        ));
+        assert!(!cmdline_looks_like_zinga_ffmpeg_str(
+            "ffmpeg -i /tmp/other.mpd -f s16le pipe:1"
         ));
     }
 }

@@ -8,7 +8,7 @@ import { computed, effectScope, ref, shallowRef, watch } from 'vue';
 import { buildStreamUrl, getStreamSource, parseStreamUri } from '~/utils/directStream';
 import { gaplessUrl, isGaplessUrl, locateGaplessTrack } from '~/utils/gapless';
 import { timeToSeconds } from '~/utils/time';
-import { LOCAL_DEVICE_ID } from './useDevices';
+import useDevices, { isSelectedDeviceGoneError, LOCAL_DEVICE_ID } from './useDevices';
 import useLocalRenderer from './useLocalRenderer';
 import usePlayQueue from './usePlayQueue';
 import useUpnpPlayer from './useUpnpPlayer';
@@ -162,6 +162,8 @@ export default function useDirectPlayer() {
   const upnp = useUpnpPlayer();
   const local = useLocalRenderer();
 
+  const devices = useDevices();
+  const { t } = useI18n();
   const upnpAdapter: RendererAdapter = {
     status: computed(() => ({
       state: upnp.currentUpnpState.value.trim().toUpperCase(),
@@ -170,7 +172,15 @@ export default function useDirectPlayer() {
     })),
     tick: upnp.uiTick,
     play: async (deviceId, uri, meta) => {
-      await invoke('upnp_play_direct', { deviceId, uri, meta });
+      try {
+        await invoke('upnp_play_direct', { deviceId, uri, meta });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (isSelectedDeviceGoneError(message)) {
+          await devices.recoverSelectedDevice(t('devices.deviceUnreachable'));
+        }
+        throw err;
+      }
     },
     setNext: async (deviceId, uri, meta) => {
       await invoke('upnp_set_next_direct', { deviceId, uri: uri ?? '', meta });

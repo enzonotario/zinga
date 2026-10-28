@@ -5,7 +5,17 @@ export type RemotePlaybackStatus = 'playing' | 'paused' | 'stopped';
 
 export const REMOTE_COVER_PATH = '/api/playback/cover'
 
+export type RemoteLyricsStatus = 'loading' | 'missing'
+
 export interface RemoteLyricsSnapshot {
+  plain: string | null
+  synced: string | null
+  status?: RemoteLyricsStatus
+}
+
+export interface RemoteLyricsView {
+  loading: boolean
+  missing: boolean
   plain: string | null
   synced: string | null
 }
@@ -25,6 +35,7 @@ export interface RemotePlaybackSnapshot {
   lyrics: RemoteLyricsSnapshot | null
   credits: RemoteCreditGroup[] | null
   hasQueue: boolean
+  pauseAtEnd: boolean
 }
 
 export interface RemotePlayback {
@@ -93,11 +104,17 @@ export function buildPlaybackSnapshot(
   lyrics?: RemoteLyricsSnapshot | null,
   credits?: RemoteCreditGroup[] | null,
   hasQueue = false,
+  pauseAtEnd = false,
 ): RemotePlaybackSnapshot {
   const coverUrl = artwork?.coverUrl || null
   const plain = cleanText(lyrics?.plain)
   const synced = cleanText(lyrics?.synced)
   const grouped = normalizeCreditGroups(credits)
+  let lyricsSnapshot: RemoteLyricsSnapshot | null = null
+  if (plain || synced) lyricsSnapshot = { plain, synced }
+  else if (lyrics?.status === 'loading' || lyrics?.status === 'missing') {
+    lyricsSnapshot = { plain: null, synced: null, status: lyrics.status }
+  }
   return {
     state,
     position: Math.max(0, Math.round(positionSec * 1000)),
@@ -105,9 +122,10 @@ export function buildPlaybackSnapshot(
     coverUrl,
     artistPicture: artwork?.artistPicture || null,
     coverPath: coverUrl ? REMOTE_COVER_PATH : null,
-    lyrics: plain || synced ? { plain, synced } : null,
+    lyrics: lyricsSnapshot,
     credits: grouped.length ? grouped : null,
     hasQueue,
+    pauseAtEnd,
   };
 }
 
@@ -136,7 +154,19 @@ function parseLyrics(value: any): RemoteLyricsSnapshot | null {
   if (!value || typeof value !== 'object') return null
   const plain = cleanText(typeof value.plain === 'string' ? value.plain : null)
   const synced = cleanText(typeof value.synced === 'string' ? value.synced : null)
-  return plain || synced ? { plain, synced } : null
+  const status = value.status === 'loading' || value.status === 'missing' ? value.status : undefined
+  if (plain || synced) return { plain, synced }
+  if (!status) return null
+  return { plain: null, synced: null, status }
+}
+
+export function remoteLyricsView(lyrics: RemoteLyricsSnapshot | null, hasTrack: boolean): RemoteLyricsView {
+  const plain = lyrics?.plain ?? null
+  const synced = lyrics?.synced ?? null
+  if (plain || synced) return { loading: false, missing: false, plain, synced }
+  if (!hasTrack) return { loading: false, missing: false, plain: null, synced: null }
+  if (lyrics?.status === 'loading') return { loading: true, missing: false, plain: null, synced: null }
+  return { loading: false, missing: true, plain: null, synced: null }
 }
 
 export function parsePlaybackSnapshot(data: any): RemotePlayback {

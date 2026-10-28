@@ -19,7 +19,7 @@ import useRemoteServer from './useRemoteServer';
 import useTidalAuth from './useTidalAuth';
 
 type RemoteCommand
-  = | { action: 'play' | 'pause' | 'next' | 'previous' | 'queue_clear' }
+  = | { action: 'play' | 'pause' | 'pause_at_end' | 'next' | 'previous' | 'queue_clear' }
     | { action: 'seek', position: number }
     | { action: 'queue_add', uris: string[] }
     | { action: 'queue_remove', tlid: number }
@@ -83,16 +83,25 @@ export default function useRemoteHostBridge() {
     }
   }
 
+  function lyricsPayload() {
+    const plain = lyricsState.lyrics.value;
+    const synced = lyricsState.syncedLyrics.value;
+    if (plain || synced) return { plain, synced };
+    const track = player.currentItem.value?.track;
+    const name = track?.name?.trim() ?? '';
+    const artist = track?.artists?.[0]?.name?.trim() ?? '';
+    if (!name || !artist) return null;
+    if (lyricsState.loading.value || !lyricsState.error.value) return { plain: null, synced: null, status: 'loading' as const };
+    return { plain: null, synced: null, status: 'missing' as const };
+  }
+
   async function push() {
     if (remote.isRemoteMode.value || !await hostServerRunning()) return;
     const includeQueue = queueDirty;
     queueDirty = false;
     try {
       await invoke('remote_broadcast_state', {
-        playback: buildPlaybackSnapshot(playbackStatus(), player.position.value, player.currentItem.value ?? queue.items.value[0] ?? null, currentPlaybackArtwork(), {
-          plain: lyricsState.lyrics.value,
-          synced: lyricsState.syncedLyrics.value,
-        }, creditGroups.value, queue.items.value.length > 0),
+        playback: buildPlaybackSnapshot(playbackStatus(), player.position.value, player.currentItem.value ?? queue.items.value[0] ?? null, currentPlaybackArtwork(), lyricsPayload(), creditGroups.value, queue.items.value.length > 0, player.pauseAtEndOfTrack.value),
         queue: includeQueue ? buildQueueSnapshot(queue.items.value) : null,
         devices: buildDevicesSnapshot(devices.devices.value, devices.selectedDeviceId.value, devices.volume.value),
       });
@@ -129,6 +138,9 @@ export default function useRemoteHostBridge() {
         return player.play();
       case 'pause':
         return player.pause();
+      case 'pause_at_end':
+        player.togglePauseAtEndOfTrack();
+        return;
       case 'next':
         return player.next();
       case 'previous':
@@ -166,7 +178,7 @@ export default function useRemoteHostBridge() {
     watch(
       () => {
         const artwork = currentPlaybackArtwork();
-        return [playbackStatus(), player.currentItem.value?.tlid, Math.floor(player.position.value), artwork.coverUrl, artwork.artistPicture, lyricsState.lyrics.value, lyricsState.syncedLyrics.value, creditGroups.value];
+        return [playbackStatus(), player.currentItem.value?.tlid, Math.floor(player.position.value), artwork.coverUrl, artwork.artistPicture, lyricsState.lyrics.value, lyricsState.syncedLyrics.value, creditGroups.value, player.pauseAtEndOfTrack.value];
       },
       () => schedulePush(),
     );
@@ -179,15 +191,21 @@ export default function useRemoteHostBridge() {
     );
     watch(
       () => {
+        if (remote.isRemoteMode.value) return '';
         const track = player.currentItem.value?.track;
-        return [track?.name ?? '', track?.artists?.[0]?.name ?? ''] as const;
+        const name = track?.name?.trim() ?? '';
+        const artist = track?.artists?.[0]?.name?.trim() ?? '';
+        if (!name || !artist) return '';
+        return `${name}\0${artist}`;
       },
-      ([name, artist]) => {
-        if (!name || !artist) {
+      (key) => {
+        if (remote.isRemoteMode.value) return;
+        if (!key) {
           lyricsState.clearLyrics();
           return;
         }
-        void lyricsState.fetchLyrics(name, artist);
+        const [name, artist] = key.split('\0');
+        void lyricsState.fetchLyrics(name ?? '', artist ?? '');
       },
       { immediate: true },
     );

@@ -12,7 +12,9 @@ import useLyricsPanelMode from '~/composables/useLyricsPanelMode';
 import usePlayer from '~/composables/usePlayer';
 import usePlayQueue from '~/composables/usePlayQueue';
 import useProviderNavigation from '~/composables/useProviderNavigation';
+import useRemoteClient from '~/composables/useRemoteClient';
 import { getCurrentProvider } from '~/providers';
+import { parsePlaybackSnapshot, remoteLyricsView } from '~/utils/remoteSnapshot';
 
 const { t } = useI18n();
 
@@ -20,10 +22,20 @@ definePageMeta({
   fixedLayout: true,
 });
 const { currentTrack, hasQueue, progress, playbackPositionSec } = useBottomBar();
+const remote = useRemoteClient();
 const queue = usePlayQueue();
 const player = usePlayer();
 const { albumRoute } = useProviderNavigation();
 const lyricsState = useLyrics();
+const remotePlayback = computed(() => parsePlaybackSnapshot(remote.lastPlaybackState.value));
+const remoteLyrics = computed(() => remoteLyricsView(remotePlayback.value.lyrics, Boolean(currentTrack.value)));
+const lyricsLoading = computed(() => remote.isRemoteMode.value ? remoteLyrics.value.loading : lyricsState.loading.value);
+const lyricsError = computed(() => {
+  if (!remote.isRemoteMode.value) return lyricsState.error.value;
+  return remoteLyrics.value.missing ? t('lyrics.notFound') : null;
+});
+const plainLyrics = computed(() => remote.isRemoteMode.value ? remoteLyrics.value.plain : lyricsState.lyrics.value);
+const syncedLyrics = computed(() => remote.isRemoteMode.value ? remoteLyrics.value.synced : lyricsState.syncedLyrics.value);
 const {
   lyricsFontSizePx,
   lyricsFontMinPx,
@@ -224,13 +236,20 @@ const pageGridClass = computed(() => {
   return 'flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 md:min-h-0 md:min-w-0 md:overflow-hidden';
 });
 watch(
-  () => [currentTrackTitle.value, currentTrackArtist.value],
-  async ([title, artist]) => {
-    if (!title || !artist) {
-      lyricsState.clearLyrics();
+  () => {
+    if (remote.isRemoteMode.value) return '';
+    const title = currentTrackTitle.value.trim();
+    const artist = currentTrackArtist.value.trim();
+    if (!title || !artist) return '';
+    return `${title}\0${artist}`;
+  },
+  async (key) => {
+    if (!key || remote.isRemoteMode.value) {
+      if (!remote.isRemoteMode.value) lyricsState.clearLyrics();
       return;
     }
-    await lyricsState.fetchLyrics(title, artist);
+    const [title, artist] = key.split('\0');
+    await lyricsState.fetchLyrics(title ?? '', artist ?? '');
   },
   { immediate: true },
 );
@@ -314,10 +333,10 @@ watch(
         </template>
 
         <LyricsPanelBody
-          :loading="lyricsState.loading.value"
-          :error="lyricsState.error.value"
-          :plain-lyrics="lyricsState.lyrics.value"
-          :synced-lrc="lyricsState.syncedLyrics.value"
+          :loading="lyricsLoading"
+          :error="lyricsError"
+          :plain-lyrics="plainLyrics"
+          :synced-lrc="syncedLyrics"
           :current-time-sec="lyricsCurrentTimeSec"
           :lyrics-body-style="lyricsBodyStyle"
           :register-lyrics-wheel-scroll="registerLyricsWheelScroll"
@@ -358,10 +377,10 @@ watch(
         </LyricsPanelToolbar>
       </template>
       <LyricsPanelBody
-        :loading="lyricsState.loading.value"
-        :error="lyricsState.error.value"
-        :plain-lyrics="lyricsState.lyrics.value"
-        :synced-lrc="lyricsState.syncedLyrics.value"
+        :loading="lyricsLoading"
+        :error="lyricsError"
+        :plain-lyrics="plainLyrics"
+        :synced-lrc="syncedLyrics"
         :current-time-sec="lyricsCurrentTimeSec"
         :lyrics-body-style="lyricsBodyStyle"
         :register-lyrics-wheel-scroll="registerLyricsWheelScroll"

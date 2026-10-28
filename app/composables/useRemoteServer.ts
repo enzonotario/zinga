@@ -51,7 +51,7 @@ export default function useRemoteServer() {
       loading.value = false;
     }
   }
-  async function startServer() {
+  async function startServer(retried = false) {
     loading.value = true;
     error.value = null;
     try {
@@ -63,7 +63,19 @@ export default function useRemoteServer() {
       startTokenSync();
       listenForPairingEvents();
     } catch (err) {
-      error.value = err instanceof Error ? err.message : String(err);
+      const message = err instanceof Error ? err.message : String(err);
+      if (!retried && message.includes('PORT_IN_USE')) {
+        try {
+          const { invoke } = await import('@tauri-apps/api/core');
+          await invoke<number>('remote_close_other_instances');
+          await startServer(true);
+          return;
+        } catch (retryErr) {
+          error.value = retryErr instanceof Error ? retryErr.message : String(retryErr);
+        }
+      } else {
+        error.value = message;
+      }
     } finally {
       loading.value = false;
     }

@@ -5,6 +5,7 @@ use serde::Serialize;
 pub enum RemoteCommand {
     Play,
     Pause,
+    PauseAtEnd,
     Next,
     Previous,
     Seek {
@@ -41,6 +42,7 @@ impl RemoteCommand {
         match action {
             "play" => Some(Self::Play),
             "pause" => Some(Self::Pause),
+            "pause_at_end" => Some(Self::PauseAtEnd),
             "next" => Some(Self::Next),
             "prev" | "previous" => Some(Self::Previous),
             "set_volume" => data
@@ -74,6 +76,10 @@ mod tests {
         assert_eq!(
             RemoteCommand::from_ws("pause", None),
             Some(RemoteCommand::Pause)
+        );
+        assert_eq!(
+            RemoteCommand::from_ws("pause_at_end", None),
+            Some(RemoteCommand::PauseAtEnd)
         );
         assert_eq!(
             RemoteCommand::from_ws("next", None),
