@@ -74,11 +74,19 @@ async fn handle_socket(socket: WebSocket, state: Arc<RemoteState>, token: Option
         }
     }
 
+    let send_state = state.clone();
     let send_task = tokio::spawn(async move {
         loop {
             let msg = match broadcast_rx.recv().await {
                 Ok(msg) => msg,
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Lagged(_)) => {
+                    for snapshot in send_state.snapshot_messages().await {
+                        if sender.send(Message::Text(snapshot.into())).await.is_err() {
+                            return;
+                        }
+                    }
+                    continue;
+                }
                 Err(broadcast::error::RecvError::Closed) => break,
             };
             if sender.send(Message::Text(msg.into())).await.is_err() {

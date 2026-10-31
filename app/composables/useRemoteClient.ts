@@ -119,8 +119,10 @@ function closeWebSocket() {
     ws = null;
   }
 }
+let pollInFlight = false;
 async function pollRemoteState() {
-  if (!clientActive.value || !serverUrl.value || !token.value) return;
+  if (!clientActive.value || !serverUrl.value || !token.value || pollInFlight) return;
+  pollInFlight = true;
   try {
     const [playback, queue, devices] = await Promise.all([
       apiFetch('/api/playback/state'),
@@ -135,6 +137,8 @@ async function pollRemoteState() {
   } catch (err) {
     if (err instanceof RemoteUnauthorizedError) throw err;
     if (ws?.readyState !== WebSocket.OPEN) connectionStatus.value = 'disconnected';
+  } finally {
+    pollInFlight = false;
   }
 }
 function startStatePoll() {

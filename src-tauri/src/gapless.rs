@@ -64,6 +64,8 @@ pub struct GaplessTrack {
     id: String,
     #[allow(dead_code)]
     duration_ms: u64,
+    #[serde(default)]
+    start_ms: u64,
 }
 
 #[derive(Serialize)]
@@ -179,6 +181,7 @@ fn spawn_decoder(
     channels: u16,
     source_rate: u32,
     source_channels: u16,
+    start_ms: u64,
 ) -> Result<(ChildStdout, Child), String> {
     let mut cmd = tokio::process::Command::new("ffmpeg");
     cmd.args([
@@ -187,11 +190,11 @@ fn spawn_decoder(
         "error",
         "-protocol_whitelist",
         protocols,
-        "-i",
-        input,
-        "-map",
-        "0:a:0",
     ]);
+    if start_ms > 0 {
+        cmd.arg("-ss").arg(format!("{:.3}", start_ms as f64 / 1000.0));
+    }
+    cmd.args(["-i", input, "-map", "0:a:0"]);
     if source_rate != rate || source_channels != channels {
         cmd.arg("-ac").arg(channels.to_string());
         cmd.arg("-ar").arg(rate.to_string());
@@ -332,6 +335,7 @@ async fn encode_track(
         channels,
         source_rate,
         source_channels,
+        track.start_ms,
     )?;
     let copied = copy_pcm(&mut stdout, encoder, session).await;
     let _ = child.wait().await;
@@ -390,6 +394,7 @@ async fn run_session(session: Arc<Session>, format: StreamFormat) {
             channels,
             source_rate,
             source_channels,
+            first.start_ms,
         )?;
         let copied = copy_pcm(&mut decoder_out, &mut stdin, &session).await;
         let _ = decoder.wait().await;

@@ -346,6 +346,46 @@ export default function useDirectPlayer() {
     }
   }
 
+  function sameTlidList(left: number[], right: number[]) {
+    return left.length === right.length && left.every((tlid, index) => tlid === right[index]);
+  }
+
+  function isAppendOnly(actual: number[], expected: number[]) {
+    return expected.length >= actual.length && actual.every((tlid, index) => tlid === expected[index]);
+  }
+
+  async function reconcileGaplessQueue() {
+    const session = gaplessSession;
+    if (!session || !isActive.value || pending.value) return;
+
+    const currentTlid = playingTlid.value;
+    if (currentTlid == null) return;
+
+    if (!queue.items.value.some((item) => item.tlid === currentTlid)) {
+      const next = queue.currentItem.value ?? queue.items.value[0];
+      if (!next) {
+        await stop();
+        return;
+      }
+      await restartAt(next, 0);
+      return;
+    }
+
+    const from = session.tracks.findIndex((track) => track.tlid === currentTlid);
+    if (from < 0) return;
+    const actual = session.tracks.slice(from).map((track) => track.tlid);
+    const expected = playableTail(queue.items.value, currentTlid).map((item) => item.tlid);
+    if (sameTlidList(actual, expected)) return;
+    if (isAppendOnly(actual, expected)) {
+      await appendGapless();
+      return;
+    }
+
+    const item = findItem(currentTlid);
+    if (!item) return;
+    await restartAt(item, positionSec.value);
+  }
+
   async function queueNext() {
     if (gaplessSession) {
       await appendGapless();
@@ -536,7 +576,7 @@ export default function useDirectPlayer() {
     closeGapless(replacedSession);
 
     try {
-      const tail = startSec === 0 ? playableTail(queue.items.value, item.tlid) : [];
+      const tail = playableTail(queue.items.value, item.tlid);
       if (tail.length > 1) {
         const [format, base] = await Promise.all([
           getStreamFormat(deviceId),
@@ -546,6 +586,8 @@ export default function useDirectPlayer() {
         const tracks = await gaplessRequests(tail);
         if (!isCurrentRequest()) return;
         if (tracks.length > 1) {
+          const startMs = Math.max(0, Math.round(startSec * 1000));
+          if (startMs > 0) tracks[0] = { ...tracks[0], startMs };
           const opened = await invoke<{ id: string }>('direct_gapless_open', { tracks, format });
           if (!isCurrentRequest()) {
             closeGapless(opened.id);
@@ -553,7 +595,12 @@ export default function useDirectPlayer() {
           }
           gaplessSession = {
             id: opened.id,
-            tracks: tracks.map((track) => ({ tlid: track.tlid, durationSec: track.durationMs / 1000 })),
+            tracks: tracks.map((track, index) => ({
+              tlid: track.tlid,
+              durationSec: index === 0
+                ? Math.max(0.1, track.durationMs / 1000 - startSec)
+                : track.durationMs / 1000,
+            })),
           };
           const url = gaplessUrl(base, opened.id, format);
           await renderer.play(deviceId, url, buildMeta(item, format), url);
@@ -682,7 +729,9 @@ export default function useDirectPlayer() {
       watch(
         [() => queue.items.value.map((item) => item.tlid).join(','), stopAfterCurrent],
         () => {
-          if (isActive.value && !pending.value) void queueNext();
+          if (!isActive.value || pending.value) return;
+          if (gaplessSession) void reconcileGaplessQueue();
+          else void queueNext();
         },
       );
     });

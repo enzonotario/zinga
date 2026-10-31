@@ -32,8 +32,27 @@ type RemoteCommand
 const REMOTE_COMMAND_EVENT = 'remote-command';
 const PUSH_DEBOUNCE_MS = 250;
 const PUSH_MAX_WAIT_MS = 1000;
+const PUSH_TIMEOUT_MS = 4000;
+const COMMAND_TIMEOUT_MS = 20000;
+const SERVER_RUNNING_CACHE_MS = 2000;
 
 let bridgeRegistered = false;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
 
 export default function useRemoteHostBridge() {
   if (!import.meta.client || bridgeRegistered) return;
@@ -67,6 +86,9 @@ export default function useRemoteHostBridge() {
     }
   }
   let pendingCommand = Promise.resolve();
+  let pushRunning = false;
+  let pushQueued = false;
+  let cachedServerRunning: { value: boolean, at: number } | null = null;
 
   function playbackStatus(): RemotePlaybackStatus {
     if (player.isPlaying.value) return 'playing';
@@ -75,11 +97,22 @@ export default function useRemoteHostBridge() {
   }
 
   async function hostServerRunning() {
+    const now = Date.now();
+    if (cachedServerRunning && now - cachedServerRunning.at < SERVER_RUNNING_CACHE_MS) {
+      return cachedServerRunning.value;
+    }
     try {
-      const status = await invoke<{ running: boolean }>('remote_server_status');
+      const status = await withTimeout(
+        invoke<{ running: boolean }>('remote_server_status'),
+        1500,
+        'remote_server_status',
+      );
+      cachedServerRunning = { value: status.running, at: now };
       return status.running;
     } catch {
-      return server.isRunning.value;
+      const fallback = server.isRunning.value;
+      cachedServerRunning = { value: fallback, at: now };
+      return fallback;
     }
   }
 
@@ -95,28 +128,45 @@ export default function useRemoteHostBridge() {
     return { plain: null, synced: null, status: 'missing' as const };
   }
 
-  async function push() {
+  async function pushOnce() {
     if (remote.isRemoteMode.value || !await hostServerRunning()) return;
     const includeQueue = queueDirty;
     queueDirty = false;
     try {
-      await invoke('remote_broadcast_state', {
-        playback: buildPlaybackSnapshot(playbackStatus(), player.position.value, player.currentItem.value ?? queue.items.value[0] ?? null, currentPlaybackArtwork(player.currentItem.value?.track), lyricsPayload(), creditGroups.value, queue.items.value.length > 0, player.pauseAtEndOfTrack.value),
-        queue: includeQueue ? buildQueueSnapshot(queue.items.value) : null,
-        devices: buildDevicesSnapshot(devices.devices.value, devices.selectedDeviceId.value, devices.volume.value),
-      });
+      await withTimeout(
+        invoke('remote_broadcast_state', {
+          playback: buildPlaybackSnapshot(playbackStatus(), player.position.value, player.currentItem.value ?? queue.items.value[0] ?? null, currentPlaybackArtwork(player.currentItem.value?.track), lyricsPayload(), creditGroups.value, queue.items.value.length > 0, player.pauseAtEndOfTrack.value),
+          queue: includeQueue ? buildQueueSnapshot(queue.items.value) : null,
+          devices: buildDevicesSnapshot(devices.devices.value, devices.selectedDeviceId.value, devices.volume.value),
+        }),
+        PUSH_TIMEOUT_MS,
+        'remote_broadcast_state',
+      );
     } catch (err) {
       queueDirty ||= includeQueue;
       console.error('Remote state push error:', err);
     }
   }
 
-  let pushTail: Promise<void> = Promise.resolve();
+  async function drainPush() {
+    if (pushRunning) {
+      pushQueued = true;
+      return;
+    }
+    pushRunning = true;
+    try {
+      do {
+        pushQueued = false;
+        await pushOnce();
+      } while (pushQueued);
+    } finally {
+      pushRunning = false;
+      if (pushQueued) void drainPush();
+    }
+  }
 
   function enqueuePush() {
-    pushTail = pushTail.then(() => push()).catch((err) => {
-      console.error('Remote state push error:', err);
-    });
+    void drainPush();
   }
 
   const schedulePush = useDebounceFn(enqueuePush, PUSH_DEBOUNCE_MS, { maxWait: PUSH_MAX_WAIT_MS });
@@ -166,7 +216,8 @@ export default function useRemoteHostBridge() {
       case 'discover_devices':
         return devices.discover();
       case 'set_volume':
-        return devices.setVolume(command.level);
+        await devices.setVolume(command.level);
+        enqueuePush();
     }
   }
 
@@ -225,12 +276,16 @@ export default function useRemoteHostBridge() {
   });
 
   listen<RemoteCommand>(REMOTE_COMMAND_EVENT, (event) => {
-    const run = () => execute(event.payload).catch((err) => console.error('Remote command error:', err));
+    const run = () => withTimeout(
+      Promise.resolve(execute(event.payload)),
+      COMMAND_TIMEOUT_MS,
+      `remote command ${event.payload?.action ?? 'unknown'}`,
+    ).catch((err) => console.error('Remote command error:', err));
     if (event.payload?.action === 'set_volume') {
       void run();
       return;
     }
-    pendingCommand = pendingCommand.then(run);
+    pendingCommand = pendingCommand.then(run, run);
   }).catch((err) => console.error('Remote command listener error:', err));
 
   setInterval(enqueuePush, PUSH_MAX_WAIT_MS);
