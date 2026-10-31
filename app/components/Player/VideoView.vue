@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { invoke } from '@tauri-apps/api/core';
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { isYtmVideoId } from '~/utils/directStream';
 
 interface Props {
@@ -19,15 +19,13 @@ const props = withDefaults(defineProps<Props>(), {
 const videoEl = ref<HTMLVideoElement | null>(null);
 const streamUrl = ref<string | null>(null);
 const failed = ref(false);
-const seeking = ref(false);
-let syncTimer: ReturnType<typeof setTimeout> | null = null;
-let lastSyncAt = 0;
+let driftTimer: ReturnType<typeof setInterval> | null = null;
+
+const SEEK_THRESHOLD_SEC = 1.5;
+const NUDGE_THRESHOLD_SEC = 0.12;
+const MAX_RATE_DELTA = 0.08;
 
 const showFallback = computed(() => failed.value || !streamUrl.value);
-
-async function resolveBaseUrl() {
-  return invoke<string>('direct_stream_base_url');
-}
 
 async function loadSource(videoId: string) {
   failed.value = false;
@@ -38,7 +36,7 @@ async function loadSource(videoId: string) {
   }
   try {
     await invoke('ytm_resolve_video', { videoId });
-    const base = await resolveBaseUrl();
+    const base = await invoke<string>('direct_stream_base_url');
     streamUrl.value = `${base.replace(/\/$/, '')}/ytm-video/${videoId}`;
   } catch (err) {
     console.warn('[VideoView] resolve failed:', err);
@@ -46,69 +44,71 @@ async function loadSource(videoId: string) {
   }
 }
 
-function clearSyncTimer() {
-  if (syncTimer) {
-    clearTimeout(syncTimer);
-    syncTimer = null;
+function syncPlayState() {
+  const el = videoEl.value;
+  if (!el || failed.value) return;
+  if (!props.playing) {
+    if (!el.paused) el.pause();
+    return;
+  }
+  if (el.paused) {
+    void el.play().catch(() => {
+      failed.value = true;
+    });
   }
 }
 
-function syncPlayback() {
+// Seeking re-buffers through the proxy, so small drift is absorbed by nudging the playback rate
+function correctDrift() {
   const el = videoEl.value;
-  if (!el || failed.value || !streamUrl.value) return;
-  if (props.playing) {
-    if (el.paused) void el.play().catch(() => {
-      failed.value = true;
-    });
-  } else if (!el.paused) {
-    el.pause();
+  if (!el || failed.value || el.seeking || el.readyState < 2) return;
+  const drift = Math.max(0, props.positionSec || 0) - el.currentTime;
+  if (Math.abs(drift) > SEEK_THRESHOLD_SEC || !props.playing) {
+    if (Math.abs(drift) > 0.25) el.currentTime = Math.max(0, props.positionSec || 0);
+    el.playbackRate = 1;
+    return;
   }
+  if (Math.abs(drift) < NUDGE_THRESHOLD_SEC) {
+    el.playbackRate = 1;
+    return;
+  }
+  el.playbackRate = 1 + Math.max(-MAX_RATE_DELTA, Math.min(MAX_RATE_DELTA, drift * 0.5));
+}
 
-  if (seeking.value) return;
-  const now = Date.now();
-  if (now - lastSyncAt < 250) return;
-  const target = Math.max(0, props.positionSec || 0);
-  if (Math.abs(el.currentTime - target) > 0.35) {
-    lastSyncAt = now;
-    seeking.value = true;
-    try {
-      el.currentTime = target;
-    } catch {
-      // ignore seek failures while media loads
-    }
-    clearSyncTimer();
-    syncTimer = setTimeout(() => {
-      seeking.value = false;
-    }, 200);
-  }
+function stopDriftTimer() {
+  if (!driftTimer) return;
+  clearInterval(driftTimer);
+  driftTimer = null;
+}
+
+function onLoadedData() {
+  correctDrift();
+  syncPlayState();
 }
 
 function onVideoError() {
   failed.value = true;
 }
 
-watch(
-  () => props.videoId,
-  (id) => {
-    void loadSource(id);
-  },
-  { immediate: true },
-);
+watch(() => props.videoId, (id) => void loadSource(id), { immediate: true });
+watch(() => [props.playing, streamUrl.value] as const, () => {
+  syncPlayState();
+  correctDrift();
+});
 
-watch(
-  () => [props.playing, props.positionSec, streamUrl.value] as const,
-  () => syncPlayback(),
-);
+onMounted(() => {
+  driftTimer = setInterval(correctDrift, 1000);
+});
 
 onBeforeUnmount(() => {
-  clearSyncTimer();
+  stopDriftTimer();
   videoEl.value?.pause();
 });
 </script>
 
 <template>
-  <div class="w-full max-w-4xl mx-auto">
-    <div class="relative aspect-video w-full overflow-hidden rounded-2xl glass ring ring-default bg-black">
+  <div class="flex min-h-0 w-full">
+    <div class="relative w-full h-full min-h-48 overflow-hidden rounded-2xl ring ring-default bg-black">
       <video
         v-if="!showFallback && streamUrl"
         ref="videoEl"
@@ -119,7 +119,7 @@ onBeforeUnmount(() => {
         playsinline
         preload="auto"
         @error="onVideoError"
-        @loadeddata="syncPlayback"
+        @loadeddata="onLoadedData"
       />
       <img
         v-else-if="poster"

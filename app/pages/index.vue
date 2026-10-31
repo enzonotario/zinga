@@ -266,30 +266,26 @@ watch(
 <template>
   <div class="md:h-full flex flex-col md:overflow-hidden relative">
     <div :class="pageGridClass">
-      <div class="px-[10%] 2xl:px-[15%] md:flex-1 md:min-h-0 flex flex-col justify-center items-center gap-3 overflow-y-auto">
-        <PlayerVideoView
-          v-if="currentVideoId"
-          :video-id="currentVideoId"
-          :poster="albumCover || currentTrack?.coverUrl || undefined"
-          :playing="isPlaying"
-          :position-sec="playbackPositionSec"
-          class="w-full pt-8"
+      <div
+        v-if="!currentVideoId"
+        class="px-[10%] 2xl:px-[15%] md:flex-1 md:min-h-0 flex flex-col justify-center items-center gap-3 overflow-y-auto"
+      >
+        <NowPlayingDisplay
+          :cover-url="albumCover || currentTrack?.coverUrl || undefined"
+          :alt="albumTitle || currentTrack?.title"
+          :title="albumTitle"
+          :title-link="albumRoute || undefined"
+          class="pt-20"
         />
-        <template v-else>
-          <NowPlayingDisplay
-            :cover-url="albumCover || currentTrack?.coverUrl || undefined"
-            :alt="albumTitle || currentTrack?.title"
-            :title="albumTitle"
-            :title-link="albumRoute || undefined"
-            class="pt-20"
-          />
-          <UiTrackCredits
-            v-if="albumInlineCredits"
-            :inline-credits="albumInlineCredits"
-          />
-        </template>
+        <UiTrackCredits
+          v-if="albumInlineCredits"
+          :inline-credits="albumInlineCredits"
+        />
       </div>
-      <div class="relative flex flex-col gap-4 md:min-h-0 md:min-w-0 overflow-visible py-2">
+      <div
+        class="relative flex flex-col gap-4 md:min-h-0 md:min-w-0 overflow-visible py-2"
+        :class="{ 'md:col-span-2': currentVideoId }"
+      >
         <UCard
           ref="queueCard"
           class="shrink-0 overflow-hidden flex flex-col z-10"
@@ -313,8 +309,16 @@ watch(
           :style="{ height: `${queueCollapsedHeight}px` }"
           aria-hidden="true"
         />
+        <PlayerVideoView
+          v-if="currentVideoId"
+          :video-id="currentVideoId"
+          :poster="albumCover || currentTrack?.coverUrl || undefined"
+          :playing="isPlaying"
+          :position-sec="playbackPositionSec"
+          class="flex-1 min-h-[40vh] md:min-h-0"
+        />
         <div
-          v-if="!currentVideoId"
+          v-else
           class="md:flex-1 md:min-h-0 min-w-0 w-full flex items-center justify-center py-4 md:py-0 px-1 md:px-2 -mt-[15vh]"
         >
           <PlayerVinylPlayer
