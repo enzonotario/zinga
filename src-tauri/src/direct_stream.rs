@@ -224,6 +224,7 @@ fn spawn_ffmpeg(
     start: f64,
     format: OutputFormat,
     track_id: &str,
+    http_headers: &[(String, String)],
 ) -> Result<(ChildStdout, Child), String> {
     let mut cmd = tokio::process::Command::new("ffmpeg");
     cmd.args([
@@ -232,19 +233,36 @@ fn spawn_ffmpeg(
         "error",
         "-protocol_whitelist",
         protocols,
-        "-ss",
-        &format!("{start:.3}"),
-        "-i",
-        input,
-        "-map",
-        "0:a:0",
-    ])
-    .args(format.codec_args())
-    .arg("pipe:1")
-    .stdin(Stdio::null())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .kill_on_drop(true);
+    ]);
+
+    let user_agent = http_headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("user-agent"))
+        .map(|(_, v)| v.clone());
+    if let Some(ua) = user_agent.as_deref() {
+        cmd.args(["-user_agent", ua]);
+    }
+    let header_block = if http_headers.is_empty() {
+        None
+    } else {
+        Some(
+            http_headers
+                .iter()
+                .map(|(k, v)| format!("{k}: {v}\r\n"))
+                .collect::<String>(),
+        )
+    };
+    if let Some(headers) = header_block.as_deref() {
+        cmd.args(["-headers", headers]);
+    }
+
+    cmd.args(["-ss", &format!("{start:.3}"), "-i", input, "-map", "0:a:0"])
+        .args(format.codec_args())
+        .arg("pipe:1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
     crate::setup::sanitize_external_env(cmd.as_std_mut());
 
     let mut child = cmd
@@ -361,8 +379,9 @@ fn ffmpeg_response(
     start: f64,
     format: OutputFormat,
     label: &str,
+    http_headers: &[(String, String)],
 ) -> Response {
-    match spawn_ffmpeg(input, protocols, start, format, label) {
+    match spawn_ffmpeg(input, protocols, start, format, label, http_headers) {
         Ok((stdout, child)) => (
             StatusCode::OK,
             stream_headers(format),
@@ -418,6 +437,55 @@ async fn stream_handler(
         start_offset(&query),
         format,
         track_id,
+        &[],
+    )
+}
+
+async fn ytm_handler(
+    method: Method,
+    State(app): State<AppHandle>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    AxumPath((_tlid, file)): AxumPath<(String, String)>,
+    Query(query): Query<StreamQuery>,
+) -> Response {
+    if let Some(rejection) = reject_peer(&app, peer.ip()) {
+        return rejection;
+    }
+
+    let Some((video_id, format)) =
+        parse_output_file(&file).filter(|(id, _)| crate::ytm::is_valid_video_id(id))
+    else {
+        return (StatusCode::BAD_REQUEST, "Invalid YTM track file").into_response();
+    };
+
+    if method == Method::HEAD {
+        return (StatusCode::OK, stream_headers(format)).into_response();
+    }
+
+    if start_offset(&query) == 0.0 {
+        if let Some(warm) = take_warm(&file).await {
+            return warmed_response(warm, format);
+        }
+    }
+
+    let id = video_id.to_string();
+    let resolved = match tokio::task::spawn_blocking(move || crate::ytm::resolve_stream(&id)).await
+    {
+        Ok(Ok(resolved)) => resolved,
+        Ok(Err(e)) => {
+            eprintln!("[DirectStream] YTM source for {video_id} failed: {e}");
+            return (StatusCode::BAD_GATEWAY, e).into_response();
+        }
+        Err(e) => return (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
+    };
+
+    ffmpeg_response(
+        &resolved.url,
+        TIDAL_PROTOCOLS,
+        start_offset(&query),
+        format,
+        video_id,
+        &resolved.http_headers,
     )
 }
 
@@ -452,7 +520,7 @@ async fn file_handler(
         }
     }
 
-    ffmpeg_response(input, FILE_PROTOCOLS, start_offset(&query), format, token)
+    ffmpeg_response(input, FILE_PROTOCOLS, start_offset(&query), format, token, &[])
 }
 
 pub fn start(app_handle: AppHandle) {
@@ -469,6 +537,10 @@ pub fn start(app_handle: AppHandle) {
             .route(
                 "/stream/{tlid}/{file}",
                 get(stream_handler).head(stream_handler),
+            )
+            .route(
+                "/ytm/{tlid}/{file}",
+                get(ytm_handler).head(ytm_handler),
             )
             .route("/file/{tlid}/{file}", get(file_handler).head(file_handler))
             .route(
@@ -580,7 +652,7 @@ pub async fn direct_warm_stream(track_id: String, format: String) -> Result<(), 
     let (input, protocols) = tokio::task::spawn_blocking(move || resolve_warm_input(&id))
         .await
         .map_err(|err| err.to_string())??;
-    let (mut stdout, child) = spawn_ffmpeg(&input, protocols, 0.0, output, &track_id)?;
+    let (mut stdout, child) = spawn_ffmpeg(&input, protocols, 0.0, output, &track_id, &[])?;
     let buffered = match read_warm_prefix(&mut stdout).await {
         Ok(buffered) => buffered,
         Err(err) => {
@@ -601,6 +673,14 @@ pub async fn direct_warm_stream(track_id: String, format: String) -> Result<(), 
 #[tauri::command]
 pub async fn tidal_prepare_stream(track_id: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || ensure_source(&track_id))
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|_| ())
+}
+
+#[tauri::command]
+pub async fn ytm_prepare_stream(video_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::ytm::resolve_stream(&video_id))
         .await
         .map_err(|e| e.to_string())?
         .map(|_| ())

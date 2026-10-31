@@ -39,6 +39,7 @@ mod setup;
 mod terminal;
 mod tidal_session;
 mod window_shortcuts;
+mod ytm;
 
 fn preferred_ipv4_from_interfaces() -> Option<String> {
     use if_addrs::IfAddr;
@@ -491,6 +492,7 @@ pub fn run() {
                 .build(app)?;
 
             tidal_session::init(app.handle());
+            ytm::init(app.handle());
             direct_stream::start(app.handle().clone());
 
             let remote_state = app
@@ -564,8 +566,15 @@ pub fn run() {
             upnp::upnp_set_next_direct,
             upnp::upnp_get_sink_protocols,
             direct_stream::tidal_prepare_stream,
+            direct_stream::ytm_prepare_stream,
             direct_stream::direct_player_uri,
             direct_stream::direct_warm_stream,
+            ytm::cookies::ytm_import_cookies,
+            ytm::cookies::ytm_import_cookies_file,
+            ytm::cookies::ytm_logout,
+            ytm::cookies::ytm_status,
+            ytm::search::ytm_search,
+            ytm::ytm_ytdlp_update,
             gapless::direct_gapless_open,
             gapless::direct_gapless_append,
             gapless::direct_gapless_finish,
