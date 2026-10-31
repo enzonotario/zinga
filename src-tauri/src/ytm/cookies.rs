@@ -1,4 +1,5 @@
 use crate::ytm::data_file;
+use crate::ytm::jsruntime::js_runtime_label;
 use crate::ytm::ytdlp::{ensure_ytdlp, normalize_browser, run_ytdlp, ytdlp_version};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
@@ -17,6 +18,7 @@ pub struct YtmStatus {
     pub connected: bool,
     pub ytdlp_version: Option<String>,
     pub browser: Option<String>,
+    pub js_runtime: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -255,5 +257,6 @@ fn status_now() -> Result<YtmStatus, String> {
         connected: cookies_connected(),
         ytdlp_version: version,
         browser: meta.browser,
+        js_runtime: js_runtime_label(),
     })
 }

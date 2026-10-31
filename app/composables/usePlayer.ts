@@ -221,6 +221,14 @@ export default function usePlayer() {
           toast.add({ title: t('player.ytmNotConnected'), color: 'warning', duration: 8000 });
           return;
         }
+        if (message.includes('YTM_BOT_CHECK')) {
+          toast.add({ title: t('player.ytmBotCheck'), color: 'warning', duration: 8000 });
+          return;
+        }
+        if (message.includes('YTM_JS_RUNTIME_MISSING')) {
+          toast.add({ title: t('player.ytmJsRuntimeMissing'), color: 'error', duration: 8000 });
+          return;
+        }
         if (message.includes('YTM_YTDLP_MISSING')) {
           toast.add({ title: t('player.ytmYtdlpMissing'), color: 'error', duration: 8000 });
           return;

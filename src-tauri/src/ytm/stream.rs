@@ -1,5 +1,6 @@
 use crate::ytm::cookies::{cookies_connected, cookies_file_path};
 use crate::ytm::is_valid_video_id;
+use crate::ytm::jsruntime::js_runtime_ytdlp_arg;
 use crate::ytm::ytdlp::{ensure_ytdlp, run_ytdlp, FORMAT_SELECTOR, YtdlpOutput};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -23,6 +24,13 @@ fn run_resolve(
         format.to_string(),
         "--no-warnings".to_string(),
     ];
+    // Official yt-dlp_linux already bundles yt-dlp-ejs scripts; only a JS runtime is required.
+    // Clear defaults so yt-dlp uses the runtime we resolved (deno > node > bun).
+    if let Some(runtime) = js_runtime_ytdlp_arg() {
+        args.push("--no-js-runtimes".to_string());
+        args.push("--js-runtimes".to_string());
+        args.push(runtime);
+    }
     if let Some(path) = cookies {
         args.push("--cookies".to_string());
         args.push(path.display().to_string());
@@ -30,6 +38,46 @@ fn run_resolve(
     args.push(url.to_string());
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
     run_ytdlp(bin, &arg_refs, RESOLVE_TIMEOUT)
+}
+
+pub fn map_ytdlp_resolve_error(stderr: &str, cookies_present: bool) -> String {
+    let lower = stderr.to_ascii_lowercase();
+    if lower.contains("sign in to confirm you") || lower.contains("confirm you're not a bot")
+        || lower.contains("confirm you\u{2019}re not a bot")
+    {
+        return if cookies_present {
+            "YTM_BOT_CHECK".to_string()
+        } else {
+            "YTM_NOT_CONNECTED".to_string()
+        };
+    }
+    if lower.contains("signature solving failed")
+        || lower.contains("only images are available")
+        || lower.contains("challenge solver")
+        || lower.contains("n challenge")
+        || (lower.contains("javascript runtime") && lower.contains("not found"))
+    {
+        return "YTM_JS_RUNTIME_MISSING".to_string();
+    }
+    if !cookies_present && looks_premium_or_age_restricted(stderr) {
+        return "YTM_NOT_CONNECTED".to_string();
+    }
+    stderr
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or(stderr)
+        .trim()
+        .to_string()
+}
+
+fn resolve_failure(output: &YtdlpOutput, cookies_present: bool) -> String {
+    let detail = if output.stderr_lossy().is_empty() {
+        "yt-dlp returned empty JSON".to_string()
+    } else {
+        output.stderr_lossy()
+    };
+    map_ytdlp_resolve_error(&detail, cookies_present)
 }
 
 const RESOLVE_TIMEOUT: Duration = Duration::from_secs(90);
@@ -174,11 +222,12 @@ pub fn resolve_stream(video_id: &str) -> Result<ResolvedStream, String> {
 
     let url = format!("https://music.youtube.com/watch?v={video_id}");
     let cookies = cookies_file_path();
+    let cookies_present = cookies.is_some();
     let output = run_resolve(&bin, &url, FORMAT_SELECTOR, cookies.as_deref())?;
     let output = if !output.status_ok || output.stdout_lossy().is_empty() {
         let detail = output.stderr_last_line();
         // Cookie jars can break JS challenge solving and leave only storyboards; retry bare.
-        if cookies.is_some()
+        if cookies_present
             && (detail.contains("Requested format is not available")
                 || detail.contains("Only images are available")
                 || output.stdout_lossy().is_empty())
@@ -191,24 +240,12 @@ pub fn resolve_stream(video_id: &str) -> Result<ResolvedStream, String> {
         output
     };
     if !output.status_ok {
-        let detail = output.stderr_last_line();
-        if !cookies_connected() && looks_premium_or_age_restricted(&detail) {
-            return Err("YTM_NOT_CONNECTED".to_string());
-        }
-        return Err(detail);
+        return Err(resolve_failure(&output, cookies_connected()));
     }
 
     let json = output.stdout_lossy();
     if json.is_empty() {
-        let detail = output.stderr_last_line();
-        if !cookies_connected() && looks_premium_or_age_restricted(&detail) {
-            return Err("YTM_NOT_CONNECTED".to_string());
-        }
-        return Err(if detail.is_empty() {
-            "yt-dlp returned empty JSON".to_string()
-        } else {
-            detail
-        });
+        return Err(resolve_failure(&output, cookies_connected()));
     }
 
     let resolved = parse_ytdlp_json(&json)?;
@@ -362,10 +399,11 @@ pub fn resolve_video(video_id: &str) -> Result<ResolvedVideo, String> {
 
     let url = format!("https://music.youtube.com/watch?v={video_id}");
     let cookies = cookies_file_path();
+    let cookies_present = cookies.is_some();
     let output = run_resolve(&bin, &url, VIDEO_FORMAT_SELECTOR, cookies.as_deref())?;
     let output = if !output.status_ok || output.stdout_lossy().is_empty() {
         let detail = output.stderr_last_line();
-        if cookies.is_some()
+        if cookies_present
             && (detail.contains("Requested format is not available")
                 || detail.contains("Only images are available")
                 || output.stdout_lossy().is_empty())
@@ -378,24 +416,12 @@ pub fn resolve_video(video_id: &str) -> Result<ResolvedVideo, String> {
         output
     };
     if !output.status_ok {
-        let detail = output.stderr_last_line();
-        if !cookies_connected() && looks_premium_or_age_restricted(&detail) {
-            return Err("YTM_NOT_CONNECTED".to_string());
-        }
-        return Err(detail);
+        return Err(resolve_failure(&output, cookies_connected()));
     }
 
     let json = output.stdout_lossy();
     if json.is_empty() {
-        let detail = output.stderr_last_line();
-        if !cookies_connected() && looks_premium_or_age_restricted(&detail) {
-            return Err("YTM_NOT_CONNECTED".to_string());
-        }
-        return Err(if detail.is_empty() {
-            "yt-dlp returned empty video JSON".to_string()
-        } else {
-            detail
-        });
+        return Err(resolve_failure(&output, cookies_connected()));
     }
 
     let resolved = parse_ytdlp_video_json(&json)?;

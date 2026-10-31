@@ -61,7 +61,7 @@ fn agent() -> Agent {
     Agent::new_with_config(config)
 }
 
-fn write_executable(path: &Path, data: &[u8]) -> Result<(), String> {
+pub(crate) fn write_executable(path: &Path, data: &[u8]) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }

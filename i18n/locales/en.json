@@ -237,6 +237,8 @@
       "ytmYtdlpVersion": "yt-dlp {version}",
       "ytmYtdlpMissing": "yt-dlp is not ready yet",
       "ytmYtdlpUpdate": "Update yt-dlp",
+      "ytmJsRuntime": "JS runtime: {runtime}",
+      "ytmJsRuntimeMissing": "JS runtime: unavailable (Deno downloads on startup)",
       "ytmBrowser": {
         "chrome": "Chrome",
         "chromium": "Chromium",
@@ -368,6 +370,8 @@
     "playbackError": "Playback error",
     "tidalPlaybackNotConnected": "Connect TIDAL playback in Settings > Playback to play TIDAL tracks.",
     "ytmNotConnected": "Connect YouTube Music in Settings > Playback (music.youtube.com cookies) to play this track.",
+    "ytmBotCheck": "YouTube asked for verification: reconnect YouTube Music in Settings > Playback",
+    "ytmJsRuntimeMissing": "A JavaScript runtime is required for YouTube (Deno/Node). Restart the app or install Deno/Node and try again.",
     "ytmYtdlpMissing": "yt-dlp is missing. Open Settings > Playback and update yt-dlp."
   },
   "auth": {

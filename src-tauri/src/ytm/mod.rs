@@ -2,6 +2,7 @@ pub(crate) mod browse;
 pub(crate) mod client;
 pub(crate) mod cookies;
 pub(crate) mod innertube;
+pub(crate) mod jsruntime;
 pub(crate) mod search;
 pub(crate) mod stream;
 pub(crate) mod ytdlp;
@@ -58,10 +59,19 @@ pub fn init(app: &AppHandle) {
             return;
         }
     }
-    // Download off the setup path so the window can open before yt-dlp is ready.
-    std::thread::spawn(|| match ensure_ytdlp() {
-        Ok(path) => eprintln!("[YTM] yt-dlp ready at {}", path.display()),
-        Err(e) => eprintln!("[YTM] yt-dlp ensure failed: {e}"),
+    // Download off the setup path so the window can open before yt-dlp / deno are ready.
+    std::thread::spawn(|| {
+        match ensure_ytdlp() {
+            Ok(path) => eprintln!("[YTM] yt-dlp ready at {}", path.display()),
+            Err(e) => eprintln!("[YTM] yt-dlp ensure failed: {e}"),
+        }
+        match jsruntime::ensure_deno() {
+            Ok(path) => eprintln!("[YTM] deno ready at {}", path.display()),
+            Err(e) => eprintln!("[YTM] deno ensure failed: {e}"),
+        }
+        if let Some(label) = jsruntime::js_runtime_label() {
+            eprintln!("[YTM] js runtime: {label}");
+        }
     });
 }
 
@@ -76,7 +86,10 @@ pub(crate) fn is_valid_video_id(id: &str) -> bool {
 mod tests {
     use super::*;
     use crate::ytm::cookies::{cookie_file_connected, youtube_cookies_only};
-    use crate::ytm::stream::{parse_ytdlp_json, parse_ytdlp_video_json, resolve_stream, resolve_video};
+    use crate::ytm::stream::{
+        map_ytdlp_resolve_error, parse_ytdlp_json, parse_ytdlp_video_json, resolve_stream,
+        resolve_video,
+    };
     use crate::ytm::ytdlp::{ensure_ytdlp, normalize_browser};
 
     #[test]
@@ -343,43 +356,70 @@ music.youtube.com\tFALSE\t/\tTRUE\t0\tPREF\tx\n\
     }
 
     #[test]
-    #[ignore = "live network: resolve progressive H.264 video for aoRaUT9G8Hc"]
-    fn live_resolve_video_sample() {
-        let dir = dirs_fallback();
+    fn maps_ytdlp_stderr_to_error_codes() {
+        assert_eq!(
+            map_ytdlp_resolve_error(
+                "ERROR: [youtube] x: Sign in to confirm you’re not a bot",
+                false
+            ),
+            "YTM_NOT_CONNECTED"
+        );
+        assert_eq!(
+            map_ytdlp_resolve_error(
+                "ERROR: [youtube] x: Sign in to confirm you’re not a bot",
+                true
+            ),
+            "YTM_BOT_CHECK"
+        );
+        assert_eq!(
+            map_ytdlp_resolve_error(
+                "WARNING: [youtube] Signature solving failed: Some(...)\nERROR: Only images are available",
+                true
+            ),
+            "YTM_JS_RUNTIME_MISSING"
+        );
+        assert_eq!(
+            map_ytdlp_resolve_error("n challenge solver script missing", true),
+            "YTM_JS_RUNTIME_MISSING"
+        );
+    }
+
+    #[test]
+    #[ignore = "live network: resolve audio/video with cookies + JS runtime"]
+    fn live_resolve_with_cookies_and_js_runtime() {
+        let real = dirs_fallback();
+        let dir = std::env::temp_dir().join(format!("zinga-ytm-live-{}", std::process::id()));
         let _ = std::fs::create_dir_all(dir.join("bin"));
+        let real_cookies = real.join("ytm-cookies.txt");
+        if real_cookies.is_file() {
+            // yt-dlp rewrites cookie jars; never touch the live app file from tests.
+            std::fs::copy(&real_cookies, dir.join("ytm-cookies.txt")).expect("copy cookies");
+        }
+        let real_bin = real.join("bin").join("yt-dlp_linux");
+        if real_bin.is_file() {
+            let _ = std::fs::copy(&real_bin, dir.join("bin").join("yt-dlp_linux"));
+        }
         let _ = DATA_DIR.set(dir);
         ensure_ytdlp().expect("ensure yt-dlp");
-        let resolved = resolve_video("aoRaUT9G8Hc").expect("resolve video");
-        println!(
-            "itag={} vcodec={} height={}",
-            resolved.itag, resolved.vcodec, resolved.height
-        );
-        assert!(!resolved.url.is_empty());
-        assert!(!resolved.url.contains(".m3u8"));
+        let _ = jsruntime::ensure_deno();
+        if let Some(label) = jsruntime::js_runtime_label() {
+            println!("js_runtime={label}");
+        }
 
-        let rt = tokio::runtime::Runtime::new().expect("runtime");
-        rt.block_on(async {
-            let client = client::reqwest_http1_client().expect("client");
-            let mut head = client.head(&resolved.url);
-            let mut get = client.get(&resolved.url).header("Range", "bytes=0-1023");
-            for (key, value) in &resolved.http_headers {
-                head = head.header(key, value);
-                get = get.header(key, value);
-            }
-            let head_res = head.send().await.expect("head");
+        for video_id in ["WXIfT-dQtCo", "aoRaUT9G8Hc"] {
+            let resolved = resolve_stream(video_id).expect("resolve audio");
             println!(
-                "upstream HEAD status={} content-type={:?}",
-                head_res.status(),
-                head_res.headers().get("content-type")
+                "audio {video_id} itag={} codec={} abr={}",
+                resolved.itag, resolved.codec, resolved.abr
             );
-            assert!(head_res.status().is_success() || head_res.status().as_u16() == 206);
-            let get_res = get.send().await.expect("range get");
-            let status = get_res.status().as_u16();
-            let len = get_res.bytes().await.expect("bytes").len();
-            println!("upstream Range GET status={status} bytes={len}");
-            assert!(status == 206 || status == 200);
-            assert!(len > 0 && len <= 1024);
-        });
+        }
+
+        let video = resolve_video("aoRaUT9G8Hc").expect("resolve video");
+        println!(
+            "video aoRaUT9G8Hc itag={} vcodec={} height={}",
+            video.itag, video.vcodec, video.height
+        );
+        assert!(!video.url.contains(".m3u8"));
     }
 
     fn dirs_fallback() -> PathBuf {

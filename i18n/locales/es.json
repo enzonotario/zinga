@@ -237,6 +237,8 @@
       "ytmYtdlpVersion": "yt-dlp {version}",
       "ytmYtdlpMissing": "yt-dlp todavía no está listo",
       "ytmYtdlpUpdate": "Actualizar yt-dlp",
+      "ytmJsRuntime": "JS runtime: {runtime}",
+      "ytmJsRuntimeMissing": "JS runtime: no disponible (se descarga Deno al iniciar)",
       "ytmBrowser": {
         "chrome": "Chrome",
         "chromium": "Chromium",
@@ -368,6 +370,8 @@
     "playbackError": "Error de reproducción",
     "tidalPlaybackNotConnected": "Conectá la reproducción de TIDAL en Configuración > Reproducción para reproducir temas de TIDAL.",
     "ytmNotConnected": "Conectá YouTube Music en Configuración > Reproducción (cookies de music.youtube.com) para reproducir este tema.",
+    "ytmBotCheck": "YouTube pidió verificación: reconectá YouTube Music en Configuración > Reproducción",
+    "ytmJsRuntimeMissing": "Falta un runtime JavaScript para YouTube (Deno/Node). Reiniciá la app o instalá Deno/Node y reintentá.",
     "ytmYtdlpMissing": "Falta yt-dlp. Abrí Configuración > Reproducción y actualizá yt-dlp."
   },
   "auth": {

@@ -46,6 +46,7 @@ reqwest = { version = "0.13", default-features = false, features = [
   "json",
   "stream"
 ] }
+zip = { version = "2.6.1", default-features = false, features = [ "deflate" ] }
 
 [dependencies.axum]
 version = "0.8"

@@ -6,6 +6,7 @@ export interface YtmStatus {
   connected: boolean
   ytdlpVersion?: string | null
   browser?: string | null
+  jsRuntime?: string | null
 }
 
 export interface YtmArtistRef {
@@ -111,7 +112,7 @@ export const YTM_BROWSERS = [
 
 export type YtmBrowser = (typeof YTM_BROWSERS)[number];
 
-const status = ref<YtmStatus>({ connected: false, ytdlpVersion: null, browser: null });
+const status = ref<YtmStatus>({ connected: false, ytdlpVersion: null, browser: null, jsRuntime: null });
 const loading = ref(false);
 const importing = ref(false);
 const updating = ref(false);

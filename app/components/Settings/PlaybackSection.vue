@@ -256,22 +256,36 @@ onMounted(() => {
           {{ t('pages.settings.ytmDisconnect') }}
         </UButton>
       </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="text-sm text-(--ui-text-muted)">
-          {{
-            ytm.status.value.ytdlpVersion
-              ? t('pages.settings.ytmYtdlpVersion', { version: ytm.status.value.ytdlpVersion })
-              : t('pages.settings.ytmYtdlpMissing')
-          }}
-        </span>
-        <UButton
-          icon="i-heroicons-arrow-path"
-          variant="ghost"
-          :loading="ytm.updating.value"
-          @click="handleYtdlpUpdate"
+      <div class="flex flex-col gap-1">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-sm text-(--ui-text-muted)">
+            {{
+              ytm.status.value.ytdlpVersion
+                ? t('pages.settings.ytmYtdlpVersion', { version: ytm.status.value.ytdlpVersion })
+                : t('pages.settings.ytmYtdlpMissing')
+            }}
+          </span>
+          <UButton
+            icon="i-heroicons-arrow-path"
+            variant="ghost"
+            :loading="ytm.updating.value"
+            @click="handleYtdlpUpdate"
+          >
+            {{ t('pages.settings.ytmYtdlpUpdate') }}
+          </UButton>
+        </div>
+        <span
+          v-if="ytm.status.value.jsRuntime"
+          class="text-xs text-(--ui-text-muted)"
         >
-          {{ t('pages.settings.ytmYtdlpUpdate') }}
-        </UButton>
+          {{ t('pages.settings.ytmJsRuntime', { runtime: ytm.status.value.jsRuntime }) }}
+        </span>
+        <span
+          v-else
+          class="text-xs text-(--ui-text-muted)"
+        >
+          {{ t('pages.settings.ytmJsRuntimeMissing') }}
+        </span>
       </div>
     </SettingsGroup>
   </div>
