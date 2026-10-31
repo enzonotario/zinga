@@ -1,12 +1,28 @@
 import type { QueueTrack } from './playQueue';
 import { describe, expect, it } from 'vitest';
-import { addTracks, clearItems, createQueueState, parseQueueState, queueTracksFromRemote, removeItem, replaceTracks, setCurrentItem } from './playQueue';
+import { addTracks, clearItems, createQueueState, parseQueueState, queueTracksFromRemote, removeItem, replaceTracks, setCurrentItem, setMissingLength } from './playQueue';
 
 function track(id: number): QueueTrack {
   return { uri: `tidal:track:${id}`, name: `Track ${id}`, artists: [{ name: 'Artist' }], length: 1000 };
 }
 
 describe('playQueue utils', () => {
+  describe('setMissingLength', () => {
+    it('should fill length only on items with that uri and no length', () => {
+      const { state } = addTracks(createQueueState(), [
+        { uri: 'ytm:track:aaaaaaaaaaa', name: 'A', artists: [] },
+        { uri: 'ytm:track:aaaaaaaaaaa', name: 'A2', artists: [], length: 1000 },
+        { uri: 'ytm:track:bbbbbbbbbbb', name: 'B', artists: [] },
+      ]);
+      const next = setMissingLength(state, 'ytm:track:aaaaaaaaaaa', 245000.4);
+      expect(next.items.map((item) => item.track.length)).toEqual([245000, 1000, undefined]);
+    });
+    it('should return the same state when nothing changes', () => {
+      const { state } = addTracks(createQueueState(), [{ uri: 'x', name: 'X', artists: [], length: 5 }]);
+      expect(setMissingLength(state, 'x', 10)).toBe(state);
+      expect(setMissingLength(state, 'y', 0)).toBe(state);
+    });
+  });
   describe('queueTracksFromRemote', () => {
     it('should keep playable tracks and drop malformed entries', () => {
       expect(queueTracksFromRemote([

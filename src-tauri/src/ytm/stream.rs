@@ -90,6 +90,7 @@ pub struct ResolvedStream {
     pub itag: String,
     pub codec: String,
     pub abr: f64,
+    pub duration_sec: Option<f64>,
 }
 
 struct CacheEntry {
@@ -165,24 +166,28 @@ fn format_to_resolved(format: YtdlpFormat) -> Result<ResolvedStream, String> {
         itag,
         codec,
         abr,
+        duration_sec: None,
     })
 }
 
 pub fn parse_ytdlp_json(json: &str) -> Result<ResolvedStream, String> {
     let root: Value =
         serde_json::from_str(json).map_err(|e| format!("Invalid yt-dlp JSON: {e}"))?;
+    let duration_sec = root
+        .get("duration")
+        .and_then(Value::as_f64)
+        .filter(|d| d.is_finite() && *d > 0.0);
 
-    if let Some(downloads) = root.get("requested_downloads").and_then(|v| v.as_array()) {
-        if let Some(first) = downloads.first() {
-            let format: YtdlpFormat = serde_json::from_value(first.clone())
-                .map_err(|e| format!("Invalid requested_downloads entry: {e}"))?;
-            return format_to_resolved(format);
-        }
-    }
-
-    let format: YtdlpFormat =
-        serde_json::from_value(root).map_err(|e| format!("Invalid yt-dlp JSON object: {e}"))?;
-    format_to_resolved(format)
+    let format_value = root
+        .get("requested_downloads")
+        .and_then(|v| v.as_array())
+        .and_then(|downloads| downloads.first().cloned())
+        .unwrap_or(root);
+    let format: YtdlpFormat = serde_json::from_value(format_value)
+        .map_err(|e| format!("Invalid yt-dlp format entry: {e}"))?;
+    let mut resolved = format_to_resolved(format)?;
+    resolved.duration_sec = duration_sec;
+    Ok(resolved)
 }
 
 fn looks_premium_or_age_restricted(message: &str) -> bool {

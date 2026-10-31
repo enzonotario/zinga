@@ -191,6 +191,17 @@ music.youtube.com\tFALSE\t/\tTRUE\t0\tPREF\tx\n\
         assert_eq!(resolved.itag, "251");
         assert_eq!(resolved.codec, "opus");
         assert!((resolved.abr - 160.0).abs() < f64::EPSILON);
+        assert_eq!(resolved.duration_sec, None);
+    }
+
+    #[test]
+    fn parses_ytdlp_duration_from_root() {
+        let json = r#"{
+          "duration": 245.0,
+          "requested_downloads": [{ "url": "https://x/a", "format_id": "774", "acodec": "opus", "abr": 256 }]
+        }"#;
+        let resolved = parse_ytdlp_json(json).expect("parse");
+        assert_eq!(resolved.duration_sec, Some(245.0));
     }
 
     #[test]

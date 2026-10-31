@@ -795,11 +795,11 @@ pub async fn tidal_prepare_stream(track_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn ytm_prepare_stream(video_id: String) -> Result<(), String> {
+pub async fn ytm_prepare_stream(video_id: String) -> Result<Option<f64>, String> {
     tauri::async_runtime::spawn_blocking(move || crate::ytm::resolve_stream(&video_id))
         .await
         .map_err(|e| e.to_string())?
-        .map(|_| ())
+        .map(|stream| stream.duration_sec)
 }
 
 #[tauri::command]

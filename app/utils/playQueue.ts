@@ -66,6 +66,17 @@ export function removeItem(state: QueueState, tlid: number): QueueState {
   return { ...state, items, currentTlid: neighbor?.tlid ?? null };
 }
 
+export function setMissingLength(state: QueueState, uri: string, lengthMs: number): QueueState {
+  if (!Number.isFinite(lengthMs) || lengthMs <= 0) return state;
+  let changed = false;
+  const items = state.items.map((item) => {
+    if (item.track.uri !== uri || item.track.length) return item;
+    changed = true;
+    return { ...item, track: { ...item.track, length: Math.round(lengthMs) } };
+  });
+  return changed ? { ...state, items } : state;
+}
+
 export function clearItems(state: QueueState): QueueState {
   return { ...state, items: [], currentTlid: null };
 }
