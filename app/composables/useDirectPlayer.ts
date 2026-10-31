@@ -89,7 +89,9 @@ async function getBaseUrl() {
 
 async function playbackTarget(deviceId: string, tlid: number, prepared: PreparedSource, startSec: number, format: StreamFormat, base: string) {
   const trackUri = buildStreamUrl(base, tlid, prepared, startSec, format);
-  if (deviceId !== LOCAL_DEVICE_ID || startSec > 0) return { playUri: trackUri, trackUri };
+  if (deviceId !== LOCAL_DEVICE_ID || startSec > 0 || prepared.kind === 'ytm') {
+    return { playUri: trackUri, trackUri };
+  }
   try {
     const playUri = await invoke<string>('direct_player_uri', prepared.kind === 'tidal'
       ? { kind: 'tidal', id: prepared.id }
@@ -113,8 +115,10 @@ async function gaplessRequests(items: QueueItem[]) {
     const source = getStreamSource(item.track.uri);
     const durationMs = item.track.length;
     if (!source || !durationMs) continue;
+    if (source.kind === 'ytm') return [];
     if (source.kind === 'file') {
       const prepared = await prepareSource(source);
+      if (prepared.kind !== 'file') continue;
       tracks.push({ tlid: item.tlid, kind: 'file' as const, id: prepared.token, durationMs });
     } else {
       tracks.push({ tlid: item.tlid, kind: 'tidal' as const, id: source.id, durationMs });
@@ -129,6 +133,10 @@ function closeGapless(id?: string) {
 }
 
 async function warmStream(prepared: PreparedSource, format: StreamFormat) {
+  if (prepared.kind === 'ytm') {
+    await invoke('ytm_prepare_stream', { videoId: prepared.id });
+    return;
+  }
   const trackId = prepared.kind === 'tidal' ? prepared.id : prepared.token;
   await invoke('direct_warm_stream', { trackId, format });
 }
@@ -136,6 +144,10 @@ async function warmStream(prepared: PreparedSource, format: StreamFormat) {
 async function prepareSource(source: StreamSource): Promise<PreparedSource> {
   if (source.kind === 'tidal') {
     await invoke('tidal_prepare_stream', { trackId: source.id });
+    return source;
+  }
+  if (source.kind === 'ytm') {
+    await invoke('ytm_prepare_stream', { videoId: source.id });
     return source;
   }
   const token = await invoke<string>('direct_register_file', { path: source.path });

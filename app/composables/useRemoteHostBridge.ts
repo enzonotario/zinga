@@ -101,7 +101,7 @@ export default function useRemoteHostBridge() {
     queueDirty = false;
     try {
       await invoke('remote_broadcast_state', {
-        playback: buildPlaybackSnapshot(playbackStatus(), player.position.value, player.currentItem.value ?? queue.items.value[0] ?? null, currentPlaybackArtwork(), lyricsPayload(), creditGroups.value, queue.items.value.length > 0, player.pauseAtEndOfTrack.value),
+        playback: buildPlaybackSnapshot(playbackStatus(), player.position.value, player.currentItem.value ?? queue.items.value[0] ?? null, currentPlaybackArtwork(player.currentItem.value?.track), lyricsPayload(), creditGroups.value, queue.items.value.length > 0, player.pauseAtEndOfTrack.value),
         queue: includeQueue ? buildQueueSnapshot(queue.items.value) : null,
         devices: buildDevicesSnapshot(devices.devices.value, devices.selectedDeviceId.value, devices.volume.value),
       });
@@ -177,7 +177,7 @@ export default function useRemoteHostBridge() {
     });
     watch(
       () => {
-        const artwork = currentPlaybackArtwork();
+        const artwork = currentPlaybackArtwork(player.currentItem.value?.track);
         return [playbackStatus(), player.currentItem.value?.tlid, Math.floor(player.position.value), artwork.coverUrl, artwork.artistPicture, lyricsState.lyrics.value, lyricsState.syncedLyrics.value, creditGroups.value, player.pauseAtEndOfTrack.value];
       },
       () => schedulePush(),

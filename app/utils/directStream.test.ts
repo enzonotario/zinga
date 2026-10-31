@@ -25,6 +25,14 @@ describe('directStream utils', () => {
     it('should return null for relative file uris', () => {
       expect(getStreamSource('file://music/a.flac')).toBeNull();
     });
+    it('should extract the id from ytm uris', () => {
+      expect(getStreamSource('ytm:track:dQw4w9WgXcQ')).toEqual({ kind: 'ytm', id: 'dQw4w9WgXcQ' });
+    });
+    it('should return null for invalid ytm video ids', () => {
+      expect(getStreamSource('ytm:track:short')).toBeNull();
+      expect(getStreamSource('ytm:track:toolongvideoid1')).toBeNull();
+      expect(getStreamSource('ytm:track:bad id!!!!')).toBeNull();
+    });
     it('should return null for other uris', () => {
       expect(getStreamSource('spotify:track:1')).toBeNull();
       expect(getStreamSource('')).toBeNull();
@@ -44,6 +52,14 @@ describe('directStream utils', () => {
     it('should parse a file stream url', () => {
       expect(parseStreamUri('http://192.168.100.2:9633/file/3/0a1b2c3d4e5f60718293a4b5c6d7e8f9.mp3?start=7.250'))
         .toEqual({ tlid: 3, startSec: 7.25 });
+    });
+    it('should parse a ytm flac stream url', () => {
+      expect(parseStreamUri('http://192.168.100.2:9633/ytm/9/dQw4w9WgXcQ.flac?start=4.500'))
+        .toEqual({ tlid: 9, startSec: 4.5 });
+    });
+    it('should parse a ytm mp3 stream url with underscore and dash ids', () => {
+      expect(parseStreamUri('http://192.168.100.2:9633/ytm/1/aB_c-D12345.mp3?start=0.000'))
+        .toEqual({ tlid: 1, startSec: 0 });
     });
     it('should return null for unsupported extensions', () => {
       expect(parseStreamUri('http://h:9633/stream/1/2.wav?start=0.000')).toBeNull();
@@ -76,6 +92,14 @@ describe('directStream utils', () => {
       expect(mp3).toBe(`http://10.0.0.5:9633/file/12/${token}.mp3?start=30.000`);
       expect(parseStreamUri(flac)).toEqual({ tlid: 12, startSec: 30 });
       expect(parseStreamUri(mp3)).toEqual({ tlid: 12, startSec: 30 });
+    });
+    it('should build ytm urls that round-trip', () => {
+      const flac = buildStreamUrl('http://10.0.0.5:9633', 4, { kind: 'ytm', id: 'dQw4w9WgXcQ' }, 12.5, 'flac');
+      const mp3 = buildStreamUrl('http://10.0.0.5:9633', 4, { kind: 'ytm', id: 'dQw4w9WgXcQ' }, 0, 'mp3');
+      expect(flac).toBe('http://10.0.0.5:9633/ytm/4/dQw4w9WgXcQ.flac?start=12.500');
+      expect(mp3).toBe('http://10.0.0.5:9633/ytm/4/dQw4w9WgXcQ.mp3?start=0.000');
+      expect(parseStreamUri(flac)).toEqual({ tlid: 4, startSec: 12.5 });
+      expect(parseStreamUri(mp3)).toEqual({ tlid: 4, startSec: 0 });
     });
   });
 });

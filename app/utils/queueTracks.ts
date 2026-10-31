@@ -1,10 +1,20 @@
 import type { QueueTrack } from './playQueue';
 import type { NormalizedTrack } from '~/providers/types';
 import { normalizeTrack } from '~/providers/tidal/normalizer';
+import { isYtmVideoId } from './directStream';
 
 interface QueueAlbum {
   title: string
   artists?: { name: string }[]
+}
+
+export interface YtmSearchTrack {
+  videoId: string
+  title: string
+  artists: { id?: string | null, name: string }[]
+  album?: { id?: string | null, name: string } | null
+  durationSec?: number | null
+  thumbnailUrl?: string | null
 }
 
 function namedArtists(artists: { name: string }[] = []) {
@@ -19,6 +29,23 @@ export function toQueueTrack(track: NormalizedTrack, album?: QueueAlbum | null):
     artists: artists.length ? artists : namedArtists(album?.artists),
     album: album ? { name: album.title } : undefined,
     length: track.duration ? Math.round(track.duration * 1000) : undefined,
+    ...(track.coverUrl ? { coverUrl: track.coverUrl } : {}),
+  };
+}
+
+export function ytmSearchTrackToQueueTrack(track: YtmSearchTrack): QueueTrack | null {
+  if (!isYtmVideoId(track.videoId)) return null;
+  const artists = namedArtists(track.artists);
+  const albumName = track.album?.name?.trim();
+  return {
+    uri: `ytm:track:${track.videoId}`,
+    name: track.title,
+    artists: artists.length ? artists : [{ name: 'Unknown' }],
+    album: albumName ? { name: albumName } : undefined,
+    length: typeof track.durationSec === 'number' && Number.isFinite(track.durationSec)
+      ? Math.round(track.durationSec * 1000)
+      : undefined,
+    coverUrl: track.thumbnailUrl || undefined,
   };
 }
 

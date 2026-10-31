@@ -12,9 +12,13 @@ import useTidalAuth from './useTidalAuth';
 
 const currentTidalData = ref<any>(null);
 
-export function currentPlaybackArtwork() {
+function queueCoverUrl(track?: QueueTrack | null) {
+  return track?.coverUrl || null;
+}
+
+export function currentPlaybackArtwork(track?: QueueTrack | null) {
   return {
-    coverUrl: currentTidalData.value?.coverUrl ?? null,
+    coverUrl: currentTidalData.value?.coverUrl || queueCoverUrl(track) || null,
     artistPicture: currentTidalData.value?.artistPicture ?? null,
   };
 }
@@ -41,12 +45,14 @@ export default function useBottomBar() {
   }
   function buildTrack(track: QueueTrack, positionSeconds: number) {
     const duration = (track.length || 0) / 1000;
+    const remoteCover = remote.isRemoteMode.value ? remotePlayback.value.coverUrl : null;
+    const remoteArtistPicture = remote.isRemoteMode.value ? remotePlayback.value.artistPicture : null;
     return {
       title: track.name || t('player.unknownTitle'),
       artist: track.artists?.[0]?.name || t('player.unknownArtist'),
       album: track.album?.name || t('player.unknownAlbum'),
-      coverUrl: (remote.isRemoteMode.value ? remotePlayback.value.coverUrl : null) || currentTidalData.value?.coverUrl || null,
-      artistPicture: (remote.isRemoteMode.value ? remotePlayback.value.artistPicture : null) || currentTidalData.value?.artistPicture || null,
+      coverUrl: remoteCover || currentTidalData.value?.coverUrl || queueCoverUrl(track),
+      artistPicture: remoteArtistPicture || currentTidalData.value?.artistPicture || null,
       duration,
       position: positionSeconds,
       uri: track.uri,
@@ -102,15 +108,19 @@ export default function useBottomBar() {
   watch(
     () => player.currentItem.value?.track.uri,
     (uri, oldUri) => {
-      if (uri) {
-        const uriChanged = uri !== oldUri;
-        const noCachedData = !currentTidalData.value || currentTidalData.value.uri !== uri;
-        if (uriChanged || noCachedData) {
-          currentTidalData.value = null;
-          fetchCurrentTidalData(uri);
-        }
-      } else {
+      if (!uri) {
         currentTidalData.value = null;
+        return;
+      }
+      if (!uri.startsWith('tidal:track:')) {
+        currentTidalData.value = null;
+        return;
+      }
+      const uriChanged = uri !== oldUri;
+      const noCachedData = !currentTidalData.value || currentTidalData.value.uri !== uri;
+      if (uriChanged || noCachedData) {
+        currentTidalData.value = null;
+        fetchCurrentTidalData(uri);
       }
     },
     { immediate: true },

@@ -1,6 +1,6 @@
 import type { NormalizedTrack } from '~/providers/types';
 import { describe, expect, it } from 'vitest';
-import { tidalTrackInfoToQueueTrack, toQueueTrack } from './queueTracks';
+import { tidalTrackInfoToQueueTrack, toQueueTrack, ytmSearchTrackToQueueTrack } from './queueTracks';
 
 function normalizedTrack(overrides: Partial<NormalizedTrack> = {}): NormalizedTrack {
   return {
@@ -59,6 +59,47 @@ describe('queueTracks utils', () => {
     it('should return null without track data', () => {
       expect(tidalTrackInfoToQueueTrack(null)).toBeNull();
       expect(tidalTrackInfoToQueueTrack({ track: null })).toBeNull();
+    });
+  });
+
+  describe('ytmSearchTrackToQueueTrack', () => {
+    it('should map a ytm search track to a queue track', () => {
+      expect(ytmSearchTrackToQueueTrack({
+        videoId: 'dQw4w9WgXcQ',
+        title: 'Never Gonna Give You Up',
+        artists: [{ id: 'a1', name: 'Rick Astley' }],
+        album: { id: 'al1', name: 'Whenever You Need Somebody' },
+        durationSec: 213.4,
+        thumbnailUrl: 'https://img/yt.jpg',
+      })).toEqual({
+        uri: 'ytm:track:dQw4w9WgXcQ',
+        name: 'Never Gonna Give You Up',
+        artists: [{ name: 'Rick Astley' }],
+        album: { name: 'Whenever You Need Somebody' },
+        length: 213400,
+        coverUrl: 'https://img/yt.jpg',
+      });
+    });
+    it('should fall back to Unknown artist and omit optional fields', () => {
+      expect(ytmSearchTrackToQueueTrack({
+        videoId: 'abcdefghijk',
+        title: 'Solo',
+        artists: [],
+      })).toEqual({
+        uri: 'ytm:track:abcdefghijk',
+        name: 'Solo',
+        artists: [{ name: 'Unknown' }],
+        album: undefined,
+        length: undefined,
+        coverUrl: undefined,
+      });
+    });
+    it('should return null for invalid video ids', () => {
+      expect(ytmSearchTrackToQueueTrack({
+        videoId: 'short',
+        title: 'Bad',
+        artists: [{ name: 'X' }],
+      })).toBeNull();
     });
   });
 });

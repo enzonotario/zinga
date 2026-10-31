@@ -1,35 +1,66 @@
 <script lang="ts" setup>
+import type { YtmSearchResults } from '~/composables/useYoutubeMusic';
 import type { SearchResults } from '~/providers/types';
 import { useDebounceFn } from '@vueuse/core';
 import { computed, ref, watch } from 'vue';
+import usePlayer from '~/composables/usePlayer';
 import useProvider from '~/composables/useProvider';
+import useYoutubeMusic from '~/composables/useYoutubeMusic';
+import { ytmSearchTrackToQueueTrack } from '~/utils/queueTracks';
 
 const emit = defineEmits<{ close: [boolean] }>();
 const { t } = useI18n();
 const provider = useProvider();
+const player = usePlayer();
+const ytm = useYoutubeMusic();
 const query = ref('');
 const loading = ref(false);
+const ytmLoading = ref(false);
 const open = ref(false);
 const results = ref<SearchResults>({
   artists: [],
   albums: [],
   tracks: [],
 });
-const performSearch = useDebounceFn(async (searchQuery: string) => {
-  if (!searchQuery.trim() || searchQuery.length < 2) {
-    results.value = { artists: [], albums: [], tracks: [] };
-    return;
-  }
+const ytmResults = ref<YtmSearchResults>({
+  tracks: [],
+  albums: [],
+  artists: [],
+});
+
+const emptyYtm = (): YtmSearchResults => ({ tracks: [], albums: [], artists: [] });
+
+async function searchTidal(searchQuery: string) {
   loading.value = true;
   try {
     results.value = await provider.searchAll(searchQuery, 5);
-  } catch (err) {
-    console.error('Error en búsqueda:', err);
+  } catch {
     results.value = { artists: [], albums: [], tracks: [] };
   } finally {
     loading.value = false;
   }
+}
+
+async function searchYtm(searchQuery: string) {
+  ytmLoading.value = true;
+  try {
+    ytmResults.value = await ytm.search(searchQuery);
+  } catch {
+    ytmResults.value = emptyYtm();
+  } finally {
+    ytmLoading.value = false;
+  }
+}
+
+const performSearch = useDebounceFn(async (searchQuery: string) => {
+  if (!searchQuery.trim() || searchQuery.length < 2) {
+    results.value = { artists: [], albums: [], tracks: [] };
+    ytmResults.value = emptyYtm();
+    return;
+  }
+  await Promise.all([searchTidal(searchQuery), searchYtm(searchQuery)]);
 }, 300);
+
 function leading(src: string | undefined, alt: string, icon: string, square = false) {
   if (!src) return { icon };
   return {
@@ -37,6 +68,16 @@ function leading(src: string | undefined, alt: string, icon: string, square = fa
     ui: square ? { itemLeadingAvatar: 'rounded-sm' } : undefined,
   };
 }
+
+async function playYtmTrack(videoId: string) {
+  const track = ytmResults.value.tracks.find((item) => item.videoId === videoId);
+  if (!track) return;
+  const queueTrack = ytmSearchTrackToQueueTrack(track);
+  if (!queueTrack) return;
+  open.value = false;
+  await player.playTracks([queueTrack]);
+}
+
 defineShortcuts({
   meta_k: () => {
     open.value = !open.value;
@@ -81,6 +122,21 @@ const groups = computed(() => {
       })),
     });
   }
+  if (ytmResults.value.tracks.length > 0) {
+    commandGroups.push({
+      id: 'ytm-tracks',
+      label: t('search.ytmTracks'),
+      items: ytmResults.value.tracks.map((track) => ({
+        id: `ytm-track-${track.videoId}`,
+        label: track.title,
+        suffix: track.artists.map((artist) => artist.name).filter(Boolean).join(', ') || undefined,
+        ...leading(track.thumbnailUrl || undefined, track.title, 'i-heroicons-musical-note', true),
+        onSelect: () => {
+          void playYtmTrack(track.videoId);
+        },
+      })),
+    });
+  }
   return commandGroups;
 });
 function onItemSelect(item: any) {
@@ -90,6 +146,7 @@ watch(open, (isOpen) => {
   if (!isOpen) {
     query.value = '';
     results.value = { artists: [], albums: [], tracks: [] };
+    ytmResults.value = emptyYtm();
     emit('close', true);
   }
 });
@@ -110,7 +167,7 @@ watch(open, (isOpen) => {
       <UCommandPalette
         v-model:search-term="query"
         :groups="groups"
-        :loading="loading"
+        :loading="loading || ytmLoading"
         :placeholder="$t('search.placeholder')"
         :autofocus="true"
         close

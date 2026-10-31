@@ -3,9 +3,9 @@ import { isQueueItem } from './playQueue';
 
 export type RemotePlaybackStatus = 'playing' | 'paused' | 'stopped';
 
-export const REMOTE_COVER_PATH = '/api/playback/cover'
+export const REMOTE_COVER_PATH = '/api/playback/cover';
 
-export type RemoteLyricsStatus = 'loading' | 'missing'
+export type RemoteLyricsStatus = 'loading' | 'missing';
 
 export interface RemoteLyricsSnapshot {
   plain: string | null
@@ -69,31 +69,31 @@ function toQueueItem(item: QueueItem): QueueItem {
 }
 
 function cleanText(value: string | null | undefined): string | null {
-  const text = value?.trim()
-  return text || null
+  const text = value?.trim();
+  return text || null;
 }
 
 export function groupRemoteCredits(credits: { role?: string | null, name?: string | null }[] | null | undefined): RemoteCreditGroup[] {
-  return normalizeCreditGroups((credits ?? []).map(credit => ({
+  return normalizeCreditGroups((credits ?? []).map((credit) => ({
     role: credit.role ?? '',
     names: credit.name ? [credit.name] : [],
-  })))
+  })));
 }
 
 function normalizeCreditGroups(credits?: { role?: string | null, names?: (string | null)[] | null }[] | null): RemoteCreditGroup[] {
-  const grouped: RemoteCreditGroup[] = []
+  const grouped: RemoteCreditGroup[] = [];
   for (const credit of credits ?? []) {
-    const role = cleanText(credit.role)
-    if (!role) continue
+    const role = cleanText(credit.role);
+    if (!role) continue;
     for (const rawName of credit.names ?? []) {
-      const name = cleanText(rawName)
-      if (!name) continue
-      const existing = grouped.find(group => group.role === role)
-      if (!existing) grouped.push({ role, names: [name] })
-      else if (!existing.names.includes(name)) existing.names.push(name)
+      const name = cleanText(rawName);
+      if (!name) continue;
+      const existing = grouped.find((group) => group.role === role);
+      if (!existing) grouped.push({ role, names: [name] });
+      else if (!existing.names.includes(name)) existing.names.push(name);
     }
   }
-  return grouped.slice(0, 12)
+  return grouped.slice(0, 12);
 }
 
 export function buildPlaybackSnapshot(
@@ -106,14 +106,14 @@ export function buildPlaybackSnapshot(
   hasQueue = false,
   pauseAtEnd = false,
 ): RemotePlaybackSnapshot {
-  const coverUrl = artwork?.coverUrl || null
-  const plain = cleanText(lyrics?.plain)
-  const synced = cleanText(lyrics?.synced)
-  const grouped = normalizeCreditGroups(credits)
-  let lyricsSnapshot: RemoteLyricsSnapshot | null = null
-  if (plain || synced) lyricsSnapshot = { plain, synced }
+  const coverUrl = artwork?.coverUrl || null;
+  const plain = cleanText(lyrics?.plain);
+  const synced = cleanText(lyrics?.synced);
+  const grouped = normalizeCreditGroups(credits);
+  let lyricsSnapshot: RemoteLyricsSnapshot | null = null;
+  if (plain || synced) lyricsSnapshot = { plain, synced };
   else if (lyrics?.status === 'loading' || lyrics?.status === 'missing') {
-    lyricsSnapshot = { plain: null, synced: null, status: lyrics.status }
+    lyricsSnapshot = { plain: null, synced: null, status: lyrics.status };
   }
   return {
     state,
@@ -151,31 +151,31 @@ export function buildQueueSnapshot(items: QueueItem[]): QueueItem[] {
 }
 
 function parseLyrics(value: any): RemoteLyricsSnapshot | null {
-  if (!value || typeof value !== 'object') return null
-  const plain = cleanText(typeof value.plain === 'string' ? value.plain : null)
-  const synced = cleanText(typeof value.synced === 'string' ? value.synced : null)
-  const status = value.status === 'loading' || value.status === 'missing' ? value.status : undefined
-  if (plain || synced) return { plain, synced }
-  if (!status) return null
-  return { plain: null, synced: null, status }
+  if (!value || typeof value !== 'object') return null;
+  const plain = cleanText(typeof value.plain === 'string' ? value.plain : null);
+  const synced = cleanText(typeof value.synced === 'string' ? value.synced : null);
+  const status = value.status === 'loading' || value.status === 'missing' ? value.status : undefined;
+  if (plain || synced) return { plain, synced };
+  if (!status) return null;
+  return { plain: null, synced: null, status };
 }
 
 export function remoteLyricsView(lyrics: RemoteLyricsSnapshot | null, hasTrack: boolean): RemoteLyricsView {
-  const plain = lyrics?.plain ?? null
-  const synced = lyrics?.synced ?? null
-  if (plain || synced) return { loading: false, missing: false, plain, synced }
-  if (!hasTrack) return { loading: false, missing: false, plain: null, synced: null }
-  if (lyrics?.status === 'loading') return { loading: true, missing: false, plain: null, synced: null }
-  return { loading: false, missing: true, plain: null, synced: null }
+  const plain = lyrics?.plain ?? null;
+  const synced = lyrics?.synced ?? null;
+  if (plain || synced) return { loading: false, missing: false, plain, synced };
+  if (!hasTrack) return { loading: false, missing: false, plain: null, synced: null };
+  if (lyrics?.status === 'loading') return { loading: true, missing: false, plain: null, synced: null };
+  return { loading: false, missing: true, plain: null, synced: null };
 }
 
 export function parsePlaybackSnapshot(data: any): RemotePlayback {
   const state = STATUSES.includes(data?.state) ? data.state : 'stopped';
   const position = Number(data?.position);
-  const coverUrl = typeof data?.coverUrl === 'string' && data.coverUrl ? data.coverUrl : null
+  const coverUrl = typeof data?.coverUrl === 'string' && data.coverUrl ? data.coverUrl : null;
   const coverPath = typeof data?.coverPath === 'string' && data.coverPath.startsWith('/')
     ? data.coverPath
-    : (coverUrl ? REMOTE_COVER_PATH : null)
+    : (coverUrl ? REMOTE_COVER_PATH : null);
   return {
     state,
     positionSec: Number.isFinite(position) && position > 0 ? position / 1000 : 0,
@@ -189,13 +189,13 @@ export function parsePlaybackSnapshot(data: any): RemotePlayback {
 }
 
 function parseCredits(value: any): RemoteCreditGroup[] | null {
-  if (!Array.isArray(value)) return null
+  if (!Array.isArray(value)) return null;
   const grouped = groupRemoteCredits(value.flatMap((row) => {
-    const role = typeof row?.role === 'string' ? row.role : ''
-    const names = Array.isArray(row?.names) ? row.names : []
-    return names.map((name: unknown) => ({ role, name: typeof name === 'string' ? name : '' }))
-  }))
-  return grouped.length ? grouped : null
+    const role = typeof row?.role === 'string' ? row.role : '';
+    const names = Array.isArray(row?.names) ? row.names : [];
+    return names.map((name: unknown) => ({ role, name: typeof name === 'string' ? name : '' }));
+  }));
+  return grouped.length ? grouped : null;
 }
 
 export function parseDevicesSnapshot(data: any): RemoteDevicesSnapshot {

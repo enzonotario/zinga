@@ -4,6 +4,7 @@ export interface QueueTrack {
   artists: { name: string }[]
   album?: { name: string, uri?: string }
   length?: number
+  coverUrl?: string
 }
 
 export interface QueueItem {
@@ -86,6 +87,7 @@ export function queueTracksFromRemote(value: unknown): QueueTrack[] {
       artists: item.artists.filter((artist) => artist?.name).map((artist) => ({ name: artist.name })),
       album: albumName ? { name: albumName, uri: item.album?.uri } : undefined,
       length: typeof item.length === 'number' ? item.length : undefined,
+      coverUrl: typeof item.coverUrl === 'string' && item.coverUrl ? item.coverUrl : undefined,
     }];
   });
 }

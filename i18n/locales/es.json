@@ -222,7 +222,30 @@
       "tidalPlaybackComplete": "Completar",
       "tidalPlaybackReopen": "Abrir de nuevo",
       "tidalPlaybackInvalidUrl": "La dirección no es válida. Pegá la URL completa de la página 'Oops' de TIDAL; empieza con https://tidal.com/android/login/auth?code=",
-      "tidalPlaybackExpired": "El inicio de sesión expiró. Tocá 'Abrir de nuevo' y repetí los pasos."
+      "tidalPlaybackExpired": "El inicio de sesión expiró. Tocá 'Abrir de nuevo' y repetí los pasos.",
+      "ytmPlayback": "YouTube Music",
+      "ytmPlaybackDescription": "Buscá y reproducí temas de YouTube Music en tus dispositivos UPnP.",
+      "ytmPlaybackNote": "Con cookies de una cuenta Premium obtenés audio de hasta ~256 kbps. Sin Premium, la calidad queda alrededor de 128–160 kbps.",
+      "ytmConnect": "Conectar",
+      "ytmDisconnect": "Desconectar",
+      "ytmImportFile": "Importar cookies.txt",
+      "ytmPickCookiesFile": "Elegí un archivo cookies.txt",
+      "ytmConnectHint": "El navegador tiene que estar iniciado sesión en music.youtube.com. En Chromium puede hacer falta cerrarlo para poder leer las cookies.",
+      "ytmBrowserSelect": "Navegador",
+      "ytmBrowserLabel": "Navegador: {browser}",
+      "ytmError": "No se pudo conectar YouTube Music",
+      "ytmYtdlpVersion": "yt-dlp {version}",
+      "ytmYtdlpMissing": "yt-dlp todavía no está listo",
+      "ytmYtdlpUpdate": "Actualizar yt-dlp",
+      "ytmBrowser": {
+        "chrome": "Chrome",
+        "chromium": "Chromium",
+        "brave": "Brave",
+        "firefox": "Firefox",
+        "edge": "Edge",
+        "opera": "Opera",
+        "vivaldi": "Vivaldi"
+      }
     },
     "notFound": {
       "title": "Página no encontrada",
@@ -343,7 +366,9 @@
     "pauseAtEnd": "Pausar al finalizar tema",
     "pauseAtEndActive": "Pausa programada — clic para cancelar",
     "playbackError": "Error de reproducción",
-    "tidalPlaybackNotConnected": "Conectá la reproducción de TIDAL en Configuración > Reproducción para reproducir temas de TIDAL."
+    "tidalPlaybackNotConnected": "Conectá la reproducción de TIDAL en Configuración > Reproducción para reproducir temas de TIDAL.",
+    "ytmNotConnected": "Conectá YouTube Music en Configuración > Reproducción (cookies de music.youtube.com) para reproducir este tema.",
+    "ytmYtdlpMissing": "Falta yt-dlp. Abrí Configuración > Reproducción y actualizá yt-dlp."
   },
   "auth": {
     "login": "Iniciar sesión",
@@ -369,7 +394,8 @@
     "noResults": "No se encontraron resultados",
     "artists": "Artistas",
     "albums": "Álbumes",
-    "tracks": "Canciones"
+    "tracks": "Canciones",
+    "ytmTracks": "YouTube Music · Canciones"
   },
   "queue": {
     "empty": "La cola está vacía",

@@ -222,7 +222,30 @@
       "tidalPlaybackComplete": "Complete",
       "tidalPlaybackReopen": "Open again",
       "tidalPlaybackInvalidUrl": "That address is not valid. Paste the full URL of the TIDAL 'Oops' page; it starts with https://tidal.com/android/login/auth?code=",
-      "tidalPlaybackExpired": "The login expired. Click 'Open again' and repeat the steps."
+      "tidalPlaybackExpired": "The login expired. Click 'Open again' and repeat the steps.",
+      "ytmPlayback": "YouTube Music",
+      "ytmPlaybackDescription": "Search and play YouTube Music tracks on your UPnP devices.",
+      "ytmPlaybackNote": "Premium account cookies unlock audio up to ~256 kbps. Without Premium, quality stays around 128–160 kbps.",
+      "ytmConnect": "Connect",
+      "ytmDisconnect": "Disconnect",
+      "ytmImportFile": "Import cookies.txt",
+      "ytmPickCookiesFile": "Choose a cookies.txt file",
+      "ytmConnectHint": "The browser must be signed in to music.youtube.com. Chromium-based browsers may need to be closed so cookies can be decrypted.",
+      "ytmBrowserSelect": "Browser",
+      "ytmBrowserLabel": "Browser: {browser}",
+      "ytmError": "Could not connect YouTube Music",
+      "ytmYtdlpVersion": "yt-dlp {version}",
+      "ytmYtdlpMissing": "yt-dlp is not ready yet",
+      "ytmYtdlpUpdate": "Update yt-dlp",
+      "ytmBrowser": {
+        "chrome": "Chrome",
+        "chromium": "Chromium",
+        "brave": "Brave",
+        "firefox": "Firefox",
+        "edge": "Edge",
+        "opera": "Opera",
+        "vivaldi": "Vivaldi"
+      }
     },
     "notFound": {
       "title": "Page not found",
@@ -343,7 +366,9 @@
     "pauseAtEnd": "Pause at end of track",
     "pauseAtEndActive": "Pause scheduled — click to cancel",
     "playbackError": "Playback error",
-    "tidalPlaybackNotConnected": "Connect TIDAL playback in Settings > Playback to play TIDAL tracks."
+    "tidalPlaybackNotConnected": "Connect TIDAL playback in Settings > Playback to play TIDAL tracks.",
+    "ytmNotConnected": "Connect YouTube Music in Settings > Playback (music.youtube.com cookies) to play this track.",
+    "ytmYtdlpMissing": "yt-dlp is missing. Open Settings > Playback and update yt-dlp."
   },
   "auth": {
     "login": "Log in",
@@ -369,7 +394,8 @@
     "noResults": "No results found",
     "artists": "Artists",
     "albums": "Albums",
-    "tracks": "Songs"
+    "tracks": "Songs",
+    "ytmTracks": "YouTube Music · Songs"
   },
   "queue": {
     "empty": "The queue is empty",

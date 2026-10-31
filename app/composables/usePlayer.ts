@@ -217,6 +217,14 @@ export default function usePlayer() {
           toast.add({ title: t('player.tidalPlaybackNotConnected'), color: 'warning', duration: 8000 });
           return;
         }
+        if (message.includes('YTM_NOT_CONNECTED')) {
+          toast.add({ title: t('player.ytmNotConnected'), color: 'warning', duration: 8000 });
+          return;
+        }
+        if (message.includes('YTM_YTDLP_MISSING')) {
+          toast.add({ title: t('player.ytmYtdlpMissing'), color: 'error', duration: 8000 });
+          return;
+        }
         toast.add({ title: t('player.playbackError'), description: message, color: 'error', duration: 8000 });
       });
       watch(selectedDeviceId, async (newId) => {
