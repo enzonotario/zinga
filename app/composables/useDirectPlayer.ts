@@ -147,7 +147,8 @@ async function prepareSource(source: StreamSource): Promise<PreparedSource> {
     return source;
   }
   if (source.kind === 'ytm') {
-    await invoke('ytm_prepare_stream', { videoId: source.id });
+    const durationSec = await invoke<number | null>('ytm_prepare_stream', { videoId: source.id });
+    if (durationSec) usePlayQueue().setLength(`ytm:track:${source.id}`, durationSec * 1000);
     return source;
   }
   const token = await invoke<string>('direct_register_file', { path: source.path });
@@ -394,8 +395,21 @@ export default function useDirectPlayer() {
     const deviceId = directDeviceId.value;
     if (!deviceId) return;
     const renderer = adapterFor(deviceId);
+    const currentSource = getStreamSource(playingItem.value?.track?.uri);
     const next = stopAfterCurrent.value ? undefined : getNextItem();
     const nextSource = getStreamSource(next?.track.uri);
+    // YTM HTTP progressive streams fire GStreamer about-to-finish far too early.
+    if (currentSource?.kind === 'ytm' || nextSource?.kind === 'ytm') {
+      if (nextQueuedTlid != null) {
+        nextQueuedTlid = undefined;
+        try {
+          await renderer.setNext(deviceId, null, null);
+        } catch (err) {
+          console.error('Direct playback clear next error:', err);
+        }
+      }
+      return;
+    }
     const targetTlid = next && nextSource ? next.tlid : null;
     if (targetTlid === nextQueuedTlid) return;
     nextQueuedTlid = targetTlid;

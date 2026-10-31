@@ -77,6 +77,18 @@ export function setMissingLength(state: QueueState, uri: string, lengthMs: numbe
   return changed ? { ...state, items } : state;
 }
 
+export function setTrackLength(state: QueueState, uri: string, lengthMs: number): QueueState {
+  if (!Number.isFinite(lengthMs) || lengthMs <= 0) return state;
+  const rounded = Math.round(lengthMs);
+  let changed = false;
+  const items = state.items.map((item) => {
+    if (item.track.uri !== uri || item.track.length === rounded) return item;
+    changed = true;
+    return { ...item, track: { ...item.track, length: rounded } };
+  });
+  return changed ? { ...state, items } : state;
+}
+
 export function clearItems(state: QueueState): QueueState {
   return { ...state, items: [], currentTlid: null };
 }

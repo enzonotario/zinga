@@ -1,6 +1,6 @@
 import type { QueueTrack } from './playQueue';
 import { describe, expect, it } from 'vitest';
-import { addTracks, clearItems, createQueueState, parseQueueState, queueTracksFromRemote, removeItem, replaceTracks, setCurrentItem, setMissingLength } from './playQueue';
+import { addTracks, clearItems, createQueueState, parseQueueState, queueTracksFromRemote, removeItem, replaceTracks, setCurrentItem, setMissingLength, setTrackLength } from './playQueue';
 
 function track(id: number): QueueTrack {
   return { uri: `tidal:track:${id}`, name: `Track ${id}`, artists: [{ name: 'Artist' }], length: 1000 };
@@ -21,6 +21,16 @@ describe('playQueue utils', () => {
       const { state } = addTracks(createQueueState(), [{ uri: 'x', name: 'X', artists: [], length: 5 }]);
       expect(setMissingLength(state, 'x', 10)).toBe(state);
       expect(setMissingLength(state, 'y', 0)).toBe(state);
+    });
+  });
+
+  describe('setTrackLength', () => {
+    it('should overwrite a wrong shelf duration with the resolved stream length', () => {
+      const { state } = addTracks(createQueueState(), [
+        { uri: 'ytm:track:aaaaaaaaaaa', name: 'A', artists: [], length: 30000 },
+      ]);
+      const next = setTrackLength(state, 'ytm:track:aaaaaaaaaaa', 245000.4);
+      expect(next.items[0]?.track.length).toBe(245000);
     });
   });
   describe('queueTracksFromRemote', () => {

@@ -1,7 +1,7 @@
 import type { QueueState, QueueTrack } from '~/utils/playQueue';
 import { invoke } from '@tauri-apps/api/core';
 import { computed, shallowRef, watch } from 'vue';
-import { addTracks, clearItems, createQueueState, parseQueueState, removeItem, replaceTracks, setCurrentItem, setMissingLength } from '~/utils/playQueue';
+import { addTracks, clearItems, createQueueState, parseQueueState, removeItem, replaceTracks, setCurrentItem, setTrackLength } from '~/utils/playQueue';
 import { parsePlaybackSnapshot, parseQueueSnapshot } from '~/utils/remoteSnapshot';
 import useRemoteClient from './useRemoteClient';
 
@@ -23,15 +23,15 @@ const durationLookups = new Set<string>();
 let durationFillRunning = false;
 
 function setLength(uri: string, lengthMs: number) {
-  state.value = setMissingLength(state.value, uri, lengthMs);
+  state.value = setTrackLength(state.value, uri, lengthMs);
 }
 
-// YouTube shelves often omit durations; resolving the stream yields it and warms the stream cache
+// Shelf durations are often missing or wrong; yt-dlp duration is authoritative once resolved
 async function fillMissingYtmDurations() {
   if (durationFillRunning || remote.isRemoteMode.value) return;
   durationFillRunning = true;
   try {
-    let next = state.value.items.find((item) => item.track.uri.startsWith(YTM_URI_PREFIX) && !item.track.length && !durationLookups.has(item.track.uri));
+    let next = state.value.items.find((item) => item.track.uri.startsWith(YTM_URI_PREFIX) && !durationLookups.has(item.track.uri));
     while (next) {
       const uri = next.track.uri;
       durationLookups.add(uri);
@@ -41,7 +41,7 @@ async function fillMissingYtmDurations() {
       } catch (err) {
         console.error('YouTube Music duration lookup error:', err);
       }
-      next = state.value.items.find((item) => item.track.uri.startsWith(YTM_URI_PREFIX) && !item.track.length && !durationLookups.has(item.track.uri));
+      next = state.value.items.find((item) => item.track.uri.startsWith(YTM_URI_PREFIX) && !durationLookups.has(item.track.uri));
     }
   } finally {
     durationFillRunning = false;
@@ -95,5 +95,6 @@ export default function usePlayQueue() {
     remove,
     clear,
     setCurrent,
+    setLength,
   };
 }
