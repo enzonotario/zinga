@@ -1,11 +1,14 @@
 <script lang="ts" setup>
 import type { YtmArtistAlbum, YtmArtistDetail, YtmVideo } from '~/composables/useYoutubeMusic';
+import type { QueueTrack } from '~/utils/playQueue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import useAppBackground from '~/composables/useAppBackground';
 import useDevices from '~/composables/useDevices';
+import useItemSelection from '~/composables/useItemSelection';
 import usePlayer from '~/composables/usePlayer';
 import useYoutubeMusic from '~/composables/useYoutubeMusic';
 import { ytmTopSongToQueueTrack, ytmVideoToQueueTrack } from '~/utils/queueTracks';
+import { orderedSelectedItems } from '~/utils/selection';
 
 interface Props {
   artistId: string
@@ -17,6 +20,14 @@ const ytm = useYoutubeMusic();
 const player = usePlayer();
 const { selectedDeviceId } = useDevices();
 const { setPageBackground, clearPageBackground } = useAppBackground();
+const {
+  selectedIds,
+  sectionId,
+  count: selectionCount,
+  clear: clearSelection,
+  isSelected,
+  handleClick,
+} = useItemSelection();
 
 const loading = ref(false);
 const playing = ref(false);
@@ -71,12 +82,16 @@ const currentPlayingVideoId = computed(() => {
   return uri.slice('ytm:track:'.length);
 });
 
+const topSongIds = computed(() => (artist.value?.topSongs || []).map((song) => song.videoId));
+const allVideoIds = computed(() => allVideos.value.map((video) => video.videoId));
+
 async function loadArtist() {
   loading.value = true;
   error.value = null;
   artist.value = null;
   allVideos.value = [];
   showAllVideosModal.value = false;
+  clearSelection();
   try {
     artist.value = await ytm.getArtist(props.artistId);
   } catch (err) {
@@ -86,19 +101,18 @@ async function loadArtist() {
   }
 }
 
-async function playTopSong(index: number) {
+async function playQueueTracks(tracks: QueueTrack[]) {
   if (!selectedDeviceId.value) {
     actionError.value = t('album.noPlaybackDevice');
     return;
   }
-  const tracks = (artist.value?.topSongs || [])
-    .map((song) => ytmTopSongToQueueTrack(song))
-    .filter((track): track is NonNullable<typeof track> => track != null);
   if (!tracks.length) return;
   playing.value = true;
   actionError.value = null;
   try {
-    await player.playTracks(tracks, index);
+    await player.playTracks(tracks);
+    showAllVideosModal.value = false;
+    clearSelection();
     await navigateTo('/');
   } catch (err) {
     actionError.value = err instanceof Error ? err.message : t('album.playbackError');
@@ -107,26 +121,76 @@ async function playTopSong(index: number) {
   }
 }
 
-async function playVideos(items: YtmVideo[], index: number) {
+function topSongTrackAt(index: number) {
+  const song = artist.value?.topSongs[index];
+  return song ? ytmTopSongToQueueTrack(song) : null;
+}
+
+function videoTracks(items: YtmVideo[]) {
+  return items
+    .map((video) => ytmVideoToQueueTrack(video))
+    .filter((track): track is NonNullable<typeof track> => track != null);
+}
+
+async function onTopSongClick(event: MouseEvent, index: number) {
+  const kind = handleClick(event, 'top-songs', topSongIds.value, index);
+  if (kind !== 'play') return;
+  const track = topSongTrackAt(index);
+  if (!track) return;
+  await playQueueTracks([track]);
+}
+
+async function onVideoClick(event: MouseEvent, sectionKey: string, items: YtmVideo[], index: number) {
+  const ids = items.map((video) => video.videoId);
+  const kind = handleClick(event, sectionKey, ids, index);
+  if (kind !== 'play') return;
+  const video = items[index];
+  if (!video) return;
+  const track = ytmVideoToQueueTrack(video);
+  if (!track) return;
+  await playQueueTracks([track]);
+}
+
+async function onAllVideoClick(event: MouseEvent, index: number) {
+  const kind = handleClick(event, 'all-videos', allVideoIds.value, index);
+  if (kind !== 'play') return;
+  const video = allVideos.value[index];
+  if (!video) return;
+  const track = ytmVideoToQueueTrack(video);
+  if (!track) return;
+  await playQueueTracks([track]);
+}
+
+function selectedQueueTracks(): QueueTrack[] {
+  const section = sectionId.value;
+  if (!section) return [];
+  if (section === 'top-songs') {
+    return orderedSelectedItems(artist.value?.topSongs || [], selectedIds.value, (song) => song.videoId)
+      .map((song) => ytmTopSongToQueueTrack(song))
+      .filter((track): track is NonNullable<typeof track> => track != null);
+  }
+  if (section === 'all-videos') {
+    return videoTracks(orderedSelectedItems(allVideos.value, selectedIds.value, (video) => video.videoId));
+  }
+  const videoSection = videoSections.value.find((item) => item.key === section);
+  if (!videoSection) return [];
+  return videoTracks(orderedSelectedItems(videoSection.items, selectedIds.value, (video) => video.videoId));
+}
+
+async function playSelection() {
+  await playQueueTracks(selectedQueueTracks());
+}
+
+function queueSelection() {
   if (!selectedDeviceId.value) {
     actionError.value = t('album.noPlaybackDevice');
     return;
   }
-  const tracks = items
-    .map((video) => ytmVideoToQueueTrack(video))
-    .filter((track): track is NonNullable<typeof track> => track != null);
+  const tracks = selectedQueueTracks();
   if (!tracks.length) return;
-  playing.value = true;
   actionError.value = null;
-  try {
-    await player.playTracks(tracks, index);
-    showAllVideosModal.value = false;
-    await navigateTo('/');
-  } catch (err) {
-    actionError.value = err instanceof Error ? err.message : t('album.playbackError');
-  } finally {
-    playing.value = false;
-  }
+  player.addTracks(tracks);
+  clearSelection();
 }
 
 async function openAllVideos() {
@@ -144,6 +208,12 @@ async function openAllVideos() {
   } finally {
     loadingAllVideos.value = false;
   }
+}
+
+function itemSelectedClass(section: string, id: string) {
+  return isSelected(section, id)
+    ? 'ring-2 ring-primary bg-primary/10'
+    : '';
 }
 
 onMounted(() => loadArtist());
@@ -228,12 +298,15 @@ onUnmounted(() => clearPageBackground());
             v-for="(song, index) in artist.topSongs"
             :key="song.videoId"
             type="button"
-            class="flex items-center gap-4 px-4 py-3 text-left hover:bg-accented/40 transition-colors disabled:opacity-50"
-            :class="currentPlayingVideoId === song.videoId ? 'bg-primary/5' : ''"
+            class="relative flex items-center gap-4 px-4 py-3 text-left hover:bg-accented/40 transition-colors disabled:opacity-50"
+            :class="[
+              currentPlayingVideoId === song.videoId ? 'bg-primary/5' : '',
+              itemSelectedClass('top-songs', song.videoId),
+            ]"
             :disabled="!selectedDeviceId || playing"
-            @click="playTopSong(index)"
+            @click="onTopSongClick($event, index)"
           >
-            <div class="w-10 h-10 shrink-0 rounded overflow-hidden bg-accented/50">
+            <div class="relative w-10 h-10 shrink-0 rounded overflow-hidden bg-accented/50">
               <img
                 v-if="song.thumbnailUrl"
                 :src="song.thumbnailUrl"
@@ -245,6 +318,12 @@ onUnmounted(() => clearPageBackground());
                 class="w-full h-full flex items-center justify-center"
               >
                 <UIcon name="i-heroicons-musical-note" class="w-5 h-5 text-muted" />
+              </div>
+              <div
+                v-if="isSelected('top-songs', song.videoId)"
+                class="absolute inset-0 bg-primary/40 flex items-center justify-center"
+              >
+                <UIcon name="i-heroicons-check" class="w-5 h-5 text-white" />
               </div>
             </div>
             <div class="flex-1 min-w-0">
@@ -286,12 +365,15 @@ onUnmounted(() => clearPageBackground());
             v-for="(video, index) in section.items"
             :key="`${section.key}-${video.videoId}`"
             type="button"
-            class="flex flex-col gap-2 w-44 shrink-0 text-left rounded-lg p-2 hover:bg-accented/40 transition-colors disabled:opacity-50"
-            :class="currentPlayingVideoId === video.videoId ? 'ring-2 ring-primary' : ''"
+            class="relative flex flex-col gap-2 w-44 shrink-0 text-left rounded-lg p-2 hover:bg-accented/40 transition-colors disabled:opacity-50"
+            :class="[
+              currentPlayingVideoId === video.videoId ? 'ring-2 ring-primary' : '',
+              itemSelectedClass(section.key, video.videoId),
+            ]"
             :disabled="!selectedDeviceId || playing"
-            @click="playVideos(section.items, index)"
+            @click="onVideoClick($event, section.key, section.items, index)"
           >
-            <div class="aspect-video w-full rounded-md overflow-hidden bg-accented/50">
+            <div class="relative aspect-video w-full rounded-md overflow-hidden bg-accented/50">
               <img
                 v-if="video.thumbnailUrl"
                 :src="video.thumbnailUrl"
@@ -303,6 +385,12 @@ onUnmounted(() => clearPageBackground());
                 class="w-full h-full flex items-center justify-center"
               >
                 <UIcon name="i-heroicons-film" class="w-8 h-8 text-muted" />
+              </div>
+              <div
+                v-if="isSelected(section.key, video.videoId)"
+                class="absolute inset-0 bg-primary/40 flex items-center justify-center"
+              >
+                <UIcon name="i-heroicons-check" class="w-8 h-8 text-white" />
               </div>
             </div>
             <div class="min-w-0 space-y-1">
@@ -413,11 +501,12 @@ onUnmounted(() => clearPageBackground());
               v-for="(video, index) in allVideos"
               :key="video.videoId"
               type="button"
-              class="flex items-start gap-3 text-left rounded-lg p-2 hover:bg-accented/40 transition-colors disabled:opacity-50"
+              class="relative flex items-start gap-3 text-left rounded-lg p-2 hover:bg-accented/40 transition-colors disabled:opacity-50"
+              :class="itemSelectedClass('all-videos', video.videoId)"
               :disabled="!selectedDeviceId || playing"
-              @click="playVideos(allVideos, index)"
+              @click="onAllVideoClick($event, index)"
             >
-              <div class="aspect-video w-28 shrink-0 rounded-md overflow-hidden bg-accented/50">
+              <div class="relative aspect-video w-28 shrink-0 rounded-md overflow-hidden bg-accented/50">
                 <img
                   v-if="video.thumbnailUrl"
                   :src="video.thumbnailUrl"
@@ -429,6 +518,12 @@ onUnmounted(() => clearPageBackground());
                   class="w-full h-full flex items-center justify-center"
                 >
                   <UIcon name="i-heroicons-film" class="w-6 h-6 text-muted" />
+                </div>
+                <div
+                  v-if="isSelected('all-videos', video.videoId)"
+                  class="absolute inset-0 bg-primary/40 flex items-center justify-center"
+                >
+                  <UIcon name="i-heroicons-check" class="w-6 h-6 text-white" />
                 </div>
               </div>
               <div class="min-w-0">
@@ -444,5 +539,14 @@ onUnmounted(() => clearPageBackground());
         </UCard>
       </template>
     </UModal>
+
+    <UiSelectionActionBar
+      :count="selectionCount"
+      :disabled="!selectedDeviceId"
+      :playing="playing"
+      @play="playSelection"
+      @queue="queueSelection"
+      @clear="clearSelection"
+    />
   </div>
 </template>

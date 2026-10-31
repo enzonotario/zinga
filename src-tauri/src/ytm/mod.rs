@@ -6,7 +6,7 @@ pub(crate) mod search;
 pub(crate) mod stream;
 pub(crate) mod ytdlp;
 
-pub use stream::resolve_stream;
+pub use stream::{resolve_stream, resolve_video};
 pub use ytdlp::ensure_ytdlp;
 
 #[tauri::command]
@@ -14,6 +14,21 @@ pub async fn ytm_ytdlp_update() -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(ytdlp::ytdlp_update)
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn ytm_resolve_video(video_id: String) -> Result<stream::YtmVideoInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let resolved = resolve_video(&video_id)?;
+        Ok(stream::YtmVideoInfo {
+            width: resolved.width,
+            height: resolved.height,
+            itag: resolved.itag,
+            vcodec: resolved.vcodec,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 use std::path::PathBuf;
@@ -61,7 +76,7 @@ pub(crate) fn is_valid_video_id(id: &str) -> bool {
 mod tests {
     use super::*;
     use crate::ytm::cookies::{cookie_file_connected, youtube_cookies_only};
-    use crate::ytm::stream::{parse_ytdlp_json, resolve_stream};
+    use crate::ytm::stream::{parse_ytdlp_json, parse_ytdlp_video_json, resolve_stream, resolve_video};
     use crate::ytm::ytdlp::{ensure_ytdlp, normalize_browser};
 
     #[test]
@@ -306,6 +321,65 @@ music.youtube.com\tFALSE\t/\tTRUE\t0\tPREF\tx\n\
             "resolved itag={} codec={} abr={}",
             resolved.itag, resolved.codec, resolved.abr
         );
+    }
+
+    #[test]
+    fn parses_ytdlp_video_json() {
+        let json = r#"{
+          "requested_downloads": [{
+            "url": "https://googlevideo.example/videoplayback",
+            "format_id": "137",
+            "vcodec": "avc1.640028",
+            "width": 1920,
+            "height": 1080,
+            "http_headers": { "User-Agent": "UA" }
+          }]
+        }"#;
+        let resolved = parse_ytdlp_video_json(json).expect("parse");
+        assert_eq!(resolved.itag, "137");
+        assert_eq!(resolved.vcodec, "avc1.640028");
+        assert_eq!(resolved.width, 1920);
+        assert_eq!(resolved.height, 1080);
+    }
+
+    #[test]
+    #[ignore = "live network: resolve progressive H.264 video for aoRaUT9G8Hc"]
+    fn live_resolve_video_sample() {
+        let dir = dirs_fallback();
+        let _ = std::fs::create_dir_all(dir.join("bin"));
+        let _ = DATA_DIR.set(dir);
+        ensure_ytdlp().expect("ensure yt-dlp");
+        let resolved = resolve_video("aoRaUT9G8Hc").expect("resolve video");
+        println!(
+            "itag={} vcodec={} height={}",
+            resolved.itag, resolved.vcodec, resolved.height
+        );
+        assert!(!resolved.url.is_empty());
+        assert!(!resolved.url.contains(".m3u8"));
+
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            let client = client::reqwest_http1_client().expect("client");
+            let mut head = client.head(&resolved.url);
+            let mut get = client.get(&resolved.url).header("Range", "bytes=0-1023");
+            for (key, value) in &resolved.http_headers {
+                head = head.header(key, value);
+                get = get.header(key, value);
+            }
+            let head_res = head.send().await.expect("head");
+            println!(
+                "upstream HEAD status={} content-type={:?}",
+                head_res.status(),
+                head_res.headers().get("content-type")
+            );
+            assert!(head_res.status().is_success() || head_res.status().as_u16() == 206);
+            let get_res = get.send().await.expect("range get");
+            let status = get_res.status().as_u16();
+            let len = get_res.bytes().await.expect("bytes").len();
+            println!("upstream Range GET status={status} bytes={len}");
+            assert!(status == 206 || status == 200);
+            assert!(len > 0 && len <= 1024);
+        });
     }
 
     fn dirs_fallback() -> PathBuf {

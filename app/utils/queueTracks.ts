@@ -92,6 +92,7 @@ export function ytmVideoToQueueTrack(video: YtmVideo): QueueTrack | null {
       ? Math.round(video.durationSec * 1000)
       : undefined,
     coverUrl: video.thumbnailUrl || undefined,
+    isVideo: true,
   };
 }
 

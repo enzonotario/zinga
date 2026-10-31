@@ -3,9 +3,11 @@ import type { YtmAlbumDetail } from '~/composables/useYoutubeMusic';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import useAppBackground from '~/composables/useAppBackground';
 import useDevices from '~/composables/useDevices';
+import useItemSelection from '~/composables/useItemSelection';
 import usePlayer from '~/composables/usePlayer';
 import useYoutubeMusic from '~/composables/useYoutubeMusic';
 import { ytmAlbumTrackToQueueTrack } from '~/utils/queueTracks';
+import { orderedSelectedItems } from '~/utils/selection';
 import { formatTime, formatTimeHHMMSS } from '~/utils/time';
 
 interface Props {
@@ -18,6 +20,13 @@ const ytm = useYoutubeMusic();
 const player = usePlayer();
 const { selectedDeviceId } = useDevices();
 const { setPageBackground, clearPageBackground } = useAppBackground();
+const {
+  selectedIds,
+  count: selectionCount,
+  clear: clearSelection,
+  isSelected,
+  handleClick,
+} = useItemSelection();
 
 const loading = ref(false);
 const playing = ref(false);
@@ -31,6 +40,8 @@ const queueTracks = computed(() => {
     .map((track) => ytmAlbumTrackToQueueTrack(track, album.value!))
     .filter((track): track is NonNullable<typeof track> => track != null);
 });
+
+const trackIds = computed(() => (album.value?.tracks || []).map((track) => track.videoId));
 
 const totalDurationFormatted = computed(() => {
   const seconds = album.value?.tracks.reduce((sum, track) => sum + (track.durationSec || 0), 0) || 0;
@@ -72,12 +83,58 @@ async function playFrom(index = 0) {
   actionError.value = null;
   try {
     await player.playTracks(queueTracks.value, index);
+    clearSelection();
     await navigateTo('/');
   } catch (err) {
     actionError.value = err instanceof Error ? err.message : t('album.playbackError');
   } finally {
     playing.value = false;
   }
+}
+
+async function onTrackClick(event: MouseEvent, index: number) {
+  const kind = handleClick(event, 'album-tracks', trackIds.value, index);
+  if (kind !== 'play') return;
+  await playFrom(index);
+}
+
+function selectedQueueTracks() {
+  if (!album.value) return [];
+  return orderedSelectedItems(album.value.tracks, selectedIds.value, (track) => track.videoId)
+    .map((track) => ytmAlbumTrackToQueueTrack(track, album.value!))
+    .filter((track): track is NonNullable<typeof track> => track != null);
+}
+
+async function playSelection() {
+  const tracks = selectedQueueTracks();
+  if (!selectedDeviceId.value) {
+    actionError.value = t('album.noPlaybackDevice');
+    return;
+  }
+  if (!tracks.length) return;
+  playing.value = true;
+  actionError.value = null;
+  try {
+    await player.playTracks(tracks);
+    clearSelection();
+    await navigateTo('/');
+  } catch (err) {
+    actionError.value = err instanceof Error ? err.message : t('album.playbackError');
+  } finally {
+    playing.value = false;
+  }
+}
+
+function queueSelection() {
+  if (!selectedDeviceId.value) {
+    actionError.value = t('album.noPlaybackDevice');
+    return;
+  }
+  const tracks = selectedQueueTracks();
+  if (!tracks.length) return;
+  actionError.value = null;
+  player.addTracks(tracks);
+  clearSelection();
 }
 
 function addToQueue() {
@@ -218,14 +275,22 @@ onUnmounted(() => clearPageBackground());
             v-for="(track, index) in album.tracks"
             :key="track.videoId"
             type="button"
-            class="flex items-center gap-4 px-4 py-3 text-left hover:bg-accented/40 transition-colors disabled:opacity-50"
-            :class="currentPlayingVideoId === track.videoId ? 'bg-primary/5' : ''"
+            class="relative flex items-center gap-4 px-4 py-3 text-left hover:bg-accented/40 transition-colors disabled:opacity-50"
+            :class="[
+              currentPlayingVideoId === track.videoId ? 'bg-primary/5' : '',
+              isSelected('album-tracks', track.videoId) ? 'ring-2 ring-primary bg-primary/10' : '',
+            ]"
             :disabled="!selectedDeviceId || playing"
-            @click="playFrom(index)"
+            @click="onTrackClick($event, index)"
           >
-            <div class="flex items-center justify-center w-8 h-8 shrink-0 rounded-full bg-accented/50">
+            <div class="relative flex items-center justify-center w-8 h-8 shrink-0 rounded-full bg-accented/50">
               <UIcon
-                v-if="currentPlayingVideoId === track.videoId && player.isPlaying.value"
+                v-if="isSelected('album-tracks', track.videoId)"
+                name="i-heroicons-check"
+                class="w-4 h-4 text-primary"
+              />
+              <UIcon
+                v-else-if="currentPlayingVideoId === track.videoId && player.isPlaying.value"
                 name="i-heroicons-play"
                 class="w-4 h-4 text-primary animate-pulse"
               />
@@ -254,5 +319,14 @@ onUnmounted(() => clearPageBackground());
         </div>
       </UCard>
     </div>
+
+    <UiSelectionActionBar
+      :count="selectionCount"
+      :disabled="!selectedDeviceId"
+      :playing="playing"
+      @play="playSelection"
+      @queue="queueSelection"
+      @clear="clearSelection"
+    />
   </div>
 </template>

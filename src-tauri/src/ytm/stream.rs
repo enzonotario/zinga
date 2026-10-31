@@ -1,19 +1,26 @@
 use crate::ytm::cookies::{cookies_connected, cookies_file_path};
 use crate::ytm::is_valid_video_id;
 use crate::ytm::ytdlp::{ensure_ytdlp, run_ytdlp, FORMAT_SELECTOR, YtdlpOutput};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-fn run_resolve(bin: &Path, url: &str, cookies: Option<&Path>) -> Result<YtdlpOutput, String> {
+pub const VIDEO_FORMAT_SELECTOR: &str = "bv*[vcodec^=avc1][protocol^=https][height<=1080]/bv*[vcodec^=avc1][protocol^=https]/bv*[protocol^=https][height<=720]";
+
+fn run_resolve(
+    bin: &Path,
+    url: &str,
+    format: &str,
+    cookies: Option<&Path>,
+) -> Result<YtdlpOutput, String> {
     let mut args = vec![
         "-J".to_string(),
         "--no-playlist".to_string(),
         "-f".to_string(),
-        FORMAT_SELECTOR.to_string(),
+        format.to_string(),
         "--no-warnings".to_string(),
     ];
     if let Some(path) = cookies {
@@ -167,7 +174,7 @@ pub fn resolve_stream(video_id: &str) -> Result<ResolvedStream, String> {
 
     let url = format!("https://music.youtube.com/watch?v={video_id}");
     let cookies = cookies_file_path();
-    let output = run_resolve(&bin, &url, cookies.as_deref())?;
+    let output = run_resolve(&bin, &url, FORMAT_SELECTOR, cookies.as_deref())?;
     let output = if !output.status_ok || output.stdout_lossy().is_empty() {
         let detail = output.stderr_last_line();
         // Cookie jars can break JS challenge solving and leave only storyboards; retry bare.
@@ -176,7 +183,7 @@ pub fn resolve_stream(video_id: &str) -> Result<ResolvedStream, String> {
                 || detail.contains("Only images are available")
                 || output.stdout_lossy().is_empty())
         {
-            run_resolve(&bin, &url, None)?
+            run_resolve(&bin, &url, FORMAT_SELECTOR, None)?
         } else {
             output
         }
@@ -210,5 +217,192 @@ pub fn resolve_stream(video_id: &str) -> Result<ResolvedStream, String> {
         resolved.itag, resolved.codec, resolved.abr
     );
     store_cache(video_id, resolved.clone());
+    Ok(resolved)
+}
+
+#[derive(Clone, Debug)]
+pub struct ResolvedVideo {
+    pub url: String,
+    pub http_headers: Vec<(String, String)>,
+    pub itag: String,
+    pub vcodec: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct YtmVideoInfo {
+    pub width: u32,
+    pub height: u32,
+    pub itag: String,
+    pub vcodec: String,
+}
+
+struct VideoCacheEntry {
+    stream: ResolvedVideo,
+    fetched_at: Instant,
+}
+
+fn video_cache() -> &'static Mutex<HashMap<String, VideoCacheEntry>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, VideoCacheEntry>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cached_video(video_id: &str) -> Option<ResolvedVideo> {
+    let cache = video_cache().lock().ok()?;
+    let entry = cache.get(video_id)?;
+    if entry.fetched_at.elapsed() >= CACHE_TTL {
+        return None;
+    }
+    Some(entry.stream.clone())
+}
+
+fn store_video_cache(video_id: &str, stream: ResolvedVideo) {
+    if let Ok(mut cache) = video_cache().lock() {
+        cache.insert(
+            video_id.to_string(),
+            VideoCacheEntry {
+                stream,
+                fetched_at: Instant::now(),
+            },
+        );
+    }
+}
+
+pub fn invalidate_video_cache(video_id: &str) {
+    if let Ok(mut cache) = video_cache().lock() {
+        cache.remove(video_id);
+    }
+}
+
+#[derive(Deserialize)]
+struct YtdlpVideoFormat {
+    url: Option<String>,
+    format_id: Option<String>,
+    vcodec: Option<String>,
+    width: Option<Value>,
+    height: Option<Value>,
+    http_headers: Option<HashMap<String, String>>,
+}
+
+fn value_as_u32(value: Option<&Value>) -> u32 {
+    match value {
+        Some(Value::Number(n)) => n.as_u64().unwrap_or(0) as u32,
+        Some(Value::String(s)) => s.parse().unwrap_or(0),
+        _ => 0,
+    }
+}
+
+fn format_to_resolved_video(format: YtdlpVideoFormat) -> Result<ResolvedVideo, String> {
+    let url = format
+        .url
+        .filter(|u| !u.is_empty())
+        .ok_or_else(|| "yt-dlp JSON missing video url".to_string())?;
+    if url.contains(".m3u8") {
+        return Err("Resolved video format is HLS (m3u8); expected progressive".to_string());
+    }
+    let itag = format
+        .format_id
+        .filter(|id| !id.is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+    let vcodec = format
+        .vcodec
+        .filter(|c| !c.is_empty() && c != "none")
+        .unwrap_or_else(|| "unknown".to_string());
+    let width = value_as_u32(format.width.as_ref());
+    let height = value_as_u32(format.height.as_ref());
+    let http_headers = format
+        .http_headers
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    Ok(ResolvedVideo {
+        url,
+        http_headers,
+        itag,
+        vcodec,
+        width,
+        height,
+    })
+}
+
+pub fn parse_ytdlp_video_json(json: &str) -> Result<ResolvedVideo, String> {
+    let root: Value =
+        serde_json::from_str(json).map_err(|e| format!("Invalid yt-dlp JSON: {e}"))?;
+
+    if let Some(downloads) = root.get("requested_downloads").and_then(|v| v.as_array()) {
+        if let Some(first) = downloads.first() {
+            let format: YtdlpVideoFormat = serde_json::from_value(first.clone())
+                .map_err(|e| format!("Invalid requested_downloads entry: {e}"))?;
+            return format_to_resolved_video(format);
+        }
+    }
+
+    let format: YtdlpVideoFormat =
+        serde_json::from_value(root).map_err(|e| format!("Invalid yt-dlp JSON object: {e}"))?;
+    format_to_resolved_video(format)
+}
+
+pub fn resolve_video(video_id: &str) -> Result<ResolvedVideo, String> {
+    if !is_valid_video_id(video_id) {
+        return Err(format!("Invalid YouTube video id: {video_id}"));
+    }
+    if let Some(cached) = cached_video(video_id) {
+        return Ok(cached);
+    }
+
+    let bin = ensure_ytdlp().map_err(|e| {
+        if e.contains("YTM_YTDLP_MISSING") {
+            e
+        } else {
+            format!("YTM_YTDLP_MISSING: {e}")
+        }
+    })?;
+
+    let url = format!("https://music.youtube.com/watch?v={video_id}");
+    let cookies = cookies_file_path();
+    let output = run_resolve(&bin, &url, VIDEO_FORMAT_SELECTOR, cookies.as_deref())?;
+    let output = if !output.status_ok || output.stdout_lossy().is_empty() {
+        let detail = output.stderr_last_line();
+        if cookies.is_some()
+            && (detail.contains("Requested format is not available")
+                || detail.contains("Only images are available")
+                || output.stdout_lossy().is_empty())
+        {
+            run_resolve(&bin, &url, VIDEO_FORMAT_SELECTOR, None)?
+        } else {
+            output
+        }
+    } else {
+        output
+    };
+    if !output.status_ok {
+        let detail = output.stderr_last_line();
+        if !cookies_connected() && looks_premium_or_age_restricted(&detail) {
+            return Err("YTM_NOT_CONNECTED".to_string());
+        }
+        return Err(detail);
+    }
+
+    let json = output.stdout_lossy();
+    if json.is_empty() {
+        let detail = output.stderr_last_line();
+        if !cookies_connected() && looks_premium_or_age_restricted(&detail) {
+            return Err("YTM_NOT_CONNECTED".to_string());
+        }
+        return Err(if detail.is_empty() {
+            "yt-dlp returned empty video JSON".to_string()
+        } else {
+            detail
+        });
+    }
+
+    let resolved = parse_ytdlp_video_json(&json)?;
+    eprintln!(
+        "[YTM] video {video_id} itag={} vcodec={} {}x{}",
+        resolved.itag, resolved.vcodec, resolved.width, resolved.height
+    );
+    store_video_cache(video_id, resolved.clone());
     Ok(resolved)
 }

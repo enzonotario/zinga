@@ -387,6 +387,12 @@
     "errorCompletingLogin": "Error completando inicio de sesión",
     "errorClearingCredentials": "Error limpiando credenciales"
   },
+  "selection": {
+    "count": "{count} seleccionado | {count} seleccionados",
+    "play": "Reproducir",
+    "addToQueue": "Agregar a la cola",
+    "clear": "Limpiar"
+  },
   "search": {
     "button": "Buscar",
     "placeholder": "Buscar...",

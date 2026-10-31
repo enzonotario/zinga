@@ -1,12 +1,15 @@
 <script lang="ts" setup>
+import type { QueueTrack } from '~/utils/playQueue';
 import type { SearchSourceFilter } from '~/utils/unifiedSearch';
 import { useDebounceFn } from '@vueuse/core';
 import { computed, ref, watch } from 'vue';
 import { NO_NAV_CATEGORY } from '~/composables/pages';
 import useDevices from '~/composables/useDevices';
+import useItemSelection from '~/composables/useItemSelection';
 import usePlayer from '~/composables/usePlayer';
 import useUnifiedSearch from '~/composables/useUnifiedSearch';
 import { toQueueTrack, ytmSearchTrackToQueueTrack, ytmVideoToQueueTrack } from '~/utils/queueTracks';
+import { orderedSelectedItems } from '~/utils/selection';
 import { formatTime } from '~/utils/time';
 import {
   hasUnifiedResults,
@@ -40,6 +43,14 @@ const {
 const source = ref<SearchSourceFilter>('all');
 const playing = ref(false);
 const actionError = ref<string | null>(null);
+const {
+  selectedIds,
+  sectionId,
+  count: selectionCount,
+  clear: clearSelection,
+  isSelected,
+  handleClick,
+} = useItemSelection();
 
 const sourceItems = computed(() => [
   { label: t('search.sourceAll'), value: 'all' },
@@ -106,7 +117,20 @@ function yearFromDate(date?: string | null) {
   return Number.isFinite(year) ? year : null;
 }
 
-async function playQueueTracks(tracks: ReturnType<typeof toQueueTrack>[], index = 0) {
+const songKeys = computed(() => {
+  const keys: string[] = [];
+  if (showTidal.value) {
+    for (const track of tidalResults.value.tracks) keys.push(`tidal:${track.id}`);
+  }
+  if (showYtm.value) {
+    for (const track of ytmResults.value.tracks) keys.push(`ytm:${track.videoId}`);
+  }
+  return keys;
+});
+
+const videoKeys = computed(() => ytmResults.value.videos.map((video) => video.videoId));
+
+async function playQueueTracks(tracks: QueueTrack[], index = 0) {
   if (!selectedDeviceId.value) {
     actionError.value = t('album.noPlaybackDevice');
     return;
@@ -116,6 +140,7 @@ async function playQueueTracks(tracks: ReturnType<typeof toQueueTrack>[], index 
   actionError.value = null;
   try {
     await player.playTracks(tracks, index);
+    clearSelection();
     await navigateTo('/');
   } catch (err) {
     actionError.value = err instanceof Error ? err.message : t('album.playbackError');
@@ -125,10 +150,9 @@ async function playQueueTracks(tracks: ReturnType<typeof toQueueTrack>[], index 
 }
 
 async function playTidalTrack(trackId: string) {
-  const index = tidalResults.value.tracks.findIndex((track) => track.id === trackId);
-  if (index < 0) return;
-  const tracks = tidalResults.value.tracks.map((track) => toQueueTrack(track));
-  await playQueueTracks(tracks, index);
+  const track = tidalResults.value.tracks.find((item) => item.id === trackId);
+  if (!track) return;
+  await playQueueTracks([toQueueTrack(track)]);
 }
 
 function addTidalTrackToQueue(trackId: string) {
@@ -143,13 +167,11 @@ function addTidalTrackToQueue(trackId: string) {
 }
 
 async function playYtmTrack(videoId: string) {
-  const index = ytmResults.value.tracks.findIndex((track) => track.videoId === videoId);
-  if (index < 0) return;
-  const tracks = ytmResults.value.tracks
-    .map((track) => ytmSearchTrackToQueueTrack(track))
-    .filter((track): track is NonNullable<typeof track> => track != null);
-  const start = tracks.findIndex((track) => track.uri === `ytm:track:${videoId}`);
-  await playQueueTracks(tracks, start >= 0 ? start : 0);
+  const track = ytmResults.value.tracks.find((item) => item.videoId === videoId);
+  if (!track) return;
+  const queueTrack = ytmSearchTrackToQueueTrack(track);
+  if (!queueTrack) return;
+  await playQueueTracks([queueTrack]);
 }
 
 function addYtmTrackToQueue(videoId: string) {
@@ -166,13 +188,67 @@ function addYtmTrackToQueue(videoId: string) {
 }
 
 async function playYtmVideo(videoId: string) {
-  const index = ytmResults.value.videos.findIndex((video) => video.videoId === videoId);
+  const video = ytmResults.value.videos.find((item) => item.videoId === videoId);
+  if (!video) return;
+  const queueTrack = ytmVideoToQueueTrack(video);
+  if (!queueTrack) return;
+  await playQueueTracks([queueTrack]);
+}
+
+async function onSongClick(event: MouseEvent, key: string) {
+  const index = songKeys.value.indexOf(key);
   if (index < 0) return;
-  const tracks = ytmResults.value.videos
-    .map((video) => ytmVideoToQueueTrack(video))
-    .filter((track): track is NonNullable<typeof track> => track != null);
-  const start = tracks.findIndex((track) => track.uri === `ytm:track:${videoId}`);
-  await playQueueTracks(tracks, start >= 0 ? start : 0);
+  const kind = handleClick(event, 'songs', songKeys.value, index);
+  if (kind !== 'play') return;
+  if (key.startsWith('tidal:')) await playTidalTrack(key.slice('tidal:'.length));
+  else if (key.startsWith('ytm:')) await playYtmTrack(key.slice('ytm:'.length));
+}
+
+async function onVideoClick(event: MouseEvent, videoId: string) {
+  const index = videoKeys.value.indexOf(videoId);
+  if (index < 0) return;
+  const kind = handleClick(event, 'videos', videoKeys.value, index);
+  if (kind !== 'play') return;
+  await playYtmVideo(videoId);
+}
+
+function selectedQueueTracks(): QueueTrack[] {
+  if (sectionId.value === 'songs') {
+    const tracks: QueueTrack[] = [];
+    for (const key of orderedSelectedItems(songKeys.value, selectedIds.value, (id) => id)) {
+      if (key.startsWith('tidal:')) {
+        const track = tidalResults.value.tracks.find((item) => item.id === key.slice('tidal:'.length));
+        if (track) tracks.push(toQueueTrack(track));
+      } else if (key.startsWith('ytm:')) {
+        const track = ytmResults.value.tracks.find((item) => item.videoId === key.slice('ytm:'.length));
+        const mapped = track ? ytmSearchTrackToQueueTrack(track) : null;
+        if (mapped) tracks.push(mapped);
+      }
+    }
+    return tracks;
+  }
+  if (sectionId.value === 'videos') {
+    return orderedSelectedItems(ytmResults.value.videos, selectedIds.value, (video) => video.videoId)
+      .map((video) => ytmVideoToQueueTrack(video))
+      .filter((track): track is NonNullable<typeof track> => track != null);
+  }
+  return [];
+}
+
+async function playSelection() {
+  await playQueueTracks(selectedQueueTracks());
+}
+
+function queueSelection() {
+  if (!selectedDeviceId.value) {
+    actionError.value = t('album.noPlaybackDevice');
+    return;
+  }
+  const tracks = selectedQueueTracks();
+  if (!tracks.length) return;
+  actionError.value = null;
+  player.addTracks(tracks);
+  clearSelection();
 }
 
 query.value = typeof route.query.q === 'string' ? route.query.q : '';
@@ -519,14 +595,15 @@ watch(query, (value) => {
               v-show="showTidal"
               :key="`tidal-track-${track.id}`"
               class="flex items-center gap-3 px-4 py-3 hover:bg-accented/40 transition-colors"
+              :class="isSelected('songs', `tidal:${track.id}`) ? 'ring-2 ring-primary bg-primary/10' : ''"
             >
               <button
                 type="button"
                 class="flex flex-1 items-center gap-3 min-w-0 text-left disabled:opacity-50"
                 :disabled="!selectedDeviceId || playing"
-                @click="playTidalTrack(track.id)"
+                @click="onSongClick($event, `tidal:${track.id}`)"
               >
-                <div class="w-10 h-10 shrink-0 rounded overflow-hidden bg-accented/50">
+                <div class="relative w-10 h-10 shrink-0 rounded overflow-hidden bg-accented/50">
                   <img
                     v-if="track.coverUrl"
                     :src="track.coverUrl"
@@ -538,6 +615,12 @@ watch(query, (value) => {
                     class="w-full h-full flex items-center justify-center"
                   >
                     <UIcon name="i-heroicons-musical-note" class="w-5 h-5 text-muted" />
+                  </div>
+                  <div
+                    v-if="isSelected('songs', `tidal:${track.id}`)"
+                    class="absolute inset-0 bg-primary/40 flex items-center justify-center"
+                  >
+                    <UIcon name="i-heroicons-check" class="w-5 h-5 text-white" />
                   </div>
                 </div>
                 <div class="min-w-0 flex-1">
@@ -575,14 +658,15 @@ watch(query, (value) => {
               v-show="showYtm"
               :key="`ytm-track-${track.videoId}`"
               class="flex items-center gap-3 px-4 py-3 hover:bg-accented/40 transition-colors"
+              :class="isSelected('songs', `ytm:${track.videoId}`) ? 'ring-2 ring-primary bg-primary/10' : ''"
             >
               <button
                 type="button"
                 class="flex flex-1 items-center gap-3 min-w-0 text-left disabled:opacity-50"
                 :disabled="!selectedDeviceId || playing"
-                @click="playYtmTrack(track.videoId)"
+                @click="onSongClick($event, `ytm:${track.videoId}`)"
               >
-                <div class="w-10 h-10 shrink-0 rounded overflow-hidden bg-accented/50">
+                <div class="relative w-10 h-10 shrink-0 rounded overflow-hidden bg-accented/50">
                   <img
                     v-if="track.thumbnailUrl"
                     :src="track.thumbnailUrl"
@@ -594,6 +678,12 @@ watch(query, (value) => {
                     class="w-full h-full flex items-center justify-center"
                   >
                     <UIcon name="i-heroicons-musical-note" class="w-5 h-5 text-muted" />
+                  </div>
+                  <div
+                    v-if="isSelected('songs', `ytm:${track.videoId}`)"
+                    class="absolute inset-0 bg-primary/40 flex items-center justify-center"
+                  >
+                    <UIcon name="i-heroicons-check" class="w-5 h-5 text-white" />
                   </div>
                 </div>
                 <div class="min-w-0 flex-1">
@@ -659,11 +749,12 @@ watch(query, (value) => {
               v-for="video in ytmResults.videos"
               :key="`ytm-video-${video.videoId}`"
               type="button"
-              class="flex flex-col gap-2 text-left rounded-lg p-2 hover:bg-accented/40 transition-colors disabled:opacity-50"
+              class="relative flex flex-col gap-2 text-left rounded-lg p-2 hover:bg-accented/40 transition-colors disabled:opacity-50"
+              :class="isSelected('videos', video.videoId) ? 'ring-2 ring-primary bg-primary/10' : ''"
               :disabled="!selectedDeviceId || playing"
-              @click="playYtmVideo(video.videoId)"
+              @click="onVideoClick($event, video.videoId)"
             >
-              <div class="aspect-video w-full rounded-md overflow-hidden bg-accented/50">
+              <div class="relative aspect-video w-full rounded-md overflow-hidden bg-accented/50">
                 <img
                   v-if="video.thumbnailUrl"
                   :src="video.thumbnailUrl"
@@ -675,6 +766,12 @@ watch(query, (value) => {
                   class="w-full h-full flex items-center justify-center"
                 >
                   <UIcon name="i-heroicons-film" class="w-8 h-8 text-muted" />
+                </div>
+                <div
+                  v-if="isSelected('videos', video.videoId)"
+                  class="absolute inset-0 bg-primary/40 flex items-center justify-center"
+                >
+                  <UIcon name="i-heroicons-check" class="w-8 h-8 text-white" />
                 </div>
               </div>
               <div class="min-w-0 space-y-1">
@@ -696,5 +793,14 @@ watch(query, (value) => {
         </UCard>
       </div>
     </template>
+
+    <UiSelectionActionBar
+      :count="selectionCount"
+      :disabled="!selectedDeviceId"
+      :playing="playing"
+      @play="playSelection"
+      @queue="queueSelection"
+      @clear="clearSelection"
+    />
   </div>
 </template>

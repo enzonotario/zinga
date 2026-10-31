@@ -52,6 +52,14 @@ const queueExpanded = ref(false);
 const queueCollapsedHeight = ref(0);
 const queueCollapsing = ref(false);
 const isPlaying = computed(() => player.isDevicePlaying.value);
+const isCurrentVideo = computed(() => player.currentItem.value?.track.isVideo === true);
+const currentVideoId = computed(() => {
+  if (!isCurrentVideo.value) return null;
+  const uri = player.currentItem.value?.track.uri;
+  if (!uri?.startsWith('ytm:track:')) return null;
+  const id = uri.slice('ytm:track:'.length);
+  return /^[\w-]{11}$/.test(id) ? id : null;
+});
 const tidalAlbum = computed(() => {
   const album = currentTrack.value?.tidalData?.album;
   if (album) {
@@ -259,17 +267,27 @@ watch(
   <div class="md:h-full flex flex-col md:overflow-hidden relative">
     <div :class="pageGridClass">
       <div class="px-[10%] 2xl:px-[15%] md:flex-1 md:min-h-0 flex flex-col justify-center items-center gap-3 overflow-y-auto">
-        <NowPlayingDisplay
-          :cover-url="albumCover || currentTrack?.coverUrl || undefined"
-          :alt="albumTitle || currentTrack?.title"
-          :title="albumTitle"
-          :title-link="albumRoute || undefined"
-          class="pt-20"
+        <PlayerVideoView
+          v-if="currentVideoId"
+          :video-id="currentVideoId"
+          :poster="albumCover || currentTrack?.coverUrl || undefined"
+          :playing="isPlaying"
+          :position-sec="playbackPositionSec"
+          class="w-full pt-8"
         />
-        <UiTrackCredits
-          v-if="albumInlineCredits"
-          :inline-credits="albumInlineCredits"
-        />
+        <template v-else>
+          <NowPlayingDisplay
+            :cover-url="albumCover || currentTrack?.coverUrl || undefined"
+            :alt="albumTitle || currentTrack?.title"
+            :title="albumTitle"
+            :title-link="albumRoute || undefined"
+            class="pt-20"
+          />
+          <UiTrackCredits
+            v-if="albumInlineCredits"
+            :inline-credits="albumInlineCredits"
+          />
+        </template>
       </div>
       <div class="relative flex flex-col gap-4 md:min-h-0 md:min-w-0 overflow-visible py-2">
         <UCard
@@ -295,7 +313,10 @@ watch(
           :style="{ height: `${queueCollapsedHeight}px` }"
           aria-hidden="true"
         />
-        <div class="md:flex-1 md:min-h-0 min-w-0 w-full flex items-center justify-center py-4 md:py-0 px-1 md:px-2 -mt-[15vh]">
+        <div
+          v-if="!currentVideoId"
+          class="md:flex-1 md:min-h-0 min-w-0 w-full flex items-center justify-center py-4 md:py-0 px-1 md:px-2 -mt-[15vh]"
+        >
           <PlayerVinylPlayer
             :cover-url="albumCover || currentTrack?.coverUrl || undefined"
             :title="albumTitle"

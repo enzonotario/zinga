@@ -5,6 +5,7 @@ export interface QueueTrack {
   album?: { name: string, uri?: string }
   length?: number
   coverUrl?: string
+  isVideo?: boolean
 }
 
 export interface QueueItem {
@@ -88,6 +89,7 @@ export function queueTracksFromRemote(value: unknown): QueueTrack[] {
       album: albumName ? { name: albumName, uri: item.album?.uri } : undefined,
       length: typeof item.length === 'number' ? item.length : undefined,
       coverUrl: typeof item.coverUrl === 'string' && item.coverUrl ? item.coverUrl : undefined,
+      ...(item.isVideo === true ? { isVideo: true } : {}),
     }];
   });
 }

@@ -4,6 +4,7 @@ use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, StatusCode}
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
+use futures_util::TryStreamExt;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -489,6 +490,117 @@ async fn ytm_handler(
     )
 }
 
+async fn fetch_ytm_video_upstream(
+    resolved: &crate::ytm::stream::ResolvedVideo,
+    method: &Method,
+    range: Option<&HeaderValue>,
+) -> Result<reqwest::Response, String> {
+    let client = crate::ytm::client::reqwest_http1_client()?;
+    let mut req = if *method == Method::HEAD {
+        client.head(&resolved.url)
+    } else {
+        client.get(&resolved.url)
+    };
+    for (key, value) in &resolved.http_headers {
+        if let (Ok(name), Ok(header_value)) = (
+            HeaderName::try_from(key.as_str()),
+            HeaderValue::try_from(value.as_str()),
+        ) {
+            req = req.header(name, header_value);
+        }
+    }
+    if let Some(range) = range {
+        req = req.header(header::RANGE, range.clone());
+    }
+    req.send().await.map_err(|e| format!("YTM video upstream failed: {e}"))
+}
+
+fn ytm_video_response_headers(upstream: &reqwest::Response) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    for name in [
+        header::CONTENT_TYPE,
+        header::CONTENT_LENGTH,
+        header::CONTENT_RANGE,
+        header::ACCEPT_RANGES,
+    ] {
+        if let Some(value) = upstream.headers().get(&name) {
+            headers.insert(name, value.clone());
+        }
+    }
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    headers
+}
+
+async fn proxy_ytm_video(video_id: &str, method: Method, range: Option<&HeaderValue>) -> Response {
+    let id = video_id.to_string();
+    let mut resolved = match tokio::task::spawn_blocking(move || crate::ytm::resolve_video(&id)).await
+    {
+        Ok(Ok(resolved)) => resolved,
+        Ok(Err(e)) => {
+            eprintln!("[DirectStream] YTM video resolve for {video_id} failed: {e}");
+            return (StatusCode::BAD_GATEWAY, e).into_response();
+        }
+        Err(e) => return (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
+    };
+
+    let mut upstream = match fetch_ytm_video_upstream(&resolved, &method, range).await {
+        Ok(response) => response,
+        Err(e) => {
+            eprintln!("[DirectStream] YTM video proxy for {video_id} failed: {e}");
+            return (StatusCode::BAD_GATEWAY, e).into_response();
+        }
+    };
+
+    if upstream.status() == reqwest::StatusCode::FORBIDDEN {
+        crate::ytm::stream::invalidate_video_cache(video_id);
+        let id = video_id.to_string();
+        resolved = match tokio::task::spawn_blocking(move || crate::ytm::resolve_video(&id)).await {
+            Ok(Ok(resolved)) => resolved,
+            Ok(Err(e)) => {
+                eprintln!("[DirectStream] YTM video re-resolve for {video_id} failed: {e}");
+                return (StatusCode::BAD_GATEWAY, e).into_response();
+            }
+            Err(e) => return (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
+        };
+        upstream = match fetch_ytm_video_upstream(&resolved, &method, range).await {
+            Ok(response) => response,
+            Err(e) => {
+                eprintln!("[DirectStream] YTM video proxy retry for {video_id} failed: {e}");
+                return (StatusCode::BAD_GATEWAY, e).into_response();
+            }
+        };
+    }
+
+    let status =
+        StatusCode::from_u16(upstream.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let headers = ytm_video_response_headers(&upstream);
+    if method == Method::HEAD {
+        return (status, headers).into_response();
+    }
+
+    let stream = upstream
+        .bytes_stream()
+        .map_err(|e| std::io::Error::other(e.to_string()));
+    (status, headers, Body::from_stream(stream)).into_response()
+}
+
+async fn ytm_video_handler(
+    method: Method,
+    State(app): State<AppHandle>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    AxumPath(video_id): AxumPath<String>,
+    headers: HeaderMap,
+) -> Response {
+    if let Some(rejection) = reject_peer(&app, peer.ip()) {
+        return rejection;
+    }
+    if !crate::ytm::is_valid_video_id(&video_id) {
+        return (StatusCode::BAD_REQUEST, "Invalid YTM video id").into_response();
+    }
+    let range = headers.get(header::RANGE).cloned();
+    proxy_ytm_video(&video_id, method, range.as_ref()).await
+}
+
 async fn file_handler(
     method: Method,
     State(app): State<AppHandle>,
@@ -541,6 +653,10 @@ pub fn start(app_handle: AppHandle) {
             .route(
                 "/ytm/{tlid}/{file}",
                 get(ytm_handler).head(ytm_handler),
+            )
+            .route(
+                "/ytm-video/{video_id}",
+                get(ytm_video_handler).head(ytm_video_handler),
             )
             .route("/file/{tlid}/{file}", get(file_handler).head(file_handler))
             .route(

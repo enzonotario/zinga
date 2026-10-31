@@ -578,6 +578,7 @@ pub fn run() {
             ytm::browse::ytm_get_artist,
             ytm::browse::ytm_get_playlist_videos,
             ytm::ytm_ytdlp_update,
+            ytm::ytm_resolve_video,
             gapless::direct_gapless_open,
             gapless::direct_gapless_append,
             gapless::direct_gapless_finish,

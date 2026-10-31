@@ -387,6 +387,12 @@
     "errorCompletingLogin": "Error completing login",
     "errorClearingCredentials": "Error clearing credentials"
   },
+  "selection": {
+    "count": "{count} selected | {count} selected",
+    "play": "Play",
+    "addToQueue": "Add to queue",
+    "clear": "Clear"
+  },
   "search": {
     "button": "Search",
     "placeholder": "Search...",

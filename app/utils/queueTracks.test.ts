@@ -146,6 +146,7 @@ describe('queueTracks utils', () => {
         artists: [{ name: 'Charly García' }],
         length: 240000,
         coverUrl: 'https://img/400x225.jpg',
+        isVideo: true,
       });
     });
   });
