@@ -8,27 +8,77 @@ export interface YtmStatus {
   browser?: string | null
 }
 
+export interface YtmArtistRef {
+  id?: string | null
+  name: string
+}
+
+export interface YtmAlbumRef {
+  id?: string | null
+  name: string
+}
+
+export interface YtmTrack {
+  videoId: string
+  title: string
+  artists: YtmArtistRef[]
+  album?: YtmAlbumRef | null
+  durationSec?: number | null
+  thumbnailUrl?: string | null
+}
+
+export interface YtmSearchAlbum {
+  id: string
+  title: string
+  artists: YtmArtistRef[]
+  year?: number | null
+  thumbnailUrl?: string | null
+}
+
+export interface YtmSearchArtist {
+  id: string
+  name: string
+  thumbnailUrl?: string | null
+}
+
 export interface YtmSearchResults {
-  tracks: {
-    videoId: string
-    title: string
-    artists: { id?: string | null, name: string }[]
-    album?: { id?: string | null, name: string } | null
-    durationSec?: number | null
-    thumbnailUrl?: string | null
-  }[]
-  albums: {
-    id: string
-    title: string
-    artists: { id?: string | null, name: string }[]
-    year?: number | null
-    thumbnailUrl?: string | null
-  }[]
-  artists: {
-    id: string
-    name: string
-    thumbnailUrl?: string | null
-  }[]
+  tracks: YtmTrack[]
+  albums: YtmSearchAlbum[]
+  artists: YtmSearchArtist[]
+}
+
+export interface YtmAlbumTrack {
+  videoId: string
+  title: string
+  artists: YtmArtistRef[]
+  durationSec?: number | null
+  trackNumber?: number | null
+}
+
+export interface YtmAlbumDetail {
+  id: string
+  title: string
+  artists: YtmArtistRef[]
+  year?: number | null
+  thumbnailUrl?: string | null
+  tracks: YtmAlbumTrack[]
+}
+
+export interface YtmArtistAlbum {
+  id: string
+  title: string
+  year?: number | null
+  thumbnailUrl?: string | null
+}
+
+export interface YtmArtistDetail {
+  id: string
+  name: string
+  description?: string | null
+  thumbnailUrl?: string | null
+  albums: YtmArtistAlbum[]
+  singles: YtmArtistAlbum[]
+  topSongs: YtmTrack[]
 }
 
 export const YTM_BROWSERS = [
@@ -140,6 +190,14 @@ export default function useYoutubeMusic() {
     return invoke<YtmSearchResults>('ytm_search', { query });
   }
 
+  async function getAlbum(id: string) {
+    return invoke<YtmAlbumDetail>('ytm_get_album', { id });
+  }
+
+  async function getArtist(id: string) {
+    return invoke<YtmArtistDetail>('ytm_get_artist', { id });
+  }
+
   return {
     status,
     loading,
@@ -154,5 +212,7 @@ export default function useYoutubeMusic() {
     logout,
     updateYtdlp,
     search,
+    getAlbum,
+    getArtist,
   };
 }

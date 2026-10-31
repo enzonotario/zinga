@@ -1,3 +1,5 @@
+pub(crate) mod browse;
+pub(crate) mod client;
 pub(crate) mod cookies;
 pub(crate) mod search;
 pub(crate) mod stream;
@@ -178,6 +180,59 @@ mod tests {
             "resolved itag={} codec={} abr={}",
             resolved.itag, resolved.codec, resolved.abr
         );
+    }
+
+    #[test]
+    #[ignore = "live network: ytm get_album + get_artist from charly garcia search"]
+    fn live_get_album_and_artist() {
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let results = rt
+            .block_on(search::search_music("charly garcia"))
+            .expect("search");
+        let album_id = results
+            .albums
+            .first()
+            .map(|a| a.id.clone())
+            .expect("album id");
+        let artist_id = results
+            .artists
+            .first()
+            .map(|a| a.id.clone())
+            .expect("artist id");
+        println!("album_id={album_id} artist_id={artist_id}");
+
+        let album = rt
+            .block_on(browse::get_album_detail(&album_id))
+            .expect("get_album");
+        println!(
+            "album title={} tracks={} year={:?}",
+            album.title,
+            album.tracks.len(),
+            album.year
+        );
+        for track in album.tracks.iter().take(5) {
+            println!("  track: {}", track.title);
+        }
+
+        let artist = rt
+            .block_on(browse::get_artist_detail(&artist_id))
+            .expect("get_artist");
+        println!(
+            "artist name={} albums={} singles={} top_songs={}",
+            artist.name,
+            artist.albums.len(),
+            artist.singles.len(),
+            artist.top_songs.len()
+        );
+        for item in artist.albums.iter().take(3) {
+            println!("  album: {}", item.title);
+        }
+        for item in artist.singles.iter().take(3) {
+            println!("  single: {}", item.title);
+        }
+        for song in artist.top_songs.iter().take(3) {
+            println!("  top: {}", song.title);
+        }
     }
 
     fn dirs_fallback() -> PathBuf {

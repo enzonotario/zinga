@@ -574,6 +574,8 @@ pub fn run() {
             ytm::cookies::ytm_logout,
             ytm::cookies::ytm_status,
             ytm::search::ytm_search,
+            ytm::browse::ytm_get_album,
+            ytm::browse::ytm_get_artist,
             ytm::ytm_ytdlp_update,
             gapless::direct_gapless_open,
             gapless::direct_gapless_append,

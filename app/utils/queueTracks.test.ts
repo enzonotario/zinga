@@ -1,6 +1,11 @@
 import type { NormalizedTrack } from '~/providers/types';
 import { describe, expect, it } from 'vitest';
-import { tidalTrackInfoToQueueTrack, toQueueTrack, ytmSearchTrackToQueueTrack } from './queueTracks';
+import {
+  tidalTrackInfoToQueueTrack,
+  toQueueTrack,
+  ytmAlbumTrackToQueueTrack,
+  ytmSearchTrackToQueueTrack,
+} from './queueTracks';
 
 function normalizedTrack(overrides: Partial<NormalizedTrack> = {}): NormalizedTrack {
   return {
@@ -68,14 +73,14 @@ describe('queueTracks utils', () => {
         videoId: 'dQw4w9WgXcQ',
         title: 'Never Gonna Give You Up',
         artists: [{ id: 'a1', name: 'Rick Astley' }],
-        album: { id: 'al1', name: 'Whenever You Need Somebody' },
+        album: { id: 'MPREb_abc123', name: 'Whenever You Need Somebody' },
         durationSec: 213.4,
         thumbnailUrl: 'https://img/yt.jpg',
       })).toEqual({
         uri: 'ytm:track:dQw4w9WgXcQ',
         name: 'Never Gonna Give You Up',
         artists: [{ name: 'Rick Astley' }],
-        album: { name: 'Whenever You Need Somebody' },
+        album: { name: 'Whenever You Need Somebody', uri: 'ytm:album:MPREb_abc123' },
         length: 213400,
         coverUrl: 'https://img/yt.jpg',
       });
@@ -100,6 +105,28 @@ describe('queueTracks utils', () => {
         title: 'Bad',
         artists: [{ name: 'X' }],
       })).toBeNull();
+    });
+  });
+
+  describe('ytmAlbumTrackToQueueTrack', () => {
+    it('should map album tracks with album uri and cover', () => {
+      expect(ytmAlbumTrackToQueueTrack(
+        {
+          videoId: 'dQw4w9WgXcQ',
+          title: 'Song',
+          artists: [{ name: 'Artist' }],
+          durationSec: 120,
+          trackNumber: 2,
+        },
+        { id: 'MPREb_xyz', title: 'Album', thumbnailUrl: 'https://img/cover.jpg' },
+      )).toEqual({
+        uri: 'ytm:track:dQw4w9WgXcQ',
+        name: 'Song',
+        artists: [{ name: 'Artist' }],
+        album: { name: 'Album', uri: 'ytm:album:MPREb_xyz' },
+        length: 120000,
+        coverUrl: 'https://img/cover.jpg',
+      });
     });
   });
 });

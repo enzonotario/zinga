@@ -395,7 +395,21 @@
     "artists": "Artistas",
     "albums": "Álbumes",
     "tracks": "Canciones",
-    "ytmTracks": "YouTube Music · Canciones"
+    "ytmTracks": "YouTube Music · Canciones",
+    "ytmAlbums": "YouTube Music · Álbumes",
+    "ytmArtists": "YouTube Music · Artistas"
+  },
+  "ytm": {
+    "album": {
+      "notFound": "Álbum no encontrado",
+      "notFoundDescription": "No se pudo cargar este álbum de YouTube Music",
+      "noTracks": "Este álbum no tiene canciones reproducibles"
+    },
+    "artist": {
+      "notFound": "Artista no encontrado",
+      "notFoundDescription": "No se pudo cargar este artista de YouTube Music",
+      "topSongs": "Canciones populares"
+    }
   },
   "queue": {
     "empty": "La cola está vacía",

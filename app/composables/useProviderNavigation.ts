@@ -48,6 +48,11 @@ export default function useProviderNavigation() {
     return undefined;
   });
   const albumRoute = computed(() => {
+    const albumUri = currentTrack.value?.albumUri;
+    if (typeof albumUri === 'string' && albumUri.startsWith('ytm:album:')) {
+      const ytmId = albumUri.slice('ytm:album:'.length);
+      return ytmId ? `/ytm/album/${ytmId}` : null;
+    }
     const id = albumId.value;
     return id ? `/album/${id}` : null;
   });

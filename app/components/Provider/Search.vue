@@ -137,6 +137,31 @@ const groups = computed(() => {
       })),
     });
   }
+  if (ytmResults.value.albums.length > 0) {
+    commandGroups.push({
+      id: 'ytm-albums',
+      label: t('search.ytmAlbums'),
+      items: ytmResults.value.albums.map((album) => ({
+        id: `ytm-album-${album.id}`,
+        label: album.title,
+        suffix: album.artists.map((artist) => artist.name).filter(Boolean).join(', ') || undefined,
+        ...leading(album.thumbnailUrl || undefined, album.title, 'i-heroicons-musical-note', true),
+        to: `/ytm/album/${album.id}`,
+      })),
+    });
+  }
+  if (ytmResults.value.artists.length > 0) {
+    commandGroups.push({
+      id: 'ytm-artists',
+      label: t('search.ytmArtists'),
+      items: ytmResults.value.artists.map((artist) => ({
+        id: `ytm-artist-${artist.id}`,
+        label: artist.name,
+        ...leading(artist.thumbnailUrl || undefined, artist.name, 'i-heroicons-user'),
+        to: `/ytm/artist/${artist.id}`,
+      })),
+    });
+  }
   return commandGroups;
 });
 function onItemSelect(item: any) {

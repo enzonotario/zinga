@@ -395,7 +395,21 @@
     "artists": "Artists",
     "albums": "Albums",
     "tracks": "Songs",
-    "ytmTracks": "YouTube Music · Songs"
+    "ytmTracks": "YouTube Music · Songs",
+    "ytmAlbums": "YouTube Music · Albums",
+    "ytmArtists": "YouTube Music · Artists"
+  },
+  "ytm": {
+    "album": {
+      "notFound": "Album not found",
+      "notFoundDescription": "Could not load this YouTube Music album",
+      "noTracks": "This album has no playable tracks"
+    },
+    "artist": {
+      "notFound": "Artist not found",
+      "notFoundDescription": "Could not load this YouTube Music artist",
+      "topSongs": "Top songs"
+    }
   },
   "queue": {
     "empty": "The queue is empty",

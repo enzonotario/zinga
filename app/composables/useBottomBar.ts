@@ -51,6 +51,7 @@ export default function useBottomBar() {
       title: track.name || t('player.unknownTitle'),
       artist: track.artists?.[0]?.name || t('player.unknownArtist'),
       album: track.album?.name || t('player.unknownAlbum'),
+      albumUri: track.album?.uri || null,
       coverUrl: remoteCover || currentTidalData.value?.coverUrl || queueCoverUrl(track),
       artistPicture: remoteArtistPicture || currentTidalData.value?.artistPicture || null,
       duration,
