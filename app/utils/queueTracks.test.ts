@@ -5,6 +5,7 @@ import {
   toQueueTrack,
   ytmAlbumTrackToQueueTrack,
   ytmSearchTrackToQueueTrack,
+  ytmVideoToQueueTrack,
 } from './queueTracks';
 
 function normalizedTrack(overrides: Partial<NormalizedTrack> = {}): NormalizedTrack {
@@ -126,6 +127,25 @@ describe('queueTracks utils', () => {
         album: { name: 'Album', uri: 'ytm:album:MPREb_xyz' },
         length: 120000,
         coverUrl: 'https://img/cover.jpg',
+      });
+    });
+  });
+
+  describe('ytmVideoToQueueTrack', () => {
+    it('should map a video with 16:9 thumbnail as cover', () => {
+      expect(ytmVideoToQueueTrack({
+        videoId: 'dK5PPQy7uHI',
+        title: 'Official Video',
+        artists: [{ name: 'Charly García' }],
+        views: '235K views',
+        durationSec: 240,
+        thumbnailUrl: 'https://img/400x225.jpg',
+      })).toEqual({
+        uri: 'ytm:track:dK5PPQy7uHI',
+        name: 'Official Video',
+        artists: [{ name: 'Charly García' }],
+        length: 240000,
+        coverUrl: 'https://img/400x225.jpg',
       });
     });
   });

@@ -41,10 +41,25 @@ export interface YtmSearchArtist {
   thumbnailUrl?: string | null
 }
 
+export interface YtmVideo {
+  videoId: string
+  title: string
+  artists: YtmArtistRef[]
+  views?: string | null
+  durationSec?: number | null
+  thumbnailUrl?: string | null
+}
+
 export interface YtmSearchResults {
   tracks: YtmTrack[]
   albums: YtmSearchAlbum[]
   artists: YtmSearchArtist[]
+  videos: YtmVideo[]
+}
+
+export interface YtmVideoSection {
+  title: string
+  items: YtmVideo[]
 }
 
 export interface YtmAlbumTrack {
@@ -79,6 +94,9 @@ export interface YtmArtistDetail {
   albums: YtmArtistAlbum[]
   singles: YtmArtistAlbum[]
   topSongs: YtmTrack[]
+  videos: YtmVideo[]
+  videosPlaylistId?: string | null
+  extraVideoSections: YtmVideoSection[]
 }
 
 export const YTM_BROWSERS = [
@@ -198,6 +216,10 @@ export default function useYoutubeMusic() {
     return invoke<YtmArtistDetail>('ytm_get_artist', { id });
   }
 
+  async function getPlaylistVideos(playlistId: string) {
+    return invoke<YtmVideo[]>('ytm_get_playlist_videos', { playlistId });
+  }
+
   return {
     status,
     loading,
@@ -214,5 +236,6 @@ export default function useYoutubeMusic() {
     search,
     getAlbum,
     getArtist,
+    getPlaylistVideos,
   };
 }

@@ -2,16 +2,20 @@ use crate::ytm::client::{
     connected_browser_client, cookies_are_connected, parse_duration_sec, parse_year,
     pick_thumbnail, unauthenticated_client,
 };
+use crate::ytm::is_valid_video_id;
 use serde::Serialize;
 use tauri::command;
 use ytmapi_rs::auth::AuthToken;
 use ytmapi_rs::common::YoutubeID;
-use ytmapi_rs::parse::{SearchResultAlbum, SearchResultArtist, SearchResultSong};
+use ytmapi_rs::parse::{
+    SearchResultAlbum, SearchResultArtist, SearchResultSong, SearchResultVideo,
+};
 use ytmapi_rs::YtMusic;
 
 const SEARCH_THUMB_MAX: u64 = 544;
+const VIDEO_THUMB_MAX: u64 = 640;
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct YtmArtistRef {
     pub id: Option<String>,
@@ -25,13 +29,24 @@ pub struct YtmAlbumRef {
     pub name: String,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct YtmTrack {
     pub video_id: String,
     pub title: String,
     pub artists: Vec<YtmArtistRef>,
     pub album: Option<YtmAlbumRef>,
+    pub duration_sec: Option<u32>,
+    pub thumbnail_url: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct YtmVideo {
+    pub video_id: String,
+    pub title: String,
+    pub artists: Vec<YtmArtistRef>,
+    pub views: Option<String>,
     pub duration_sec: Option<u32>,
     pub thumbnail_url: Option<String>,
 }
@@ -60,6 +75,7 @@ pub struct YtmSearchResults {
     pub tracks: Vec<YtmTrack>,
     pub albums: Vec<YtmAlbum>,
     pub artists: Vec<YtmArtist>,
+    pub videos: Vec<YtmVideo>,
 }
 
 fn map_song(song: SearchResultSong) -> YtmTrack {
@@ -100,14 +116,46 @@ fn map_artist(artist: SearchResultArtist) -> YtmArtist {
     }
 }
 
+pub(crate) fn map_search_video(video: SearchResultVideo) -> Option<YtmVideo> {
+    match video {
+        SearchResultVideo::Video {
+            title,
+            channel_name,
+            video_id,
+            views,
+            length,
+            thumbnails,
+            ..
+        } => {
+            let id = video_id.get_raw().to_string();
+            if !is_valid_video_id(&id) {
+                return None;
+            }
+            Some(YtmVideo {
+                video_id: id,
+                title,
+                artists: vec![YtmArtistRef {
+                    id: None,
+                    name: channel_name,
+                }],
+                views: Some(views).filter(|v| !v.trim().is_empty()),
+                duration_sec: parse_duration_sec(&length),
+                thumbnail_url: pick_thumbnail(&thumbnails, VIDEO_THUMB_MAX),
+            })
+        }
+        SearchResultVideo::VideoEpisode { .. } => None,
+    }
+}
+
 async fn search_with_auth_token<A: AuthToken>(
     yt: &YtMusic<A>,
     query: &str,
 ) -> Result<YtmSearchResults, String> {
-    let (songs, albums, artists) = tokio::join!(
+    let (songs, albums, artists, videos) = tokio::join!(
         yt.search_songs(query),
         yt.search_albums(query),
         yt.search_artists(query),
+        yt.search_videos(query),
     );
     Ok(YtmSearchResults {
         tracks: songs
@@ -125,6 +173,11 @@ async fn search_with_auth_token<A: AuthToken>(
             .into_iter()
             .map(map_artist)
             .collect(),
+        videos: videos
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .filter_map(map_search_video)
+            .collect(),
     })
 }
 
@@ -135,6 +188,7 @@ pub(crate) async fn search_music(query: &str) -> Result<YtmSearchResults, String
             tracks: Vec::new(),
             albums: Vec::new(),
             artists: Vec::new(),
+            videos: Vec::new(),
         });
     }
 

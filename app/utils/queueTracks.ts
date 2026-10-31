@@ -1,5 +1,5 @@
 import type { QueueTrack } from './playQueue';
-import type { YtmAlbumDetail, YtmAlbumTrack, YtmTrack } from '~/composables/useYoutubeMusic';
+import type { YtmAlbumDetail, YtmAlbumTrack, YtmTrack, YtmVideo } from '~/composables/useYoutubeMusic';
 import type { NormalizedTrack } from '~/providers/types';
 import { normalizeTrack } from '~/providers/tidal/normalizer';
 import { isYtmVideoId } from './directStream';
@@ -79,6 +79,20 @@ export function ytmAlbumTrackToQueueTrack(
 
 export function ytmTopSongToQueueTrack(track: YtmTrack): QueueTrack | null {
   return ytmSearchTrackToQueueTrack(track);
+}
+
+export function ytmVideoToQueueTrack(video: YtmVideo): QueueTrack | null {
+  if (!isYtmVideoId(video.videoId)) return null;
+  const artists = namedArtists(video.artists);
+  return {
+    uri: `ytm:track:${video.videoId}`,
+    name: video.title,
+    artists: artists.length ? artists : [{ name: 'Unknown' }],
+    length: typeof video.durationSec === 'number' && Number.isFinite(video.durationSec)
+      ? Math.round(video.durationSec * 1000)
+      : undefined,
+    coverUrl: video.thumbnailUrl || undefined,
+  };
 }
 
 export function tidalTrackInfoToQueueTrack(info: any): QueueTrack | null {

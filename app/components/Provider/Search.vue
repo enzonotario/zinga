@@ -6,7 +6,7 @@ import { computed, ref, watch } from 'vue';
 import usePlayer from '~/composables/usePlayer';
 import useProvider from '~/composables/useProvider';
 import useYoutubeMusic from '~/composables/useYoutubeMusic';
-import { ytmSearchTrackToQueueTrack } from '~/utils/queueTracks';
+import { ytmSearchTrackToQueueTrack, ytmVideoToQueueTrack } from '~/utils/queueTracks';
 
 const emit = defineEmits<{ close: [boolean] }>();
 const { t } = useI18n();
@@ -26,9 +26,10 @@ const ytmResults = ref<YtmSearchResults>({
   tracks: [],
   albums: [],
   artists: [],
+  videos: [],
 });
 
-const emptyYtm = (): YtmSearchResults => ({ tracks: [], albums: [], artists: [] });
+const emptyYtm = (): YtmSearchResults => ({ tracks: [], albums: [], artists: [], videos: [] });
 
 async function searchTidal(searchQuery: string) {
   loading.value = true;
@@ -76,6 +77,23 @@ async function playYtmTrack(videoId: string) {
   if (!queueTrack) return;
   open.value = false;
   await player.playTracks([queueTrack]);
+}
+
+async function playYtmVideo(videoId: string) {
+  const video = ytmResults.value.videos.find((item) => item.videoId === videoId);
+  if (!video) return;
+  const queueTrack = ytmVideoToQueueTrack(video);
+  if (!queueTrack) return;
+  open.value = false;
+  await player.playTracks([queueTrack]);
+}
+
+function leadingVideo(src: string | undefined, alt: string) {
+  if (!src) return { icon: 'i-heroicons-film' };
+  return {
+    avatar: { src, alt },
+    ui: { itemLeadingAvatar: 'rounded-sm aspect-video h-8 w-auto' },
+  };
 }
 
 defineShortcuts({
@@ -133,6 +151,21 @@ const groups = computed(() => {
         ...leading(track.thumbnailUrl || undefined, track.title, 'i-heroicons-musical-note', true),
         onSelect: () => {
           void playYtmTrack(track.videoId);
+        },
+      })),
+    });
+  }
+  if (ytmResults.value.videos.length > 0) {
+    commandGroups.push({
+      id: 'ytm-videos',
+      label: t('search.ytmVideos'),
+      items: ytmResults.value.videos.map((video) => ({
+        id: `ytm-video-${video.videoId}`,
+        label: video.title,
+        suffix: video.views || video.artists.map((artist) => artist.name).filter(Boolean).join(', ') || undefined,
+        ...leadingVideo(video.thumbnailUrl || undefined, video.title),
+        onSelect: () => {
+          void playYtmVideo(video.videoId);
         },
       })),
     });

@@ -1,11 +1,11 @@
 <script lang="ts" setup>
-import type { YtmArtistAlbum, YtmArtistDetail } from '~/composables/useYoutubeMusic';
+import type { YtmArtistAlbum, YtmArtistDetail, YtmVideo } from '~/composables/useYoutubeMusic';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import useAppBackground from '~/composables/useAppBackground';
 import useDevices from '~/composables/useDevices';
 import usePlayer from '~/composables/usePlayer';
 import useYoutubeMusic from '~/composables/useYoutubeMusic';
-import { ytmTopSongToQueueTrack } from '~/utils/queueTracks';
+import { ytmTopSongToQueueTrack, ytmVideoToQueueTrack } from '~/utils/queueTracks';
 
 interface Props {
   artistId: string
@@ -20,10 +20,13 @@ const { setPageBackground, clearPageBackground } = useAppBackground();
 
 const loading = ref(false);
 const playing = ref(false);
+const loadingAllVideos = ref(false);
 const error = ref<string | null>(null);
 const actionError = ref<string | null>(null);
 const artist = ref<YtmArtistDetail | null>(null);
 const showDescriptionModal = ref(false);
+const showAllVideosModal = ref(false);
+const allVideos = ref<YtmVideo[]>([]);
 
 const description = computed(() => artist.value?.description?.trim() || null);
 const showReadMore = computed(() => (description.value?.length || 0) > 220);
@@ -40,6 +43,28 @@ const albumGroups = computed(() => {
   return groups;
 });
 
+const videoSections = computed(() => {
+  if (!artist.value) return [];
+  const sections: { key: string, title: string, items: YtmVideo[], canSeeAll: boolean }[] = [];
+  if (artist.value.videos.length) {
+    sections.push({
+      key: 'videos',
+      title: t('ytm.artist.videos'),
+      items: artist.value.videos,
+      canSeeAll: !!artist.value.videosPlaylistId,
+    });
+  }
+  for (const [index, section] of (artist.value.extraVideoSections || []).entries()) {
+    sections.push({
+      key: `extra-${index}`,
+      title: section.title,
+      items: section.items,
+      canSeeAll: false,
+    });
+  }
+  return sections;
+});
+
 const currentPlayingVideoId = computed(() => {
   const uri = player.currentItem.value?.track.uri;
   if (!uri?.startsWith('ytm:track:')) return null;
@@ -50,6 +75,8 @@ async function loadArtist() {
   loading.value = true;
   error.value = null;
   artist.value = null;
+  allVideos.value = [];
+  showAllVideosModal.value = false;
   try {
     artist.value = await ytm.getArtist(props.artistId);
   } catch (err) {
@@ -77,6 +104,45 @@ async function playTopSong(index: number) {
     actionError.value = err instanceof Error ? err.message : t('album.playbackError');
   } finally {
     playing.value = false;
+  }
+}
+
+async function playVideos(items: YtmVideo[], index: number) {
+  if (!selectedDeviceId.value) {
+    actionError.value = t('album.noPlaybackDevice');
+    return;
+  }
+  const tracks = items
+    .map((video) => ytmVideoToQueueTrack(video))
+    .filter((track): track is NonNullable<typeof track> => track != null);
+  if (!tracks.length) return;
+  playing.value = true;
+  actionError.value = null;
+  try {
+    await player.playTracks(tracks, index);
+    showAllVideosModal.value = false;
+    await navigateTo('/');
+  } catch (err) {
+    actionError.value = err instanceof Error ? err.message : t('album.playbackError');
+  } finally {
+    playing.value = false;
+  }
+}
+
+async function openAllVideos() {
+  const playlistId = artist.value?.videosPlaylistId;
+  if (!playlistId) return;
+  showAllVideosModal.value = true;
+  if (allVideos.value.length) return;
+  loadingAllVideos.value = true;
+  actionError.value = null;
+  try {
+    allVideos.value = await ytm.getPlaylistVideos(playlistId);
+  } catch (err) {
+    actionError.value = err instanceof Error ? err.message : t('album.playbackError');
+    showAllVideosModal.value = false;
+  } finally {
+    loadingAllVideos.value = false;
   }
 }
 
@@ -197,6 +263,65 @@ onUnmounted(() => clearPageBackground());
       </UCard>
 
       <UCard
+        v-for="section in videoSections"
+        :key="section.key"
+      >
+        <template #header>
+          <div class="flex items-center justify-between gap-3">
+            <h2 class="text-xl font-semibold">
+              {{ section.title }}
+            </h2>
+            <UButton
+              v-if="section.canSeeAll"
+              variant="ghost"
+              size="sm"
+              :loading="loadingAllVideos"
+              :label="t('ytm.artist.seeAll')"
+              @click="openAllVideos"
+            />
+          </div>
+        </template>
+        <div class="flex gap-4 overflow-x-auto pb-1 -mx-1 px-1">
+          <button
+            v-for="(video, index) in section.items"
+            :key="`${section.key}-${video.videoId}`"
+            type="button"
+            class="flex flex-col gap-2 w-44 shrink-0 text-left rounded-lg p-2 hover:bg-accented/40 transition-colors disabled:opacity-50"
+            :class="currentPlayingVideoId === video.videoId ? 'ring-2 ring-primary' : ''"
+            :disabled="!selectedDeviceId || playing"
+            @click="playVideos(section.items, index)"
+          >
+            <div class="aspect-video w-full rounded-md overflow-hidden bg-accented/50">
+              <img
+                v-if="video.thumbnailUrl"
+                :src="video.thumbnailUrl"
+                :alt="video.title"
+                class="w-full h-full object-cover"
+              >
+              <div
+                v-else
+                class="w-full h-full flex items-center justify-center"
+              >
+                <UIcon name="i-heroicons-film" class="w-8 h-8 text-muted" />
+              </div>
+            </div>
+            <div class="min-w-0 space-y-1">
+              <div
+                class="font-medium text-sm leading-snug line-clamp-2"
+                :class="currentPlayingVideoId === video.videoId ? 'text-primary' : ''"
+                :title="video.title"
+              >
+                {{ video.title }}
+              </div>
+              <div v-if="video.views" class="text-xs text-muted truncate">
+                {{ video.views }}
+              </div>
+            </div>
+          </button>
+        </div>
+      </UCard>
+
+      <UCard
         v-for="group in albumGroups"
         :key="group.key"
       >
@@ -246,7 +371,7 @@ onUnmounted(() => clearPageBackground());
       </UCard>
 
       <UEmpty
-        v-if="!artist.topSongs.length && albumGroups.length === 0"
+        v-if="!artist.topSongs.length && albumGroups.length === 0 && videoSections.length === 0"
         icon="i-heroicons-musical-note"
         :title="t('artist.noAlbums')"
         :description="t('artist.noAlbumsDescription')"
@@ -264,6 +389,58 @@ onUnmounted(() => clearPageBackground());
           <p class="text-sm leading-relaxed whitespace-pre-line">
             {{ description }}
           </p>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="showAllVideosModal" class="sm:max-w-3xl">
+      <template #content>
+        <UCard :ui="{ body: '!p-0' }">
+          <template #header>
+            <h3 class="text-lg font-semibold">
+              {{ t('ytm.artist.allVideos') }}
+            </h3>
+          </template>
+          <div v-if="loadingAllVideos" class="flex items-center justify-center gap-2 py-12 text-muted">
+            <UIcon name="i-heroicons-arrow-path" class="animate-spin" />
+            <span>{{ t('ytm.artist.loadingVideos') }}</span>
+          </div>
+          <div
+            v-else
+            class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[70vh] overflow-y-auto p-4"
+          >
+            <button
+              v-for="(video, index) in allVideos"
+              :key="video.videoId"
+              type="button"
+              class="flex items-start gap-3 text-left rounded-lg p-2 hover:bg-accented/40 transition-colors disabled:opacity-50"
+              :disabled="!selectedDeviceId || playing"
+              @click="playVideos(allVideos, index)"
+            >
+              <div class="aspect-video w-28 shrink-0 rounded-md overflow-hidden bg-accented/50">
+                <img
+                  v-if="video.thumbnailUrl"
+                  :src="video.thumbnailUrl"
+                  :alt="video.title"
+                  class="w-full h-full object-cover"
+                >
+                <div
+                  v-else
+                  class="w-full h-full flex items-center justify-center"
+                >
+                  <UIcon name="i-heroicons-film" class="w-6 h-6 text-muted" />
+                </div>
+              </div>
+              <div class="min-w-0">
+                <div class="font-medium text-sm leading-snug line-clamp-2">
+                  {{ video.title }}
+                </div>
+                <div v-if="video.views" class="text-xs text-muted mt-1">
+                  {{ video.views }}
+                </div>
+              </div>
+            </button>
+          </div>
         </UCard>
       </template>
     </UModal>

@@ -81,14 +81,17 @@ pub(crate) fn netscape_to_cookie_header(contents: &str) -> Option<String> {
     }
 }
 
-fn http_client() -> Result<Client, String> {
+pub(crate) fn reqwest_http1_client() -> Result<reqwest::Client, String> {
     // HTTP/1.1 + native-tls: reqwest HTTP/2 rejects ytmapi-rs' Firefox 88 User-Agent here.
-    let inner = reqwest::Client::builder()
+    reqwest::Client::builder()
         .use_native_tls()
         .http1_only()
         .build()
-        .map_err(|e| e.to_string())?;
-    Ok(Client::new_from_reqwest_client(inner))
+        .map_err(|e| e.to_string())
+}
+
+fn http_client() -> Result<Client, String> {
+    Ok(Client::new_from_reqwest_client(reqwest_http1_client()?))
 }
 
 pub(crate) async fn unauthenticated_client() -> Result<YtMusic<NoAuthToken>, String> {

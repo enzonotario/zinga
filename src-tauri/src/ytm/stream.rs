@@ -1,11 +1,29 @@
 use crate::ytm::cookies::{cookies_connected, cookies_file_path};
 use crate::ytm::is_valid_video_id;
-use crate::ytm::ytdlp::{ensure_ytdlp, run_ytdlp, FORMAT_SELECTOR};
+use crate::ytm::ytdlp::{ensure_ytdlp, run_ytdlp, FORMAT_SELECTOR, YtdlpOutput};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
+
+fn run_resolve(bin: &Path, url: &str, cookies: Option<&Path>) -> Result<YtdlpOutput, String> {
+    let mut args = vec![
+        "-J".to_string(),
+        "--no-playlist".to_string(),
+        "-f".to_string(),
+        FORMAT_SELECTOR.to_string(),
+        "--no-warnings".to_string(),
+    ];
+    if let Some(path) = cookies {
+        args.push("--cookies".to_string());
+        args.push(path.display().to_string());
+    }
+    args.push(url.to_string());
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    run_ytdlp(bin, &arg_refs, RESOLVE_TIMEOUT)
+}
 
 const RESOLVE_TIMEOUT: Duration = Duration::from_secs(90);
 const CACHE_TTL: Duration = Duration::from_secs(30 * 60);
@@ -148,21 +166,23 @@ pub fn resolve_stream(video_id: &str) -> Result<ResolvedStream, String> {
     })?;
 
     let url = format!("https://music.youtube.com/watch?v={video_id}");
-    let mut args = vec![
-        "-J".to_string(),
-        "--no-playlist".to_string(),
-        "-f".to_string(),
-        FORMAT_SELECTOR.to_string(),
-        "--no-warnings".to_string(),
-    ];
-    if let Some(cookies) = cookies_file_path() {
-        args.push("--cookies".to_string());
-        args.push(cookies.display().to_string());
-    }
-    args.push(url);
-
-    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    let output = run_ytdlp(&bin, &arg_refs, RESOLVE_TIMEOUT)?;
+    let cookies = cookies_file_path();
+    let output = run_resolve(&bin, &url, cookies.as_deref())?;
+    let output = if !output.status_ok || output.stdout_lossy().is_empty() {
+        let detail = output.stderr_last_line();
+        // Cookie jars can break JS challenge solving and leave only storyboards; retry bare.
+        if cookies.is_some()
+            && (detail.contains("Requested format is not available")
+                || detail.contains("Only images are available")
+                || output.stdout_lossy().is_empty())
+        {
+            run_resolve(&bin, &url, None)?
+        } else {
+            output
+        }
+    } else {
+        output
+    };
     if !output.status_ok {
         let detail = output.stderr_last_line();
         if !cookies_connected() && looks_premium_or_age_restricted(&detail) {

@@ -34,6 +34,7 @@ walkdir = "2.5.0"
 base64 = "0.22.1"
 if-addrs = "0.14"
 sha2 = "0.10"
+sha1 = "0.10"
 portable-pty = "0.9.0"
 ytmapi-rs = { version = "0.3.3", default-features = false, features = [
   "native-tls",

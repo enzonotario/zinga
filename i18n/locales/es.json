@@ -396,6 +396,7 @@
     "albums": "Álbumes",
     "tracks": "Canciones",
     "ytmTracks": "YouTube Music · Canciones",
+    "ytmVideos": "YouTube Music · Videos",
     "ytmAlbums": "YouTube Music · Álbumes",
     "ytmArtists": "YouTube Music · Artistas"
   },
@@ -408,7 +409,11 @@
     "artist": {
       "notFound": "Artista no encontrado",
       "notFoundDescription": "No se pudo cargar este artista de YouTube Music",
-      "topSongs": "Canciones populares"
+      "topSongs": "Canciones populares",
+      "videos": "Videos",
+      "seeAll": "Ver todos",
+      "loadingVideos": "Cargando videos…",
+      "allVideos": "Todos los videos"
     }
   },
   "queue": {

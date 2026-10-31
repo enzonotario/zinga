@@ -1,6 +1,7 @@
 pub(crate) mod browse;
 pub(crate) mod client;
 pub(crate) mod cookies;
+pub(crate) mod innertube;
 pub(crate) mod search;
 pub(crate) mod stream;
 pub(crate) mod ytdlp;
@@ -233,11 +234,13 @@ music.youtube.com\tFALSE\t/\tTRUE\t0\tPREF\tx\n\
             .block_on(browse::get_artist_detail(&artist_id))
             .expect("get_artist");
         println!(
-            "artist name={} albums={} singles={} top_songs={}",
+            "artist name={} albums={} singles={} top_songs={} videos={} extras={}",
             artist.name,
             artist.albums.len(),
             artist.singles.len(),
-            artist.top_songs.len()
+            artist.top_songs.len(),
+            artist.videos.len(),
+            artist.extra_video_sections.len()
         );
         for item in artist.albums.iter().take(3) {
             println!("  album: {}", item.title);
@@ -248,6 +251,61 @@ music.youtube.com\tFALSE\t/\tTRUE\t0\tPREF\tx\n\
         for song in artist.top_songs.iter().take(3) {
             println!("  top: {}", song.title);
         }
+        for video in artist.videos.iter().take(4) {
+            println!("  video: {}", video.title);
+        }
+        for section in &artist.extra_video_sections {
+            println!(
+                "  extra section: {} ({})",
+                section.title,
+                section.items.len()
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "live network: ytm artist videos + playlist + stream for Charly García"]
+    fn live_artist_videos_and_stream() {
+        let dir = dirs_fallback();
+        let _ = std::fs::create_dir_all(dir.join("bin"));
+        let _ = DATA_DIR.set(dir);
+        ensure_ytdlp().expect("ensure yt-dlp");
+
+        let artist_id = "UChhfHmbdySv6Gh8qcWzdoiw";
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let artist = rt
+            .block_on(browse::get_artist_detail(artist_id))
+            .expect("get_artist");
+        println!("videos={}", artist.videos.len());
+        for video in artist.videos.iter().take(4) {
+            println!("  video: {}", video.title);
+        }
+        for section in &artist.extra_video_sections {
+            println!(
+                "extra: {} count={}",
+                section.title,
+                section.items.len()
+            );
+        }
+        let playlist_id = artist
+            .videos_playlist_id
+            .clone()
+            .expect("videosPlaylistId");
+        let full = rt
+            .block_on(browse::get_playlist_videos(&playlist_id))
+            .expect("playlist videos");
+        println!("playlist_videos={}", full.len());
+
+        let first_id = artist
+            .videos
+            .first()
+            .map(|v| v.video_id.clone())
+            .expect("first video");
+        let resolved = resolve_stream(&first_id).expect("resolve");
+        println!(
+            "resolved itag={} codec={} abr={}",
+            resolved.itag, resolved.codec, resolved.abr
+        );
     }
 
     fn dirs_fallback() -> PathBuf {
