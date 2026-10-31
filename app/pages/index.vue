@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { useResizeObserver } from '@vueuse/core';
 import { computed, ref, useTemplateRef, watch } from 'vue';
 import LyricsPanelBody from '~/components/Player/LyricsPanelBody.vue';
 import LyricsPanelFloatingCard from '~/components/Player/LyricsPanelFloatingCard.vue';
@@ -51,7 +52,11 @@ const queueCard = useTemplateRef<{ $el: HTMLElement }>('queueCard');
 const queueExpanded = ref(false);
 const queueCollapsedHeight = ref(0);
 const queueCollapsing = ref(false);
+const queueCardHeight = ref(0);
 const isPlaying = computed(() => player.isDevicePlaying.value);
+useResizeObserver(() => queueCard.value?.$el, (entries) => {
+  queueCardHeight.value = entries[0]?.contentRect.height ?? 0;
+});
 const isCurrentVideo = computed(() => player.currentItem.value?.track.isVideo === true);
 const currentVideoId = computed(() => {
   if (!isCurrentVideo.value) return null;
@@ -286,12 +291,27 @@ watch(
         class="relative flex flex-col gap-4 md:min-h-0 md:min-w-0 overflow-visible py-2"
         :class="{ 'md:col-span-2': currentVideoId }"
       >
+        <div
+          v-if="currentVideoId"
+          class="hidden md:flex absolute left-0 top-2 w-[calc(50%-0.5rem)] flex-col justify-end gap-1 min-w-0 px-2"
+          :style="{ height: `${queueCardHeight}px` }"
+        >
+          <p class="text-2xl font-semibold truncate">
+            {{ currentTrack?.title }}
+          </p>
+          <p class="text-sm text-muted truncate">
+            {{ [currentTrack?.artist, currentTrack?.album].filter(Boolean).join(' · ') }}
+          </p>
+        </div>
         <UCard
           ref="queueCard"
           class="shrink-0 overflow-hidden flex flex-col z-10"
-          :class="queueExpanded
-            ? [queueCollapsing ? 'queue-card-collapsing' : 'queue-card-expanded', 'max-h-[80vh] md:absolute md:inset-x-0 md:top-2 md:bottom-2 md:max-h-none md:z-20']
-            : 'md:max-h-[40%] max-h-[60vh]'"
+          :class="[
+            queueExpanded
+              ? [queueCollapsing ? 'queue-card-collapsing' : 'queue-card-expanded', 'max-h-[80vh] md:absolute md:inset-x-0 md:top-2 md:bottom-2 md:max-h-none md:z-20']
+              : 'md:max-h-[40%] max-h-[60vh]',
+            currentVideoId ? 'md:w-[calc(50%-0.5rem)] md:self-end md:left-auto!' : '',
+          ]"
           :style="queueExpanded ? { '--queue-collapsed-height': `${queueCollapsedHeight}px` } : undefined"
           :ui="{ body: 'p-0! flex-1 overflow-hidden' }"
           @animationend="finishQueueCollapse"

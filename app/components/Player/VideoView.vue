@@ -21,9 +21,7 @@ const streamUrl = ref<string | null>(null);
 const failed = ref(false);
 let driftTimer: ReturnType<typeof setInterval> | null = null;
 
-const SEEK_THRESHOLD_SEC = 1.5;
-const NUDGE_THRESHOLD_SEC = 0.12;
-const MAX_RATE_DELTA = 0.08;
+const SEEK_THRESHOLD_SEC = 2;
 
 const showFallback = computed(() => failed.value || !streamUrl.value);
 
@@ -58,21 +56,15 @@ function syncPlayState() {
   }
 }
 
-// Seeking re-buffers through the proxy, so small drift is absorbed by nudging the playback rate
+// WebKitGTK implements playbackRate changes and seeks as GStreamer seeks, which stall the
+// picture; audio and video run on real-time clocks, so only correct large drift
 function correctDrift() {
   const el = videoEl.value;
   if (!el || failed.value || el.seeking || el.readyState < 2) return;
-  const drift = Math.max(0, props.positionSec || 0) - el.currentTime;
-  if (Math.abs(drift) > SEEK_THRESHOLD_SEC || !props.playing) {
-    if (Math.abs(drift) > 0.25) el.currentTime = Math.max(0, props.positionSec || 0);
-    el.playbackRate = 1;
-    return;
-  }
-  if (Math.abs(drift) < NUDGE_THRESHOLD_SEC) {
-    el.playbackRate = 1;
-    return;
-  }
-  el.playbackRate = 1 + Math.max(-MAX_RATE_DELTA, Math.min(MAX_RATE_DELTA, drift * 0.5));
+  const target = Math.max(0, props.positionSec || 0);
+  const drift = Math.abs(target - el.currentTime);
+  const threshold = props.playing ? SEEK_THRESHOLD_SEC : 0.25;
+  if (drift > threshold) el.currentTime = target;
 }
 
 function stopDriftTimer() {
