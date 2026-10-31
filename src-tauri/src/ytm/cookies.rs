@@ -100,6 +100,23 @@ pub(crate) fn cookie_file_connected(contents: &str) -> bool {
     })
 }
 
+// Browser imports contain the whole cookie jar; keep only what YouTube Music needs.
+pub(crate) fn youtube_cookies_only(contents: &str) -> String {
+    let mut out = String::from("# Netscape HTTP Cookie File\n");
+    for line in contents.lines() {
+        let data = line.strip_prefix("#HttpOnly_").unwrap_or(line);
+        if data.starts_with('#') {
+            continue;
+        }
+        let domain = data.split('\t').next().unwrap_or("").trim_start_matches('.');
+        if domain == "youtube.com" || domain.ends_with(".youtube.com") {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
 pub fn cookies_connected() -> bool {
     let Ok(path) = cookies_path() else {
         return false;
@@ -124,14 +141,6 @@ pub(crate) fn cookies_file_path() -> Option<PathBuf> {
 pub(crate) fn read_cookies_txt() -> Option<String> {
     let path = cookies_path().ok()?;
     std::fs::read_to_string(path).ok()
-}
-
-fn chmod_private(path: &Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-    }
 }
 
 #[command]
@@ -164,26 +173,21 @@ fn import_cookies_from_browser(browser: &str) -> Result<YtmStatus, String> {
         IMPORT_TIMEOUT,
     )?;
 
-    if !tmp.is_file() {
+    // yt-dlp writes the cookie jar even though the homepage URL itself is unsupported, so the
+    // file contents decide success, not the exit code. This also avoids any network request.
+    let Ok(raw) = std::fs::read(&tmp) else {
         let detail = output.stderr_last_line();
         return Err(format!("Cookie import failed: {detail}"));
-    }
-    if !output.status_ok {
-        let detail = output.stderr_last_line();
-        let _ = std::fs::remove_file(&tmp);
-        return Err(format!("Cookie import failed: {detail}"));
-    }
-
-    let contents = std::fs::read(&tmp).map_err(|e| e.to_string())?;
-    if !cookie_file_connected(&String::from_utf8_lossy(&contents)) {
-        let _ = std::fs::remove_file(&tmp);
+    };
+    let _ = std::fs::remove_file(&tmp);
+    let contents = youtube_cookies_only(&String::from_utf8_lossy(&raw));
+    if !cookie_file_connected(&contents) {
         return Err(
             "Imported cookies are missing YouTube login markers (SAPISID / __Secure-3PSID)"
                 .to_string(),
         );
     }
-    std::fs::rename(&tmp, &dest).map_err(|e| e.to_string())?;
-    chmod_private(&dest);
+    write_private_file(&dest, contents.as_bytes())?;
     write_meta(&AuthMeta {
         browser: Some(browser),
     })?;
@@ -202,7 +206,7 @@ fn import_cookies_from_file(path: &str) -> Result<YtmStatus, String> {
     if !src.is_file() {
         return Err(format!("Cookies file not found: {path}"));
     }
-    let contents = std::fs::read_to_string(&src).map_err(|e| e.to_string())?;
+    let contents = youtube_cookies_only(&std::fs::read_to_string(&src).map_err(|e| e.to_string())?);
     if !cookie_file_connected(&contents) {
         return Err(
             "Cookies file is missing YouTube login markers (SAPISID / __Secure-3PSID)".to_string(),

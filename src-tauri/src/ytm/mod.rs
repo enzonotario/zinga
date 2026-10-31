@@ -59,7 +59,7 @@ pub(crate) fn is_valid_video_id(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ytm::cookies::cookie_file_connected;
+    use crate::ytm::cookies::{cookie_file_connected, youtube_cookies_only};
     use crate::ytm::stream::{parse_ytdlp_json, resolve_stream};
     use crate::ytm::ytdlp::{ensure_ytdlp, normalize_browser};
 
@@ -106,6 +106,21 @@ mod tests {
 ";
         assert!(!cookie_file_connected(missing));
         assert!(!cookie_file_connected(""));
+    }
+
+    #[test]
+    fn youtube_cookies_only_drops_other_domains() {
+        let jar = "# Netscape HTTP Cookie File\n\
+.youtube.com\tTRUE\t/\tTRUE\t0\tSAPISID\tyt\n\
+#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t0\t__Secure-3PSID\tyt2\n\
+music.youtube.com\tFALSE\t/\tTRUE\t0\tPREF\tx\n\
+.google.com\tTRUE\t/\tTRUE\t0\tSID\tg\n\
+.mybank.com\tTRUE\t/\tTRUE\t0\tsession\tsecret\n\
+.notyoutube.com\tTRUE\t/\tTRUE\t0\tx\ty\n";
+        let kept = youtube_cookies_only(jar);
+        assert!(kept.contains("SAPISID") && kept.contains("__Secure-3PSID") && kept.contains("PREF"));
+        assert!(!kept.contains("mybank") && !kept.contains("google.com") && !kept.contains("notyoutube"));
+        assert!(cookie_file_connected(&kept));
     }
 
     #[test]
