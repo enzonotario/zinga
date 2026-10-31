@@ -107,6 +107,7 @@ const groups = computed(() => {
   if (results.value.artists.length > 0) {
     commandGroups.push({
       id: 'artists',
+      ignoreFilter: true,
       label: t('search.artists'),
       items: results.value.artists.map((artist) => ({
         id: `artist-${artist.id}`,
@@ -119,6 +120,7 @@ const groups = computed(() => {
   if (results.value.albums.length > 0) {
     commandGroups.push({
       id: 'albums',
+      ignoreFilter: true,
       label: t('search.albums'),
       items: results.value.albums.map((album) => ({
         id: `album-${album.id}`,
@@ -131,6 +133,7 @@ const groups = computed(() => {
   if (results.value.tracks.length > 0) {
     commandGroups.push({
       id: 'tracks',
+      ignoreFilter: true,
       label: t('search.tracks'),
       items: results.value.tracks.map((track) => ({
         id: `track-${track.id}`,
@@ -143,6 +146,7 @@ const groups = computed(() => {
   if (ytmResults.value.tracks.length > 0) {
     commandGroups.push({
       id: 'ytm-tracks',
+      ignoreFilter: true,
       label: t('search.ytmTracks'),
       items: ytmResults.value.tracks.map((track) => ({
         id: `ytm-track-${track.videoId}`,
@@ -158,6 +162,7 @@ const groups = computed(() => {
   if (ytmResults.value.videos.length > 0) {
     commandGroups.push({
       id: 'ytm-videos',
+      ignoreFilter: true,
       label: t('search.ytmVideos'),
       items: ytmResults.value.videos.map((video) => ({
         id: `ytm-video-${video.videoId}`,
@@ -173,6 +178,7 @@ const groups = computed(() => {
   if (ytmResults.value.albums.length > 0) {
     commandGroups.push({
       id: 'ytm-albums',
+      ignoreFilter: true,
       label: t('search.ytmAlbums'),
       items: ytmResults.value.albums.map((album) => ({
         id: `ytm-album-${album.id}`,
@@ -186,6 +192,7 @@ const groups = computed(() => {
   if (ytmResults.value.artists.length > 0) {
     commandGroups.push({
       id: 'ytm-artists',
+      ignoreFilter: true,
       label: t('search.ytmArtists'),
       items: ytmResults.value.artists.map((artist) => ({
         id: `ytm-artist-${artist.id}`,
