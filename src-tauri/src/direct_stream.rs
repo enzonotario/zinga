@@ -638,35 +638,43 @@ async fn file_handler(
 pub fn start(app_handle: AppHandle) {
     init_mpd_dir(&app_handle);
     tauri::async_runtime::spawn(async move {
-        let listener = match tokio::net::TcpListener::bind(("0.0.0.0", DIRECT_STREAM_PORT)).await {
-            Ok(listener) => listener,
-            Err(e) => {
-                eprintln!("[DirectStream] Failed to bind port {DIRECT_STREAM_PORT}: {e}");
-                return;
+        loop {
+            let listener = match tokio::net::TcpListener::bind(("0.0.0.0", DIRECT_STREAM_PORT)).await
+            {
+                Ok(listener) => listener,
+                Err(e) => {
+                    eprintln!(
+                        "[DirectStream] Failed to bind port {DIRECT_STREAM_PORT}: {e}; retrying in 2s"
+                    );
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    continue;
+                }
+            };
+            eprintln!("[DirectStream] Listening on 0.0.0.0:{DIRECT_STREAM_PORT}");
+            let router = Router::new()
+                .route(
+                    "/stream/{tlid}/{file}",
+                    get(stream_handler).head(stream_handler),
+                )
+                .route(
+                    "/ytm/{tlid}/{file}",
+                    get(ytm_handler).head(ytm_handler),
+                )
+                .route(
+                    "/ytm-video/{video_id}",
+                    get(ytm_video_handler).head(ytm_video_handler),
+                )
+                .route("/file/{tlid}/{file}", get(file_handler).head(file_handler))
+                .route(
+                    "/gapless/{file}",
+                    get(crate::gapless::gapless_handler).head(crate::gapless::gapless_handler),
+                )
+                .with_state(app_handle.clone());
+            let service = router.into_make_service_with_connect_info::<SocketAddr>();
+            if let Err(e) = axum::serve(listener, service).await {
+                eprintln!("[DirectStream] Server error: {e}; restarting");
             }
-        };
-        let router = Router::new()
-            .route(
-                "/stream/{tlid}/{file}",
-                get(stream_handler).head(stream_handler),
-            )
-            .route(
-                "/ytm/{tlid}/{file}",
-                get(ytm_handler).head(ytm_handler),
-            )
-            .route(
-                "/ytm-video/{video_id}",
-                get(ytm_video_handler).head(ytm_video_handler),
-            )
-            .route("/file/{tlid}/{file}", get(file_handler).head(file_handler))
-            .route(
-                "/gapless/{file}",
-                get(crate::gapless::gapless_handler).head(crate::gapless::gapless_handler),
-            )
-            .with_state(app_handle);
-        let service = router.into_make_service_with_connect_info::<SocketAddr>();
-        if let Err(e) = axum::serve(listener, service).await {
-            eprintln!("[DirectStream] Server error: {e}");
+            tokio::time::sleep(Duration::from_millis(500)).await;
         }
     });
 }
