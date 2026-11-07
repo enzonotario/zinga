@@ -7175,6 +7175,7 @@ dependencies = [
  "urlencoding",
  "uuid",
  "walkdir",
+ "webkit2gtk",
  "ytmapi-rs",
  "zip",
 ]

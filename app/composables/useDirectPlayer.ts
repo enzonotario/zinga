@@ -3,10 +3,12 @@ import type { RendererStatus } from './useLocalRenderer';
 import type { PreparedSource, StreamFormat, StreamSource } from '~/utils/directStream';
 import type { GaplessSpan } from '~/utils/gapless';
 import type { QueueItem } from '~/utils/playQueue';
+import type { AttachTarget, GaplessSessionInfo } from '~/utils/rendererAttach';
 import { invoke } from '@tauri-apps/api/core';
 import { computed, effectScope, ref, shallowRef, watch } from 'vue';
 import { buildStreamUrl, getStreamSource, parseStreamUri } from '~/utils/directStream';
 import { gaplessUrl, isGaplessUrl, locateGaplessTrack } from '~/utils/gapless';
+import { gaplessSessionId, resolveAttachTarget } from '~/utils/rendererAttach';
 import { timeToSeconds } from '~/utils/time';
 import useDevices, { isSelectedDeviceGoneError, LOCAL_DEVICE_ID } from './useDevices';
 import useLocalRenderer from './useLocalRenderer';
@@ -30,6 +32,7 @@ interface RendererAdapter {
   resume: (deviceId: string) => Promise<void>
   stop: (deviceId: string) => Promise<void>
   ensurePolling: (deviceId: string) => void
+  refresh: (deviceId: string) => Promise<void>
 }
 
 export type PlaybackState = 'playing' | 'paused' | 'stopped';
@@ -39,6 +42,7 @@ const NATURAL_END_MARGIN_SEC = 3;
 const GAPLESS_SWITCH_GRACE_MS = 500;
 const FORMAT_MIME: Record<StreamFormat, string> = { flac: 'audio/flac', mp3: 'audio/mpeg' };
 const FLAC_MIMES = ['audio/flac', 'audio/x-flac'];
+const PAUSED_STATES = ['PAUSED_PLAYBACK', 'PAUSED'];
 
 const directDeviceId = ref<string | null>(null);
 const playingTlid = ref<number | null>(null);
@@ -208,6 +212,7 @@ export default function useDirectPlayer() {
       await upnp.stop(deviceId);
     },
     ensurePolling: (deviceId) => upnp.ensureStatusPolling(deviceId),
+    refresh: (deviceId) => upnp.refreshStatus(deviceId),
   };
 
   const localAdapter: RendererAdapter = {
@@ -219,6 +224,7 @@ export default function useDirectPlayer() {
     resume: () => local.resume(),
     stop: () => local.stop(),
     ensurePolling: () => local.ensurePolling(),
+    refresh: () => local.freshStatus(),
   };
 
   function adapterFor(deviceId: string | null) {
@@ -609,11 +615,9 @@ export default function useDirectPlayer() {
           }
           gaplessSession = {
             id: opened.id,
-            tracks: tracks.map((track, index) => ({
+            tracks: tracks.map((track) => ({
               tlid: track.tlid,
-              durationSec: index === 0
-                ? Math.max(0.1, track.durationMs / 1000 - startSec)
-                : track.durationMs / 1000,
+              durationSec: track.durationMs / 1000,
             })),
           };
           const url = gaplessUrl(base, opened.id, format);
@@ -657,6 +661,76 @@ export default function useDirectPlayer() {
     } catch (err) {
       if (requestId !== startRequestId) return;
       throw err;
+    }
+  }
+
+  // The previous page most likely queued the next track already. Assuming so keeps the STOPPED grace window
+  // during the renderer's own transition and avoids resending the same SetNext.
+  function assumedQueuedNext(item: QueueItem) {
+    const next = getNextItem();
+    const nextSource = getStreamSource(next?.track.uri);
+    if (getStreamSource(item.track.uri)?.kind === 'ytm' || nextSource?.kind === 'ytm') return undefined;
+    return next && nextSource ? next.tlid : null;
+  }
+
+  function adopt(deviceId: string, item: QueueItem, target: AttachTarget, status: RendererStatus, paused: boolean) {
+    startRequestId++;
+    directDeviceId.value = deviceId;
+    playingTlid.value = item.tlid;
+    playingItemCache.value = item;
+    queue.setCurrent(item.tlid);
+    startOffsetSec.value = target.startOffsetSec;
+    pending.value = null;
+    pausedAtSec.value = paused ? target.trackPositionSec : null;
+    stopAfterCurrent.value = false;
+    anchorAt.value = paused ? Number.POSITIVE_INFINITY : performance.now() - status.positionSec * 1000;
+    lastTrackUri = status.trackUri;
+    lastRelSec = status.positionSec;
+    stoppedAt = 0;
+    currentIndexHint = -1;
+    lastError.value = null;
+    gaplessSession = target.gapless;
+    resolveCurrentIndex();
+    nextQueuedTlid = target.gapless ? undefined : assumedQueuedNext(item);
+  }
+
+  async function readGaplessInfo(trackUri: string): Promise<GaplessSessionInfo | null> {
+    const id = gaplessSessionId(trackUri);
+    if (!id) return null;
+    try {
+      const info = await invoke<Omit<GaplessSessionInfo, 'id'>>('direct_gapless_info', { id });
+      return { id, ...info };
+    } catch {
+      return null;
+    }
+  }
+
+  // Adopts a session the renderer is already playing (e.g. after a page reload) using read-only status calls only
+  async function attachToRenderer(deviceId: string) {
+    if (isActive.value) return false;
+    const renderer = adapterFor(deviceId);
+    try {
+      await renderer.refresh(deviceId);
+      const status = { ...renderer.status.value };
+      const paused = PAUSED_STATES.includes(status.state);
+      if (status.state !== 'PLAYING' && !paused) return false;
+      const [baseUrl, gapless] = await Promise.all([getBaseUrl(), readGaplessInfo(status.trackUri)]);
+      if (isActive.value) return false;
+      const target = resolveAttachTarget({
+        trackUri: status.trackUri,
+        streamPositionSec: status.positionSec,
+        baseUrl,
+        items: queue.items.value,
+        gapless,
+      });
+      const item = findItem(target?.tlid ?? null);
+      if (!target || !item) return false;
+      adopt(deviceId, item, target, status, paused);
+      renderer.ensurePolling(deviceId);
+      return true;
+    } catch (err) {
+      console.warn('Renderer attach failed:', err);
+      return false;
     }
   }
 
@@ -768,5 +842,6 @@ export default function useDirectPlayer() {
     next,
     previous,
     stop,
+    attachToRenderer,
   };
 }

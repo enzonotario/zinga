@@ -8,9 +8,9 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, Once, OnceLock};
+use std::time::{Duration, Instant};
 use tauri::AppHandle;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStdin, ChildStdout};
@@ -23,6 +23,8 @@ use crate::direct_stream::{
 const READ_WAIT: Duration = Duration::from_millis(20);
 const CANCEL_POLL: Duration = Duration::from_millis(200);
 const CHUNK: usize = 64 * 1024;
+const READER_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
+const REAP_INTERVAL: Duration = Duration::from_secs(15);
 
 struct Tape {
     path: PathBuf,
@@ -43,6 +45,26 @@ struct Session {
     cancel: AtomicBool,
     wake: Notify,
     alive: AtomicBool,
+    spans: Mutex<Vec<GaplessSpan>>,
+    readers: AtomicUsize,
+    idle_since: Mutex<Instant>,
+}
+
+struct ReaderGuard(Arc<Session>);
+
+impl ReaderGuard {
+    fn new(session: Arc<Session>) -> Self {
+        session.readers.fetch_add(1, Ordering::AcqRel);
+        Self(session)
+    }
+}
+
+impl Drop for ReaderGuard {
+    // Mark the idle start before the count can reach zero, so the reaper never pairs zero readers with a stale time
+    fn drop(&mut self) {
+        *lock(&self.0.idle_since) = Instant::now();
+        self.0.readers.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 fn sessions() -> &'static Mutex<HashMap<String, Arc<Session>>> {
@@ -62,10 +84,32 @@ pub struct GaplessTrack {
     tlid: u64,
     kind: String,
     id: String,
-    #[allow(dead_code)]
     duration_ms: u64,
     #[serde(default)]
     start_ms: u64,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GaplessSpan {
+    tlid: u64,
+    duration_ms: u64,
+    start_ms: u64,
+}
+
+impl From<&GaplessTrack> for GaplessSpan {
+    fn from(track: &GaplessTrack) -> Self {
+        Self {
+            tlid: track.tlid,
+            duration_ms: track.duration_ms,
+            start_ms: track.start_ms,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct GaplessInfo {
+    tracks: Vec<GaplessSpan>,
 }
 
 #[derive(Serialize)]
@@ -338,8 +382,16 @@ async fn encode_track(
         track.start_ms,
     )?;
     let copied = copy_pcm(&mut stdout, encoder, session).await;
-    let _ = child.wait().await;
+    finish_decoder(&mut child, copied.is_err()).await;
     copied
+}
+
+// An abandoned decoder blocks forever on its full stdout pipe, so it has to be killed before waiting
+async fn finish_decoder(child: &mut Child, abort: bool) {
+    if abort {
+        let _ = child.start_kill();
+    }
+    let _ = child.wait().await;
 }
 
 fn fail_session(session: &Session) {
@@ -397,7 +449,7 @@ async fn run_session(session: Arc<Session>, format: StreamFormat) {
             first.start_ms,
         )?;
         let copied = copy_pcm(&mut decoder_out, &mut stdin, &session).await;
-        let _ = decoder.wait().await;
+        finish_decoder(&mut decoder, copied.is_err()).await;
         copied
     }
     .await;
@@ -417,6 +469,9 @@ async fn run_session(session: Arc<Session>, format: StreamFormat) {
     }
 
     drop(stdin);
+    if session.cancel.load(Ordering::Relaxed) {
+        let _ = encoder_child.start_kill();
+    }
     let _ = encoder_child.wait().await;
     let _ = pump.await;
     session.alive.store(false, Ordering::Relaxed);
@@ -425,6 +480,52 @@ async fn run_session(session: Arc<Session>, format: StreamFormat) {
 
 fn session(id: &str) -> Option<Arc<Session>> {
     lock(sessions()).get(id).cloned()
+}
+
+fn cancel_session(session: &Session) {
+    session.cancel.store(true, Ordering::Relaxed);
+    session.finished.store(true, Ordering::Relaxed);
+    session.wake.notify_waiters();
+}
+
+fn should_reap(readers: usize, idle_since: Instant, now: Instant) -> bool {
+    readers == 0 && now.saturating_duration_since(idle_since) > READER_IDLE_TIMEOUT
+}
+
+fn reap_idle_sessions(now: Instant) {
+    let reaped: Vec<(String, Arc<Session>)> = {
+        let mut map = lock(sessions());
+        let idle: Vec<String> = map
+            .iter()
+            .filter(|(_, session)| {
+                let readers = session.readers.load(Ordering::Acquire);
+                should_reap(readers, *lock(&session.idle_since), now)
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        idle.into_iter()
+            .filter_map(|id| map.remove(&id).map(|session| (id, session)))
+            .collect()
+    };
+    for (id, session) in reaped {
+        eprintln!(
+            "[Gapless] closing session {id}: no reader for {}s",
+            READER_IDLE_TIMEOUT.as_secs()
+        );
+        cancel_session(&session);
+    }
+}
+
+fn ensure_reaper() {
+    static REAPER: Once = Once::new();
+    REAPER.call_once(|| {
+        tokio::spawn(async {
+            loop {
+                tokio::time::sleep(REAP_INTERVAL).await;
+                reap_idle_sessions(Instant::now());
+            }
+        });
+    });
 }
 
 fn take_tracks(tracks: Vec<GaplessTrack>) -> Result<VecDeque<GaplessTrack>, String> {
@@ -441,6 +542,7 @@ fn open_session(tracks: Vec<GaplessTrack>, format: String) -> Result<GaplessOpen
     let format = StreamFormat::parse(&format)
         .ok_or_else(|| format!("Unsupported stream format: {format}"))?;
     let queue = take_tracks(tracks)?;
+    let spans = queue.iter().map(GaplessSpan::from).collect();
     let id = uuid::Uuid::new_v4().simple().to_string();
     let path = std::env::temp_dir().join(format!("zinga-gapless-{id}"));
     let session = Arc::new(Session {
@@ -454,8 +556,21 @@ fn open_session(tracks: Vec<GaplessTrack>, format: String) -> Result<GaplessOpen
         cancel: AtomicBool::new(false),
         wake: Notify::new(),
         alive: AtomicBool::new(true),
+        spans: Mutex::new(spans),
+        readers: AtomicUsize::new(0),
+        idle_since: Mutex::new(Instant::now()),
     });
-    lock(sessions()).insert(id.clone(), Arc::clone(&session));
+    let replaced: Vec<(String, Arc<Session>)> = {
+        let mut map = lock(sessions());
+        let replaced = map.drain().collect();
+        map.insert(id.clone(), Arc::clone(&session));
+        replaced
+    };
+    for (old_id, old) in replaced {
+        eprintln!("[Gapless] closing session {old_id}: replaced by {id}");
+        cancel_session(&old);
+    }
+    ensure_reaper();
     tokio::spawn(run_session(session, format));
     Ok(GaplessOpened { id })
 }
@@ -474,6 +589,7 @@ pub async fn direct_gapless_append(id: String, tracks: Vec<GaplessTrack>) -> Res
     if !session.alive.load(Ordering::Relaxed) || session.cancel.load(Ordering::Relaxed) {
         return Err("Playlist already finished".to_string());
     }
+    lock(&session.spans).extend(tracks.iter().map(GaplessSpan::from));
     lock(&session.queue).extend(tracks);
     session.finished.store(false, Ordering::Relaxed);
     session.wake.notify_waiters();
@@ -492,12 +608,18 @@ pub async fn direct_gapless_finish(id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn direct_gapless_close(id: String) -> Result<(), String> {
-    if let Some(session) = lock(sessions()).remove(&id) {
-        session.cancel.store(true, Ordering::Relaxed);
-        session.finished.store(true, Ordering::Relaxed);
-        session.wake.notify_waiters();
+    let removed = lock(sessions()).remove(&id);
+    if let Some(session) = removed {
+        cancel_session(&session);
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn direct_gapless_info(id: String) -> Result<GaplessInfo, String> {
+    let session = session(&id).ok_or_else(|| format!("Unknown playlist: {id}"))?;
+    let tracks = lock(&session.spans).clone();
+    Ok(GaplessInfo { tracks })
 }
 
 fn content_headers(format: StreamFormat) -> HeaderMap {
@@ -537,9 +659,9 @@ fn read_tape(tape: &Tape, offset: u64) -> std::io::Result<Option<Vec<u8>>> {
     Ok(Some(buf))
 }
 
-fn tape_body(tape: Arc<Tape>) -> Body {
+fn tape_body(reader: ReaderGuard) -> Body {
     let stream = futures_util::stream::unfold(0u64, move |offset| {
-        let tape = Arc::clone(&tape);
+        let tape = Arc::clone(&reader.0.tape);
         async move {
             loop {
                 match read_tape(&tape, offset) {
@@ -576,18 +698,18 @@ pub async fn gapless_handler(
     let Some(format) = StreamFormat::parse(ext) else {
         return (StatusCode::BAD_REQUEST, "Invalid playlist").into_response();
     };
-    let Some(session) = session(id) else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
     if method == Method::HEAD {
+        if session(id).is_none() {
+            return StatusCode::NOT_FOUND.into_response();
+        }
         return (StatusCode::OK, content_headers(format)).into_response();
     }
-    (
-        StatusCode::OK,
-        content_headers(format),
-        tape_body(Arc::clone(&session.tape)),
-    )
-        .into_response()
+    // Registered under the sessions lock so the reaper cannot remove a session between lookup and connect
+    let reader = lock(sessions()).get(id).cloned().map(ReaderGuard::new);
+    let Some(reader) = reader else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    (StatusCode::OK, content_headers(format), tape_body(reader)).into_response()
 }
 
 #[cfg(test)]
@@ -600,5 +722,62 @@ mod tests {
         assert_eq!(parse_probe("96000,2\n"), Some((96000, 2)));
         assert_eq!(parse_probe("nope"), None);
         assert_eq!(parse_probe("0,2"), None);
+    }
+
+    #[test]
+    fn reaps_only_sessions_idle_past_the_timeout() {
+        let idle_since = Instant::now();
+        assert!(!should_reap(0, idle_since, idle_since));
+        let limit = idle_since + READER_IDLE_TIMEOUT;
+        assert!(!should_reap(0, idle_since, limit));
+        assert!(should_reap(0, idle_since, limit + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn never_reaps_a_session_with_a_connected_reader() {
+        let idle_since = Instant::now();
+        let later = idle_since + Duration::from_secs(24 * 3600);
+        assert!(!should_reap(1, idle_since, later));
+        assert!(!should_reap(3, idle_since, later));
+    }
+
+    fn idle_session(idle_since: Instant) -> Arc<Session> {
+        Arc::new(Session {
+            tape: Arc::new(Tape {
+                path: std::env::temp_dir().join("zinga-gapless-test-unused"),
+                len: AtomicU64::new(0),
+                done: AtomicBool::new(false),
+            }),
+            queue: Mutex::new(VecDeque::new()),
+            finished: AtomicBool::new(false),
+            cancel: AtomicBool::new(false),
+            wake: Notify::new(),
+            alive: AtomicBool::new(true),
+            spans: Mutex::new(Vec::new()),
+            readers: AtomicUsize::new(0),
+            idle_since: Mutex::new(idle_since),
+        })
+    }
+
+    #[test]
+    fn reader_guard_counts_readers_and_restarts_idle_time_on_disconnect() {
+        let created = Instant::now() - Duration::from_secs(600);
+        let session = idle_session(created);
+        let first = ReaderGuard::new(Arc::clone(&session));
+        let second = ReaderGuard::new(Arc::clone(&session));
+        assert_eq!(session.readers.load(Ordering::Acquire), 2);
+        drop(first);
+        assert_eq!(session.readers.load(Ordering::Acquire), 1);
+        drop(second);
+        assert_eq!(session.readers.load(Ordering::Acquire), 0);
+        let idle_since = *lock(&session.idle_since);
+        assert!(idle_since > created);
+        assert!(!should_reap(0, idle_since, Instant::now()));
+    }
+
+    #[test]
+    fn tolerates_an_idle_time_newer_than_now() {
+        let now = Instant::now();
+        assert!(!should_reap(0, now + Duration::from_secs(5), now));
     }
 }

@@ -38,6 +38,7 @@ mod remote;
 mod setup;
 mod terminal;
 mod tidal_session;
+mod watchdog;
 mod window_shortcuts;
 mod ytm;
 
@@ -432,6 +433,14 @@ pub fn run() {
         .manage(AppState::default())
         .manage(remote::state::RemoteState::new())
         .manage(terminal::TerminalState::default())
+        .manage(watchdog::Watchdog::default())
+        .on_page_load(|webview, payload| {
+            if webview.label() == watchdog::MAIN_WEBVIEW
+                && payload.event() == tauri::webview::PageLoadEvent::Started
+            {
+                watchdog::page_load_started(&webview.state::<watchdog::Watchdog>());
+            }
+        })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() != "main" {
@@ -450,6 +459,7 @@ pub fn run() {
                     eprintln!("[Window] Failed to register Linux window shortcuts: {err}");
                 }
             }
+            watchdog::start(app.handle());
 
             let show_i = MenuItem::with_id(app, "show", "Mostrar", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Salir", true, None::<&str>)?;
@@ -583,6 +593,8 @@ pub fn run() {
             gapless::direct_gapless_append,
             gapless::direct_gapless_finish,
             gapless::direct_gapless_close,
+            gapless::direct_gapless_info,
+            watchdog::frontend_heartbeat,
             direct_stream::direct_register_file,
             direct_stream::direct_stream_base_url,
             tidal_session::tidal_login_url,

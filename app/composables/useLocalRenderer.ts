@@ -105,6 +105,7 @@ export default function useLocalRenderer() {
     status,
     tick,
     ensurePolling,
+    freshStatus,
     stopPolling,
     play,
     setNext,

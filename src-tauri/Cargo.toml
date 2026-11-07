@@ -96,6 +96,7 @@ features = [ "sqlite" ]
 [target.'cfg(target_os = "linux")'.dependencies]
 gdk = "0.18"
 gtk = { version = "0.18", features = [ "v3_24" ] }
+webkit2gtk = { version = "=2.0.1", features = [ "v2_38" ] }
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = "2.3.4"

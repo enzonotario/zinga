@@ -135,6 +135,7 @@ export default function useUpnpPlayer() {
     pause,
     stop,
     ensureStatusPolling,
+    refreshStatus,
     uiTick,
   };
 }
