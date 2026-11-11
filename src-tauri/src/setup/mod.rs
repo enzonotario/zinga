@@ -3,9 +3,6 @@ use serde::Serialize;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-pub(crate) const INSTALL_COMMAND: &str =
-    "sudo apt install ffmpeg gstreamer1.0-plugins-good gstreamer1.0-plugins-base";
-
 const GSTREAMER_PLUGINS: [&str; 5] = [
     "playbin",
     "souphttpsrc",
@@ -53,15 +50,37 @@ pub(crate) const EXTERNAL_ENV_DENYLIST: [&str; 19] = [
     "PYTHONPATH",
 ];
 
+pub(crate) fn install_command() -> &'static str {
+    if cfg!(windows) {
+        "Install ffmpeg (PATH) and the GStreamer MSVC runtime (Complete) from https://gstreamer.freedesktop.org/download/"
+    } else if cfg!(target_os = "macos") {
+        "brew install ffmpeg gstreamer gst-plugins-base gst-plugins-good"
+    } else {
+        "sudo apt install ffmpeg gstreamer1.0-plugins-good gstreamer1.0-plugins-base"
+    }
+}
+
 pub(crate) fn sanitize_external_env(command: &mut Command) {
     for key in EXTERNAL_ENV_DENYLIST {
         command.env_remove(key);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
     }
 }
 
 fn is_on_path(program: &str) -> bool {
     std::env::var_os("PATH").is_some_and(|paths| {
-        std::env::split_paths(&paths).any(|dir| Path::new(&dir).join(program).is_file())
+        std::env::split_paths(&paths).any(|dir| {
+            let direct = Path::new(&dir).join(program);
+            if direct.is_file() {
+                return true;
+            }
+            cfg!(windows) && Path::new(&dir).join(format!("{program}.exe")).is_file()
+        })
     })
 }
 
@@ -101,7 +120,7 @@ fn summarize(
         ffmpeg,
         gstreamer_plugins,
         ready,
-        install_command: INSTALL_COMMAND.to_string(),
+        install_command: install_command().to_string(),
         can_run_install,
     }
 }
@@ -145,7 +164,7 @@ mod tests {
     fn serializes_in_camel_case() {
         let value = serde_json::to_value(summarize(true, plugins(&[true; 5]), true)).unwrap();
         assert_eq!(value["ready"], true);
-        assert_eq!(value["installCommand"], INSTALL_COMMAND);
+        assert_eq!(value["installCommand"], install_command());
         assert_eq!(value["canRunInstall"], true);
         assert_eq!(value["gstreamerPlugins"][0]["name"], "playbin");
         assert_eq!(value["gstreamerPlugins"][0]["available"], true);

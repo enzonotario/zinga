@@ -6,10 +6,23 @@
 
 ## 2. Instalar dependencias
 
-Zinga usa `ffmpeg` para transmitir audio a dispositivos UPnP y GStreamer para reproducir en este equipo. En Debian/Ubuntu:
+Zinga usa `ffmpeg` para transmitir audio a dispositivos UPnP y GStreamer para reproducir en este equipo.
+
+### Linux (Debian/Ubuntu)
 
 ```bash
 sudo apt install ffmpeg gstreamer1.0-plugins-good gstreamer1.0-plugins-base
+```
+
+### Windows
+
+1. Instalá `ffmpeg` y agregalo al `PATH` (por ejemplo con [winget](https://winget.run/) / [scoop](https://scoop.sh/) / [chocolatey](https://chocolatey.org/)).
+2. Descargá el runtime **MSVC** de GStreamer (opción *Complete*) desde [gstreamer.freedesktop.org](https://gstreamer.freedesktop.org/download/).
+
+### macOS
+
+```bash
+brew install ffmpeg gstreamer gst-plugins-base gst-plugins-good
 ```
 
 Si falta algo, la app abre la página de verificación del sistema al iniciar. Ahí podés volver a verificar después de instalar.

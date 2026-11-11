@@ -35,7 +35,7 @@ const downloads = computed(() => {
       asset: findAsset(assets, '.rpm'),
     },
     {
-      label: 'Windows',
+      label: 'Windows (NSIS)',
       asset: findAsset(assets, '.exe') || findAsset(assets, '.msi'),
     },
     {

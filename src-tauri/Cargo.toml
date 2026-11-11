@@ -1,6 +1,6 @@
 [package]
 name = "zinga"
-version = "0.0.1"
+version = "0.0.5"
 description = "Music app for UPnP devices, built with Nuxt 4 and Tauri 2"
 authors = [ "Enzo Notario" ]
 license = "MIT"

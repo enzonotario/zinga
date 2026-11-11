@@ -81,6 +81,14 @@ fn deno_bin_name() -> &'static str {
 }
 
 fn deno_asset_name() -> &'static str {
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    {
+        "deno-x86_64-pc-windows-msvc.zip"
+    }
+    #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+    {
+        "deno-aarch64-pc-windows-msvc.zip"
+    }
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     {
         "deno-x86_64-unknown-linux-gnu.zip"
@@ -98,6 +106,8 @@ fn deno_asset_name() -> &'static str {
         "deno-aarch64-apple-darwin.zip"
     }
     #[cfg(not(any(
+        all(target_os = "windows", target_arch = "x86_64"),
+        all(target_os = "windows", target_arch = "aarch64"),
         all(target_os = "linux", target_arch = "x86_64"),
         all(target_os = "linux", target_arch = "aarch64"),
         all(target_os = "macos", target_arch = "x86_64"),
@@ -109,7 +119,16 @@ fn deno_asset_name() -> &'static str {
 }
 
 fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
+    #[cfg(windows)]
+    {
+        std::env::var_os("USERPROFILE")
+            .or_else(|| std::env::var_os("HOME"))
+            .map(PathBuf::from)
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var_os("HOME").map(PathBuf::from)
+    }
 }
 
 fn path_lookup(name: &str) -> Option<PathBuf> {
@@ -118,6 +137,12 @@ fn path_lookup(name: &str) -> Option<PathBuf> {
         let candidate = dir.join(name);
         if candidate.is_file() {
             return Some(candidate);
+        }
+        if cfg!(windows) && !name.ends_with(".exe") {
+            let with_ext = dir.join(format!("{name}.exe"));
+            if with_ext.is_file() {
+                return Some(with_ext);
+            }
         }
     }
     None

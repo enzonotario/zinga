@@ -15,9 +15,11 @@ Music app for UPnP devices, built with Nuxt 4 and Tauri 2.
 
 ## Platform Status
 
-Zinga is currently focused on and tested on Linux.
+- **Linux**: primary target (AppImage / DEB / RPM)
+- **Windows**: supported via NSIS installer (ffmpeg + GStreamer MSVC runtime required)
+- **macOS**: experimental / best-effort
 
-Contributions for Windows, macOS, and Android support are welcome.
+Contributions for Android and deeper platform polish are welcome.
 
 ## Architecture
 
@@ -32,6 +34,14 @@ On Debian/Ubuntu:
 
 ```bash
 sudo apt install ffmpeg gstreamer1.0-plugins-good gstreamer1.0-plugins-base
+```
+
+On Windows, install `ffmpeg` on `PATH` and the GStreamer **MSVC** runtime (Complete) from [gstreamer.freedesktop.org](https://gstreamer.freedesktop.org/download/).
+
+On macOS:
+
+```bash
+brew install ffmpeg gstreamer gst-plugins-base gst-plugins-good
 ```
 
 The app checks these on startup and opens the system check page if something is missing.

@@ -34,7 +34,7 @@
     "devUrl": "http://localhost:5432"
   },
   "productName": "Zinga",
-  "version": "0.0.1",
+  "version": "0.0.5",
   "identifier": "com.enzonotario.zinga",
   "plugins": {},
   "app": {

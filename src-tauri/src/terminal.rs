@@ -1,4 +1,4 @@
-use crate::setup::{can_run_install, EXTERNAL_ENV_DENYLIST, INSTALL_COMMAND};
+use crate::setup::{can_run_install, install_command, EXTERNAL_ENV_DENYLIST};
 use portable_pty::{native_pty_system, Child, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -26,7 +26,7 @@ impl TerminalCommand {
 
     fn builder(self) -> CommandBuilder {
         match self {
-            Self::InstallDependencies => shell_command(INSTALL_COMMAND),
+            Self::InstallDependencies => shell_command(install_command()),
         }
     }
 }
@@ -330,7 +330,7 @@ mod tests {
             .iter()
             .map(|a| a.to_str().unwrap())
             .collect();
-        assert_eq!(argv, ["bash", "-lc", INSTALL_COMMAND]);
+        assert_eq!(argv, ["bash", "-lc", install_command()]);
         for key in EXTERNAL_ENV_DENYLIST {
             assert!(builder.get_env(key).is_none(), "{key} was not removed");
         }
