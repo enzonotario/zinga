@@ -1,4 +1,5 @@
 import type { NormalizedAlbum, NormalizedArtist } from '~/providers/types';
+import type { CoverColor } from '~/utils/collectionSort';
 import Database from '@tauri-apps/plugin-sql';
 import { mapDbAlbumToNormalized, mapDbArtistToNormalized } from '~/utils/dbConverters';
 
@@ -52,6 +53,28 @@ interface SyncHistory {
   completed_at: number | null
   items_synced: number
   status: string
+}
+export interface StoredCoverColor {
+  albumId: string
+  color: CoverColor | null
+  computedAt: number
+}
+interface DbCoverColor {
+  album_id: string
+  hue: number | null
+  saturation: number | null
+  lightness: number | null
+  computed_at: number
+}
+const INSERT_CHUNK_SIZE = 200;
+function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  return chunks;
+}
+function placeholders(rows: number, columns: number): string {
+  return Array.from({ length: rows }, (_, row) =>
+    `(${Array.from({ length: columns }, (_, col) => `$${row * columns + col + 1}`).join(', ')})`).join(', ');
 }
 let db: Database | null = null;
 async function getDb(): Promise<Database> {
@@ -245,6 +268,64 @@ export default function useLocalDb() {
       database.execute('DELETE FROM sync_history'),
     ]);
   }
+  async function getManualOrder(): Promise<Record<string, number>> {
+    const database = await getDb();
+    const rows = await database.select<{ album_id: string, position: number }[]>('SELECT album_id, position FROM collection_manual_order');
+    return Object.fromEntries(rows.map((r) => [r.album_id, r.position]));
+  }
+  async function setManualOrder(albumIds: string[]): Promise<void> {
+    const database = await getDb();
+    const ids = JSON.stringify([...new Set(albumIds)]);
+    await database.execute(
+      'INSERT OR REPLACE INTO collection_manual_order (album_id, position) SELECT value, key FROM json_each($1)',
+      [ids],
+    );
+    await database.execute(
+      'DELETE FROM collection_manual_order WHERE album_id NOT IN (SELECT value FROM json_each($1))',
+      [ids],
+    );
+  }
+  async function getArtistSortNames(): Promise<Record<string, string>> {
+    const database = await getDb();
+    const rows = await database.select<{ artist_id: string, sort_name: string }[]>('SELECT artist_id, sort_name FROM artist_sort_names');
+    return Object.fromEntries(rows.map((r) => [r.artist_id, r.sort_name]));
+  }
+  async function setArtistSortName(artistId: string, sortName: string): Promise<void> {
+    const name = sortName.trim();
+    if (!name) return deleteArtistSortName(artistId);
+    const database = await getDb();
+    await database.execute(
+      'INSERT OR REPLACE INTO artist_sort_names (artist_id, sort_name) VALUES ($1, $2)',
+      [artistId, name],
+    );
+  }
+  async function deleteArtistSortName(artistId: string): Promise<void> {
+    const database = await getDb();
+    await database.execute('DELETE FROM artist_sort_names WHERE artist_id = $1', [artistId]);
+  }
+  async function getCoverColors(): Promise<StoredCoverColor[]> {
+    const database = await getDb();
+    const rows = await database.select<DbCoverColor[]>('SELECT * FROM album_cover_colors');
+    return rows.map((r) => ({
+      albumId: r.album_id,
+      color: r.hue === null || r.saturation === null || r.lightness === null
+        ? null
+        : { hue: r.hue, saturation: r.saturation, lightness: r.lightness },
+      computedAt: r.computed_at,
+    }));
+  }
+  async function saveCoverColors(colors: Record<string, CoverColor | null>): Promise<void> {
+    const entries = Object.entries(colors);
+    if (entries.length === 0) return;
+    const database = await getDb();
+    const now = Date.now();
+    for (const part of chunk(entries, INSERT_CHUNK_SIZE)) {
+      await database.execute(
+        `INSERT OR REPLACE INTO album_cover_colors (album_id, hue, saturation, lightness, computed_at) VALUES ${placeholders(part.length, 5)}`,
+        part.flatMap(([albumId, color]) => [albumId, color?.hue ?? null, color?.saturation ?? null, color?.lightness ?? null, now]),
+      );
+    }
+  }
   return {
     getDb,
     isLoading,
@@ -262,5 +343,12 @@ export default function useLocalDb() {
     getAlbumsByYear,
     getStats,
     clearAllData,
+    getManualOrder,
+    setManualOrder,
+    getArtistSortNames,
+    setArtistSortName,
+    deleteArtistSortName,
+    getCoverColors,
+    saveCoverColors,
   };
 }

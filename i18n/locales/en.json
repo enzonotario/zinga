@@ -550,5 +550,93 @@
     "finishedWithCode": "Finished (exit code {code})",
     "kill": "Stop",
     "close": "Close terminal"
+  },
+  "collectionSort": {
+    "presets": {
+      "artist-chrono": {
+        "label": "Artist, chronological",
+        "description": "Alphabetical by artist, each artist in release order. The classic record-store way."
+      },
+      "artist-alpha": {
+        "label": "Artist and title",
+        "description": "Alphabetical by artist, then by title."
+      },
+      "chronological": {
+        "label": "Chronological",
+        "description": "By release year: the history of music on your shelf."
+      },
+      "genre-artist": {
+        "label": "Genre",
+        "description": "By genre, then artist and year. Like record-store bins."
+      },
+      "label": {
+        "label": "Label",
+        "description": "By record label and year, for label collectors."
+      },
+      "decade-artist": {
+        "label": "Decade",
+        "description": "By decade, then by artist."
+      },
+      "acquisition": {
+        "label": "Date added",
+        "description": "In the order you added them: your collection as an autobiography."
+      },
+      "color": {
+        "label": "Cover color",
+        "description": "By cover color, in rainbow order."
+      },
+      "manual": {
+        "label": "Custom order",
+        "description": "Your own order, by drag and drop."
+      }
+    },
+    "keys": {
+      "artist": "Artist",
+      "title": "Title",
+      "releaseDate": "Release date",
+      "addedAt": "Date added",
+      "label": "Label",
+      "genre": "Genre",
+      "type": "Type",
+      "decade": "Decade",
+      "coverColor": "Cover color",
+      "duration": "Duration",
+      "numberOfTracks": "Track count",
+      "manual": "Custom order"
+    },
+    "groupBy": {
+      "none": "No dividers",
+      "letter": "Letter",
+      "artist": "Artist",
+      "decade": "Decade",
+      "genre": "Genre",
+      "label": "Label",
+      "type": "Type",
+      "color": "Color"
+    },
+    "options": {
+      "ignoreArticles": "Ignore articles (The, Los, La…)",
+      "numbersFirst": "Numbers first",
+      "variousArtistsLast": "Various artists last",
+      "singlesSeparate": "EPs and singles after albums",
+      "typeOrder": "Type order"
+    },
+    "groups": {
+      "unknown": "Unknown",
+      "various": "Various artists"
+    },
+    "colors": {
+      "red": "Red",
+      "orange": "Orange",
+      "yellow": "Yellow",
+      "green": "Green",
+      "cyan": "Cyan",
+      "blue": "Blue",
+      "purple": "Purple",
+      "pink": "Pink",
+      "white": "White",
+      "gray": "Gray",
+      "black": "Black"
+    }
   }
 }

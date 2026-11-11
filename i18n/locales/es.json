@@ -550,5 +550,93 @@
     "finishedWithCode": "Finalizado (código {code})",
     "kill": "Detener",
     "close": "Cerrar terminal"
+  },
+  "collectionSort": {
+    "presets": {
+      "artist-chrono": {
+        "label": "Artista y cronológico",
+        "description": "Alfabético por artista, cada artista en orden cronológico. Como en una disquería."
+      },
+      "artist-alpha": {
+        "label": "Artista y título",
+        "description": "Alfabético por artista y luego por título."
+      },
+      "chronological": {
+        "label": "Cronológico",
+        "description": "Por año de edición: la historia de la música en tu estante."
+      },
+      "genre-artist": {
+        "label": "Género",
+        "description": "Por género, luego artista y año. Como las bateas de una disquería."
+      },
+      "label": {
+        "label": "Sello",
+        "description": "Por sello discográfico y año, para coleccionistas de sellos."
+      },
+      "decade-artist": {
+        "label": "Década",
+        "description": "Por década y luego por artista."
+      },
+      "acquisition": {
+        "label": "Fecha de incorporación",
+        "description": "En el orden en que los fuiste agregando: tu colección como autobiografía."
+      },
+      "color": {
+        "label": "Color de tapa",
+        "description": "Por color de tapa, en orden de arcoíris."
+      },
+      "manual": {
+        "label": "Orden propio",
+        "description": "Tu propio orden, arrastrando y soltando."
+      }
+    },
+    "keys": {
+      "artist": "Artista",
+      "title": "Título",
+      "releaseDate": "Fecha de edición",
+      "addedAt": "Fecha de incorporación",
+      "label": "Sello",
+      "genre": "Género",
+      "type": "Tipo",
+      "decade": "Década",
+      "coverColor": "Color de tapa",
+      "duration": "Duración",
+      "numberOfTracks": "Cantidad de pistas",
+      "manual": "Orden propio"
+    },
+    "groupBy": {
+      "none": "Sin separadores",
+      "letter": "Letra",
+      "artist": "Artista",
+      "decade": "Década",
+      "genre": "Género",
+      "label": "Sello",
+      "type": "Tipo",
+      "color": "Color"
+    },
+    "options": {
+      "ignoreArticles": "Ignorar artículos (The, Los, La…)",
+      "numbersFirst": "Números primero",
+      "variousArtistsLast": "Varios artistas al final",
+      "singlesSeparate": "EPs y singles después de los álbumes",
+      "typeOrder": "Orden de tipos"
+    },
+    "groups": {
+      "unknown": "Sin dato",
+      "various": "Varios artistas"
+    },
+    "colors": {
+      "red": "Rojo",
+      "orange": "Naranja",
+      "yellow": "Amarillo",
+      "green": "Verde",
+      "cyan": "Cian",
+      "blue": "Azul",
+      "purple": "Violeta",
+      "pink": "Rosa",
+      "white": "Blanco",
+      "gray": "Gris",
+      "black": "Negro"
+    }
   }
 }

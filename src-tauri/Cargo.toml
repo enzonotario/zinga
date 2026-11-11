@@ -47,6 +47,7 @@ reqwest = { version = "0.13", default-features = false, features = [
   "stream"
 ] }
 zip = { version = "2.6.1", default-features = false, features = [ "deflate" ] }
+image = { version = "0.25", default-features = false, features = [ "jpeg" ] }
 
 [dependencies.axum]
 version = "0.8"

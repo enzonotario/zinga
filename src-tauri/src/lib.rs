@@ -30,6 +30,7 @@ use upnp::{
     AppState,
 };
 
+mod cover_color;
 mod direct_stream;
 mod gapless;
 mod library;
@@ -409,6 +410,30 @@ pub fn run() {
             sql: "ALTER TABLE local_tracks ADD COLUMN cover TEXT;",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 5,
+            description: "create_collection_sort_tables",
+            sql: r#"
+                CREATE TABLE IF NOT EXISTS collection_manual_order (
+                    album_id TEXT PRIMARY KEY,
+                    position INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS artist_sort_names (
+                    artist_id TEXT PRIMARY KEY,
+                    sort_name TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS album_cover_colors (
+                    album_id TEXT PRIMARY KEY,
+                    hue REAL,
+                    saturation REAL,
+                    lightness REAL,
+                    computed_at INTEGER NOT NULL
+                );
+            "#,
+            kind: MigrationKind::Up,
+        },
     ];
 
     #[allow(unused_mut)]
@@ -631,7 +656,8 @@ pub fn run() {
             terminal::terminal_write,
             terminal::terminal_resize,
             terminal::terminal_kill,
-            library::scan_folder
+            library::scan_folder,
+            cover_color::compute_cover_colors
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
