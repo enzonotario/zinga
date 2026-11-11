@@ -24,8 +24,9 @@ export const usePages = () => {
   const { t } = useI18n();
   const pages = computed(() => {
     const hiddenCategories = debugMode.value ? [] : ['debug'];
+    // Routes with params (e.g. /album/:id) need an id, so they can't be nav entries
     const routes = router.getRoutes().filter(
-      (route) => ['index', 'all', 'artist-id', 'album-id'].includes(route.name as string) === false,
+      (route) => route.name !== 'index' && !route.path.includes(':'),
     );
     const categorizedRoutes = routes.reduce((acc, route) => {
       const category = route.meta.category as string || 'other';
