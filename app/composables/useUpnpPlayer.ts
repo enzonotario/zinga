@@ -14,6 +14,7 @@ const positionInfo = ref<UpnpPositionInfo>({
 });
 const sessionDeviceId = ref<string | null>(null);
 const uiTick = ref(0);
+const statusFailures = ref(0);
 
 let pollingId: ReturnType<typeof setInterval> | null = null;
 let uiTickId: ReturnType<typeof setInterval> | null = null;
@@ -91,25 +92,30 @@ function ensureStatusPolling(deviceId: string) {
 }
 
 async function refreshStatus(deviceId: string) {
-  if (statusRefreshInFlight) return;
+  if (statusRefreshInFlight) return false;
   statusRefreshInFlight = true;
   try {
     const info = await invoke<UpnpTransportInfo>('upnp_get_transport_info', { deviceId });
     currentUpnpState.value = info.currentTransportState;
     positionInfo.value = await invoke<UpnpPositionInfo>('upnp_get_position_info', { deviceId });
+    statusFailures.value = 0;
     ensureUiTick();
 
     const state = currentUpnpState.value;
     if (!shouldKeepPolling(deviceId, state)) {
       sessionDeviceId.value = null;
       stopStatusPolling();
-      return;
+      return true;
     }
     if (!pollingId || resolvePollingIntervalMs(deviceId, state) !== pollingIntervalMs) {
       scheduleStatusPolling(deviceId);
     }
+    return true;
   } catch {
+    // A failed poll keeps the last known state: an unreachable renderer is not a stopped one
+    statusFailures.value++;
     if (!hasActiveSession(deviceId)) stopStatusPolling();
+    return false;
   } finally {
     statusRefreshInFlight = false;
   }
@@ -119,6 +125,11 @@ async function pause(deviceId: string) {
   const result = await invoke('upnp_pause', { deviceId });
   ensureStatusPolling(deviceId);
   return result;
+}
+
+function releaseSession(deviceId: string) {
+  if (sessionDeviceId.value === deviceId) sessionDeviceId.value = null;
+  ensureUiTick();
 }
 
 async function stop(deviceId: string) {
@@ -136,6 +147,8 @@ export default function useUpnpPlayer() {
     stop,
     ensureStatusPolling,
     refreshStatus,
+    releaseSession,
+    statusFailures,
     uiTick,
   };
 }

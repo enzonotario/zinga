@@ -9,6 +9,7 @@ import { computed, effectScope, ref, shallowRef, watch } from 'vue';
 import { buildStreamUrl, getStreamSource, parseStreamUri } from '~/utils/directStream';
 import { gaplessUrl, isGaplessUrl, locateGaplessTrack } from '~/utils/gapless';
 import { gaplessSessionId, resolveAttachTarget } from '~/utils/rendererAttach';
+import { canProbeSelfHeal, isStopConfirmed, selfHealTarget } from '~/utils/rendererHealth';
 import { timeToSeconds } from '~/utils/time';
 import useDevices, { isSelectedDeviceGoneError, LOCAL_DEVICE_ID } from './useDevices';
 import useLocalRenderer from './useLocalRenderer';
@@ -31,8 +32,9 @@ interface RendererAdapter {
   pause: (deviceId: string) => Promise<void>
   resume: (deviceId: string) => Promise<void>
   stop: (deviceId: string) => Promise<void>
+  release: (deviceId: string) => void
   ensurePolling: (deviceId: string) => void
-  refresh: (deviceId: string) => Promise<void>
+  refresh: (deviceId: string) => Promise<boolean>
 }
 
 export type PlaybackState = 'playing' | 'paused' | 'stopped';
@@ -56,7 +58,9 @@ const lastError = ref<string | null>(null);
 let lastRelSec = -1;
 let lastTrackUri = '';
 let nextQueuedTlid: number | null | undefined;
-let stoppedAt = 0;
+let stoppedSince: number | null = null;
+let userStoppedAt: number | null = null;
+let selfHealInFlight = false;
 let gaplessSession: { id: string, tracks: GaplessSpan[] } | null = null;
 let baseUrl: string | null = null;
 let watchersRegistered = false;
@@ -211,6 +215,7 @@ export default function useDirectPlayer() {
     stop: async (deviceId) => {
       await upnp.stop(deviceId);
     },
+    release: (deviceId) => upnp.releaseSession(deviceId),
     ensurePolling: (deviceId) => upnp.ensureStatusPolling(deviceId),
     refresh: (deviceId) => upnp.refreshStatus(deviceId),
   };
@@ -223,6 +228,7 @@ export default function useDirectPlayer() {
     pause: () => local.pause(),
     resume: () => local.resume(),
     stop: () => local.stop(),
+    release: () => local.release(),
     ensurePolling: () => local.ensurePolling(),
     refresh: () => local.freshStatus(),
   };
@@ -313,15 +319,22 @@ export default function useDirectPlayer() {
     lastTrackUri = '';
     lastRelSec = -1;
     nextQueuedTlid = undefined;
-    stoppedAt = 0;
+    stoppedSince = null;
     gaplessSession = null;
     currentIndexHint = -1;
   }
 
-  async function stop() {
+  // silent: the renderer already stopped on its own, so only the local session ends. The gapless session is left
+  // to the server's idle reaper, which keeps it available for a re-attach if the renderer is in fact still reading it.
+  async function stop(options: { silent?: boolean } = {}) {
     const deviceId = directDeviceId.value;
     const sessionId = gaplessSession?.id;
     endSession();
+    if (options.silent === true) {
+      if (deviceId) adapterFor(deviceId).release(deviceId);
+      return;
+    }
+    userStoppedAt = performance.now();
     closeGapless(sessionId);
     if (!deviceId) return;
     try {
@@ -447,26 +460,30 @@ export default function useDirectPlayer() {
     }
   }
 
-  function handleDeviceStopped() {
+  // Advancing to the next track at a natural end happens right away; anything that ends the session waits until
+  // STOPPED has been confirmed, so a transient reading never detaches the engine from a renderer that keeps playing.
+  function handleDeviceStopped(observedAt: number, confirmed: boolean) {
     const lengthMs = playingItem.value?.track.length;
     // Renderers often reset their position once stopped, so the anchored clock is the better end-of-track signal
     const clockSec = Number.isFinite(anchorAt.value)
-      ? startOffsetSec.value + (performance.now() - anchorAt.value) / 1000
+      ? startOffsetSec.value + (observedAt - anchorAt.value) / 1000
       : 0;
     const endedNaturally = !!lengthMs
       && Math.max(positionSec.value, clockSec) >= lengthMs / 1000 - NATURAL_END_MARGIN_SEC;
     const nextItem = endedNaturally ? getNextItem() : undefined;
     if (nextItem && !stopAfterCurrent.value) {
       void restartAt(nextItem, 0);
-      return;
+      return true;
     }
+    if (!confirmed) return false;
     if (nextItem) {
       queue.setCurrent(nextItem.tlid);
-      void stop();
-      return;
+      void stop({ silent: true });
+      return true;
     }
-    void stop();
+    void stop({ silent: true });
     if (endedNaturally) queue.clear();
+    return true;
   }
 
   function syncGapless(rendererState: string, rel: number, now: number) {
@@ -479,16 +496,18 @@ export default function useDirectPlayer() {
     }
     if (pausedAtSec.value != null) return;
     if (rendererState === 'STOPPED') {
+      stoppedSince ??= now;
+      if (!isStopConfirmed(stoppedSince, now)) return;
       const absolute = Number.isFinite(anchorAt.value)
-        ? startOffsetSec.value + (now - anchorAt.value) / 1000
+        ? startOffsetSec.value + (stoppedSince - anchorAt.value) / 1000
         : 0;
       const total = session.tracks.reduce((sum, track) => sum + track.durationSec, 0);
-      stoppedAt = 0;
+      stoppedSince = null;
       if (absolute >= total - NATURAL_END_MARGIN_SEC) queue.clear();
-      void stop();
+      void stop({ silent: true });
       return;
     }
-    stoppedAt = 0;
+    stoppedSince = null;
     if (rendererState === 'PLAYING' && rel !== lastRelSec && rel > 0) {
       anchorAt.value = Math.min(anchorAt.value, now - rel * 1000);
     }
@@ -532,17 +551,14 @@ export default function useDirectPlayer() {
     if (pausedAtSec.value != null) return;
 
     if (rendererState === 'STOPPED') {
+      stoppedSince ??= now;
       // A gapless renderer can report STOPPED for a moment while it opens the queued track.
       const waitingForQueuedNext = nextQueuedTlid != null && !stopAfterCurrent.value;
-      if (waitingForQueuedNext) {
-        if (stoppedAt === 0) stoppedAt = performance.now();
-        if (performance.now() - stoppedAt < GAPLESS_SWITCH_GRACE_MS) return;
-      }
-      stoppedAt = 0;
-      handleDeviceStopped();
+      if (waitingForQueuedNext && !isStopConfirmed(stoppedSince, now, GAPLESS_SWITCH_GRACE_MS)) return;
+      if (handleDeviceStopped(stoppedSince, isStopConfirmed(stoppedSince, now))) stoppedSince = null;
       return;
     }
-    stoppedAt = 0;
+    stoppedSince = null;
 
     if (!parsed) return;
 
@@ -586,7 +602,8 @@ export default function useDirectPlayer() {
     pausedAtSec.value = null;
     lastTrackUri = '';
     nextQueuedTlid = undefined;
-    stoppedAt = 0;
+    stoppedSince = null;
+    userStoppedAt = null;
     anchorAt.value = Number.POSITIVE_INFINITY;
     currentIndexHint = -1;
     lastError.value = null;
@@ -686,7 +703,7 @@ export default function useDirectPlayer() {
     anchorAt.value = paused ? Number.POSITIVE_INFINITY : performance.now() - status.positionSec * 1000;
     lastTrackUri = status.trackUri;
     lastRelSec = status.positionSec;
-    stoppedAt = 0;
+    stoppedSince = null;
     currentIndexHint = -1;
     lastError.value = null;
     gaplessSession = target.gapless;
@@ -705,13 +722,25 @@ export default function useDirectPlayer() {
     }
   }
 
+  async function readRendererStatus(deviceId: string) {
+    const renderer = adapterFor(deviceId);
+    const fresh = await renderer.refresh(deviceId);
+    return { status: { ...renderer.status.value }, fresh };
+  }
+
+  function adoptTarget(deviceId: string, target: AttachTarget | null, status: RendererStatus, paused: boolean) {
+    const item = findItem(target?.tlid ?? null);
+    if (!target || !item) return false;
+    adopt(deviceId, item, target, status, paused);
+    adapterFor(deviceId).ensurePolling(deviceId);
+    return true;
+  }
+
   // Adopts a session the renderer is already playing (e.g. after a page reload) using read-only status calls only
   async function attachToRenderer(deviceId: string) {
     if (isActive.value) return false;
-    const renderer = adapterFor(deviceId);
     try {
-      await renderer.refresh(deviceId);
-      const status = { ...renderer.status.value };
+      const { status } = await readRendererStatus(deviceId);
       const paused = PAUSED_STATES.includes(status.state);
       if (status.state !== 'PLAYING' && !paused) return false;
       const [baseUrl, gapless] = await Promise.all([getBaseUrl(), readGaplessInfo(status.trackUri)]);
@@ -723,14 +752,51 @@ export default function useDirectPlayer() {
         items: queue.items.value,
         gapless,
       });
-      const item = findItem(target?.tlid ?? null);
-      if (!target || !item) return false;
-      adopt(deviceId, item, target, status, paused);
-      renderer.ensurePolling(deviceId);
-      return true;
+      return adoptTarget(deviceId, target, status, paused);
     } catch (err) {
       console.warn('Renderer attach failed:', err);
       return false;
+    }
+  }
+
+  function selfHealGate(isRemoteMode: boolean) {
+    return {
+      isRemoteMode,
+      engineActive: isActive.value,
+      hasPending: pending.value != null,
+      isPaused: isPaused.value,
+      userStoppedAt,
+      now: performance.now(),
+    };
+  }
+
+  // Periodic read-only re-attach for an idle engine whose renderer is still playing this host's stream.
+  // Never sends play/stop/setNext/pause to the renderer.
+  async function selfHealAttach(deviceId: string, isRemoteMode: boolean) {
+    if (selfHealInFlight || !canProbeSelfHeal(selfHealGate(isRemoteMode))) return false;
+    selfHealInFlight = true;
+    try {
+      // Only a successful read counts: a failed poll leaves the last known state, which may be stale
+      const { status, fresh } = await readRendererStatus(deviceId);
+      if (!fresh || status.state !== 'PLAYING') return false;
+      const [baseUrl, gapless] = await Promise.all([getBaseUrl(), readGaplessInfo(status.trackUri)]);
+      const target = selfHealTarget({
+        ...selfHealGate(isRemoteMode),
+        rendererState: status.state,
+        trackUri: status.trackUri,
+        positionSec: status.positionSec,
+        baseUrl,
+        items: queue.items.value,
+        gapless,
+      });
+      if (!adoptTarget(deviceId, target, status, false)) return false;
+      console.warn('Re-attached to a renderer that kept playing:', deviceId);
+      return true;
+    } catch (err) {
+      console.warn('Renderer self-heal failed:', err);
+      return false;
+    } finally {
+      selfHealInFlight = false;
     }
   }
 
@@ -760,6 +826,7 @@ export default function useDirectPlayer() {
     startRequestId++;
     pausedAtSec.value = positionSec.value;
     pending.value = null;
+    stoppedSince = null;
     await adapterFor(deviceId).pause(deviceId);
   }
 
@@ -843,5 +910,6 @@ export default function useDirectPlayer() {
     previous,
     stop,
     attachToRenderer,
+    selfHealAttach,
   };
 }

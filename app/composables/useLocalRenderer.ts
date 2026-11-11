@@ -13,8 +13,9 @@ const status = ref<RendererStatus>({ state: 'STOPPED', trackUri: '', positionSec
 const tick = ref(0);
 let pollingId: ReturnType<typeof setInterval> | null = null;
 let tickId: ReturnType<typeof setInterval> | null = null;
-let statusRequest: Promise<void> | null = null;
+let statusRequest: Promise<boolean> | null = null;
 let storedVolumeApplied = false;
+let sessionActive = false;
 
 function stopPolling() {
   if (pollingId) {
@@ -31,9 +32,13 @@ function refreshStatus() {
   statusRequest ??= invoke<RendererStatus>('local_get_status')
     .then((next) => {
       status.value = next;
-      if (next.state === 'STOPPED') stopPolling();
+      if (next.state === 'STOPPED' && !sessionActive) stopPolling();
+      return true;
     })
-    .catch((err) => console.error('Local renderer status error:', err))
+    .catch((err) => {
+      console.error('Local renderer status error:', err);
+      return false;
+    })
     .finally(() => {
       statusRequest = null;
     });
@@ -42,10 +47,11 @@ function refreshStatus() {
 
 async function freshStatus() {
   await statusRequest;
-  await refreshStatus();
+  return refreshStatus();
 }
 
 function ensurePolling() {
+  sessionActive = true;
   if (pollingId) return;
   void refreshStatus();
   pollingId = setInterval(() => void refreshStatus(), UPNP_FAST_POLLING_INTERVAL);
@@ -77,8 +83,13 @@ async function resume() {
   ensurePolling();
 }
 
-async function stop() {
+function release() {
+  sessionActive = false;
   stopPolling();
+}
+
+async function stop() {
+  release();
   await invoke('local_stop');
   await freshStatus();
 }
@@ -107,6 +118,7 @@ export default function useLocalRenderer() {
     ensurePolling,
     freshStatus,
     stopPolling,
+    release,
     play,
     setNext,
     pause,

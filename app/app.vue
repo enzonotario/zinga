@@ -7,9 +7,10 @@ import useFeedSync from '~/composables/useFeedSync';
 import useRemoteClient from '~/composables/useRemoteClient';
 import useRemoteHostBridge from '~/composables/useRemoteHostBridge';
 import useSystemSetup from '~/composables/useSystemSetup';
+import { SELF_HEAL_INTERVAL_MS } from '~/utils/rendererHealth';
 
 const { autoDiscover, selectedDeviceId } = useDevices();
-const { attachToRenderer } = useDirectPlayer();
+const { attachToRenderer, selfHealAttach } = useDirectPlayer();
 const { isRemoteMode } = useRemoteClient();
 const { loadLastSyncTimes } = useFeedSync();
 const { status, checkSystem } = useSystemSetup();
@@ -18,7 +19,13 @@ useRemoteHostBridge();
 onMounted(async () => {
   setCloseToTray(closeToTray.value);
   await autoDiscover();
-  if (isTauri() && !isRemoteMode.value) await attachToRenderer(selectedDeviceId.value ?? LOCAL_DEVICE_ID);
+  if (isTauri()) {
+    if (!isRemoteMode.value) await attachToRenderer(selectedDeviceId.value ?? LOCAL_DEVICE_ID);
+    setInterval(() => {
+      if (isRemoteMode.value) return;
+      void selfHealAttach(selectedDeviceId.value ?? LOCAL_DEVICE_ID, isRemoteMode.value);
+    }, SELF_HEAL_INTERVAL_MS);
+  }
   await loadLastSyncTimes();
   await checkSystem();
   if (status.value && !status.value.ready) await navigateTo('/setup');
