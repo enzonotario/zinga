@@ -17,7 +17,8 @@ sudo apt install ffmpeg gstreamer1.0-plugins-good gstreamer1.0-plugins-base
 ### Windows
 
 1. Instalá `ffmpeg` y agregalo al `PATH` (por ejemplo con [winget](https://winget.run/) / [scoop](https://scoop.sh/) / [chocolatey](https://chocolatey.org/)).
-2. Descargá el runtime **MSVC** de GStreamer (opción *Complete*) desde [gstreamer.freedesktop.org](https://gstreamer.freedesktop.org/download/).
+2. Para reproducir en dispositivos UPnP alcanza con `ffmpeg`.
+3. La reproducción local en el propio Windows (GStreamer) todavía es experimental; preferí una salida UPnP.
 
 ### macOS
 

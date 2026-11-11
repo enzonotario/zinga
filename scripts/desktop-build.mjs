@@ -33,8 +33,12 @@ function run(command, args, env = process.env) {
   }
 }
 
-function tauriArgs(extra = []) {
-  return ['exec', 'tauri', 'build', ...extra];
+function tauriArgs(bundleArgs = [], cargoArgs = []) {
+  const args = ['exec', 'tauri', 'build', ...bundleArgs];
+  if (cargoArgs.length > 0) {
+    args.push('--', ...cargoArgs);
+  }
+  return args;
 }
 
 const env = { ...process.env };
@@ -42,9 +46,14 @@ if (process.env.CI) {
   env.CI = 'true';
 }
 
+const cargoArgs = (process.env.ZINGA_CARGO_ARGS || '')
+  .split(/\s+/)
+  .map((part) => part.trim())
+  .filter(Boolean);
+
 if (isLinux) {
   env.LINUXDEPLOY_EXCLUDED_LIBRARIES = LINUXDEPLOY_EXCLUDED_LIBRARIES;
-  run('pnpm', tauriArgs(), env);
+  run('pnpm', tauriArgs([], cargoArgs), env);
 
   const targetDir = process.env.CARGO_TARGET_DIR || resolve(root, 'src-tauri/target');
   const images = globSync(`${targetDir.replaceAll('\\', '/')}/release/bundle/appimage/*.AppImage`);
@@ -57,8 +66,11 @@ if (isLinux) {
 }
 
 if (isWindows) {
-  run('pnpm', tauriArgs(['-b', 'nsis']), env);
+  // Official GStreamer Windows MSIs are often unavailable from CI mirrors.
+  // Ship NSIS without the local-player feature; UPnP/ffmpeg still works.
+  const windowsCargoArgs = cargoArgs.length > 0 ? cargoArgs : ['--no-default-features'];
+  run('pnpm', tauriArgs(['-b', 'nsis'], windowsCargoArgs), env);
   process.exit(0);
 }
 
-run('pnpm', tauriArgs(), env);
+run('pnpm', tauriArgs([], cargoArgs), env);

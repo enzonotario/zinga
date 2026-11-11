@@ -34,6 +34,10 @@ mod cover_color;
 mod direct_stream;
 mod gapless;
 mod library;
+#[cfg(feature = "local-player")]
+mod local_player;
+#[cfg(not(feature = "local-player"))]
+#[path = "local_player_stub.rs"]
 mod local_player;
 mod remote;
 mod setup;

@@ -8,9 +8,6 @@ on:
     tags:
       - 'v*'
 
-env:
-  GST_VERSION: 1.24.12
-
 jobs:
   build-linux:
     name: Build linux-x64
@@ -86,32 +83,15 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install pkg-config
-        run: choco install pkgconfiglite --no-progress -y
-
-      - name: Install GStreamer MSVC
-        shell: pwsh
-        run: |
-          $base = "https://gstreamer.freedesktop.org/data/pkg/windows/$env:GST_VERSION/msvc"
-          $runtime = "$env:TEMP\gstreamer-runtime.msi"
-          $devel = "$env:TEMP\gstreamer-devel.msi"
-          Invoke-WebRequest -Uri "$base/gstreamer-1.0-msvc-x86_64-$env:GST_VERSION.msi" -OutFile $runtime
-          Invoke-WebRequest -Uri "$base/gstreamer-1.0-devel-msvc-x86_64-$env:GST_VERSION.msi" -OutFile $devel
-          Start-Process msiexec.exe -ArgumentList "/i `"$runtime`" /qn /norestart" -Wait
-          Start-Process msiexec.exe -ArgumentList "/i `"$devel`" /qn /norestart" -Wait
-          $gst = "C:\gstreamer\1.0\msvc_x86_64"
-          if (-not (Test-Path $gst)) {
-            throw "GStreamer was not installed at $gst"
-          }
-          "GSTREAMER_1_0_ROOT_MSVC_X86_64=$gst" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "PKG_CONFIG_PATH=$gst\lib\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "$gst\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Build desktop app
         run: pnpm desktop:build
+        env:
+          # UPnP/ffmpeg path; local GStreamer playback is Linux-first until
+          # a reliable Windows SDK mirror is available in CI.
+          ZINGA_CARGO_ARGS: --no-default-features
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

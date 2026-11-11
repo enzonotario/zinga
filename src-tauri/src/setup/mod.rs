@@ -1,7 +1,9 @@
-use gstreamer as gst;
 use serde::Serialize;
 use std::path::Path;
 use std::process::{Command, Stdio};
+
+#[cfg(feature = "local-player")]
+use gstreamer as gst;
 
 const GSTREAMER_PLUGINS: [&str; 5] = [
     "playbin",
@@ -99,6 +101,7 @@ fn is_ffmpeg_available() -> bool {
     command.status().is_ok_and(|status| status.success())
 }
 
+#[cfg(feature = "local-player")]
 fn gstreamer_plugins() -> Vec<PluginStatus> {
     let initialized = gst::init().is_ok();
     GSTREAMER_PLUGINS
@@ -106,6 +109,17 @@ fn gstreamer_plugins() -> Vec<PluginStatus> {
         .map(|name| PluginStatus {
             name: name.to_string(),
             available: initialized && gst::ElementFactory::find(name).is_some(),
+        })
+        .collect()
+}
+
+#[cfg(not(feature = "local-player"))]
+fn gstreamer_plugins() -> Vec<PluginStatus> {
+    GSTREAMER_PLUGINS
+        .iter()
+        .map(|name| PluginStatus {
+            name: name.to_string(),
+            available: false,
         })
         .collect()
 }

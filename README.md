@@ -16,7 +16,7 @@ Music app for UPnP devices, built with Nuxt 4 and Tauri 2.
 ## Platform Status
 
 - **Linux**: primary target (AppImage / DEB / RPM)
-- **Windows**: supported via NSIS installer (ffmpeg + GStreamer MSVC runtime required)
+- **Windows**: supported via NSIS installer (ffmpeg required for UPnP; local GStreamer playback is experimental)
 - **macOS**: experimental / best-effort
 
 Contributions for Android and deeper platform polish are welcome.
