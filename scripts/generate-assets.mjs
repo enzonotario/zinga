@@ -60,20 +60,20 @@ function generateTauriIcons() {
   assertCommandOk(tauriResult, 'Tauri icon generation');
 }
 
-function buildOgTemplate({ background, titleColor, subtitleColor, logoDataUrl }) {
+function buildOgTemplate({ background, titleColor, subtitleColor, logoDataUrl, tileBackground, tileShadow }) {
   return `
   <div style="width:1200px;height:630px;position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;padding:64px;background:${background};font-family:Inter,Segoe UI,Arial,sans-serif">
-    <div style="display:flex;align-items:center;gap:24px;position:relative;z-index:1">
-      <div style="width:172px;height:172px;border-radius:36px;background:rgba(255,255,255,0.6);display:flex;align-items:center;justify-content:center;box-shadow:0 14px 34px rgba(15,23,42,0.2)">
-        <img src="${logoDataUrl}" width="142" height="142" style="border-radius:28px" />
+    <div style="display:flex;align-items:center;gap:28px;position:relative;z-index:1">
+      <div style="width:172px;height:172px;border-radius:36px;background:${tileBackground};display:flex;align-items:center;justify-content:center;box-shadow:${tileShadow}">
+        <img src="${logoDataUrl}" width="132" height="132" />
       </div>
       <div style="display:flex;flex-direction:column">
         <div style="font-size:88px;font-weight:700;line-height:1;color:${titleColor}">Zinga</div>
-        <div style="font-size:36px;margin-top:8px;color:${subtitleColor}">Music app for UPnP devices</div>
+        <div style="font-size:34px;margin-top:10px;color:${subtitleColor}">Music app for UPnP devices</div>
       </div>
     </div>
-    <div style="font-size:30px;color:${subtitleColor};position:relative;z-index:1">
-      Nuxt 4 + Tauri 2 · TIDAL · Rich Credits
+    <div style="font-size:28px;color:${subtitleColor};position:relative;z-index:1">
+      Nuxt 4 + Tauri 2 · TIDAL · YouTube Music · Credits
     </div>
   </div>
   `;
@@ -84,12 +84,7 @@ async function generateOgImages() {
     .resize(256, 256, { fit: 'contain' })
     .png()
     .toBuffer();
-  const whiteLogoPng = await sharp(await readFile(whiteLogoSvg))
-    .resize(256, 256, { fit: 'contain' })
-    .png()
-    .toBuffer();
   const blackLogoDataUrl = `data:image/png;base64,${blackLogoPng.toString('base64')}`;
-  const whiteLogoDataUrl = `data:image/png;base64,${whiteLogoPng.toString('base64')}`;
 
   const lightImage = await render(
     buildOgTemplate({
@@ -97,6 +92,8 @@ async function generateOgImages() {
       titleColor: '#0f172a',
       subtitleColor: '#334155',
       logoDataUrl: blackLogoDataUrl,
+      tileBackground: '#ffffff',
+      tileShadow: '0 14px 34px rgba(15,23,42,0.14)',
     }),
     { width: 1200, height: 630 },
   );
@@ -106,16 +103,19 @@ async function generateOgImages() {
       background: 'radial-gradient(circle at 10% 10%, rgba(56,189,248,0.34) 0%, rgba(56,189,248,0) 34%), radial-gradient(circle at 88% 86%, rgba(244,114,182,0.22) 0%, rgba(244,114,182,0) 42%), radial-gradient(circle at 52% 104%, rgba(52,211,153,0.2) 0%, rgba(52,211,153,0) 30%), linear-gradient(135deg, #020617 0%, #0f172a 100%)',
       titleColor: '#f8fafc',
       subtitleColor: '#cbd5e1',
-      logoDataUrl: whiteLogoDataUrl,
+      logoDataUrl: blackLogoDataUrl,
+      tileBackground: '#ffffff',
+      tileShadow: '0 18px 40px rgba(2,6,23,0.45)',
     }),
     { width: 1200, height: 630 },
   );
 
   await writeFile(resolve(publicOgDir, 'zinga-og-light.png'), lightImage);
   await writeFile(resolve(publicOgDir, 'zinga-og-dark.png'), darkImage);
-  await writeFile(resolve(publicDir, 'og-image.png'), lightImage);
+  await writeFile(resolve(publicDir, 'og-image.png'), darkImage);
   await writeFile(resolve(docsPublicOgDir, 'zinga-og-light.png'), lightImage);
   await writeFile(resolve(docsPublicOgDir, 'zinga-og-dark.png'), darkImage);
+  await writeFile(resolve(root, 'docs/public/og-image.png'), darkImage);
 }
 
 async function main() {
