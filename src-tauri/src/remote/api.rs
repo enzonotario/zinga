@@ -132,6 +132,10 @@ pub async fn playback_pause(State(state): State<Arc<RemoteState>>) -> CommandRes
     forward(&state, RemoteCommand::Pause).await
 }
 
+pub async fn playback_pause_at_end(State(state): State<Arc<RemoteState>>) -> CommandResponse {
+    forward(&state, RemoteCommand::PauseAtEnd).await
+}
+
 pub async fn playback_next(State(state): State<Arc<RemoteState>>) -> CommandResponse {
     forward(&state, RemoteCommand::Next).await
 }

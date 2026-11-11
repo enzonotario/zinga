@@ -1,6 +1,7 @@
 import type { RemoteDevicesSnapshot } from '~/utils/remoteSnapshot';
 import { computed, ref, watch } from 'vue';
 import { parseDevicesSnapshot } from '~/utils/remoteSnapshot';
+import { isSocketStale, WS_WATCHDOG_INTERVAL_MS } from '~/utils/remoteStaleness';
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 interface DiscoveredServer {
@@ -27,6 +28,8 @@ const lastDevices = ref<RemoteDevicesSnapshot | null>(null);
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let statePollTimer: ReturnType<typeof setInterval> | null = null;
+let socketWatchdogTimer: ReturnType<typeof setInterval> | null = null;
+let lastSocketActivityAt: number | null = null;
 const playbackCallbacks: Set<(state: PlaybackState) => void> = new Set();
 const queueCallbacks: Set<(queue: { tracks: any[] }) => void> = new Set();
 class RemoteUnauthorizedError extends Error {
@@ -61,6 +64,7 @@ function clearSnapshots() {
 function forgetSession(rejected = false) {
   closeWebSocket();
   stopStatePoll();
+  stopSocketWatchdog();
   if (!rejected) serverUrl.value = null;
   token.value = null;
   clientActive.value = false;
@@ -76,11 +80,16 @@ function openWebSocket() {
   connectionStatus.value = 'connecting';
   const socket = new WebSocket(wsUrl);
   ws = socket;
+  lastSocketActivityAt = Date.now();
+  startSocketWatchdog();
   socket.onopen = () => {
+    lastSocketActivityAt = Date.now();
     socket.send(JSON.stringify({ type: 'auth', token: token.value }));
     connectionStatus.value = 'connected';
+    void pollRemoteState().catch(() => {});
   };
   socket.onmessage = (event) => {
+    if (socket === ws) lastSocketActivityAt = Date.now();
     try {
       const msg = JSON.parse(event.data);
       if (msg.type === 'playback_state') {
@@ -118,6 +127,24 @@ function closeWebSocket() {
     ws.close();
     ws = null;
   }
+  lastSocketActivityAt = null;
+}
+function reconnectStaleSocket() {
+  if (!isRemoteMode.value) {
+    stopSocketWatchdog();
+    return;
+  }
+  if (!ws || !isSocketStale(lastSocketActivityAt, Date.now())) return;
+  openWebSocket();
+}
+function startSocketWatchdog() {
+  if (socketWatchdogTimer) return;
+  socketWatchdogTimer = setInterval(reconnectStaleSocket, WS_WATCHDOG_INTERVAL_MS);
+}
+function stopSocketWatchdog() {
+  if (!socketWatchdogTimer) return;
+  clearInterval(socketWatchdogTimer);
+  socketWatchdogTimer = null;
 }
 let pollInFlight = false;
 async function pollRemoteState() {
@@ -251,6 +278,7 @@ if (import.meta.client) {
     } else {
       closeWebSocket();
       stopStatePoll();
+      stopSocketWatchdog();
     }
   }, { immediate: true });
 }

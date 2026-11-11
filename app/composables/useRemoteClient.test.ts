@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import useRemoteClient from './useRemoteClient';
 
 class FakeSocket {
+  static instances: FakeSocket[] = [];
+
   static CONNECTING = 0;
 
   static OPEN = 1;
@@ -15,7 +17,10 @@ class FakeSocket {
   onmessage: ((event: { data: string }) => void) | null = null;
   onclose: (() => void) | null = null;
   onerror: (() => void) | null = null;
-  constructor(public url: string) {}
+  constructor(public url: string) {
+    FakeSocket.instances.push(this);
+  }
+
   send() {
     this.readyState = FakeSocket.OPEN;
   }
@@ -38,6 +43,7 @@ describe('useRemoteClient session', () => {
 
   beforeEach(() => {
     rejectSession = false;
+    FakeSocket.instances = [];
     localStorage.clear();
     vi.stubGlobal('WebSocket', FakeSocket);
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo) => {
@@ -92,5 +98,42 @@ describe('useRemoteClient session', () => {
     expect(client.sessionRejected.value).toBe(true);
     expect(localStorage.getItem('remoteClient:token')).toBeNull();
     expect(localStorage.getItem('remoteClient:serverUrl')).toBe('http://10.0.0.8:9632');
+  });
+
+  it('fetches the playback state and queue as soon as the socket opens', async () => {
+    const client = useRemoteClient();
+    await client.connect('10.0.0.8', 9632, '123456');
+    await vi.waitFor(() => expect(FakeSocket.instances.length).toBeGreaterThan(0));
+    vi.mocked(fetch).mockClear();
+
+    FakeSocket.instances.at(-1)!.onopen?.();
+
+    await vi.waitFor(() => {
+      const urls = vi.mocked(fetch).mock.calls.map(([input]) => String(input));
+      expect(urls).toContain('http://10.0.0.8:9632/api/playback/state');
+      expect(urls).toContain('http://10.0.0.8:9632/api/queue');
+    });
+  });
+
+  it('replaces a socket that stays silent for too long', async () => {
+    vi.useFakeTimers();
+    try {
+      const client = useRemoteClient();
+      await client.connect('10.0.0.8', 9632, '123456');
+      await vi.advanceTimersByTimeAsync(0);
+      const first = FakeSocket.instances.at(-1)!;
+      first.onopen?.();
+
+      await vi.advanceTimersByTimeAsync(10000);
+      first.onmessage?.({ data: JSON.stringify({ type: 'playback_state', data: { state: 'playing', position: 0, track: null } }) });
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(FakeSocket.instances.at(-1)).toBe(first);
+
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(FakeSocket.instances.at(-1)).not.toBe(first);
+      expect(first.readyState).toBe(FakeSocket.CLOSED);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

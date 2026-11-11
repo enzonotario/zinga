@@ -8,7 +8,7 @@ import { queueTracksFromRemote } from '~/utils/playQueue';
 import { tidalTrackInfoToQueueTrack, toQueueTrack } from '~/utils/queueTracks';
 import { buildDevicesSnapshot, buildPlaybackSnapshot, buildQueueSnapshot, groupRemoteCredits } from '~/utils/remoteSnapshot';
 import { getTidalTrackInfo } from '~/utils/tidal';
-import { currentPlaybackArtwork } from './useBottomBar';
+import { currentPlaybackArtwork, currentPlaybackNavigation } from './useBottomBar';
 import useDevices from './useDevices';
 import useLyrics from './useLyrics';
 import usePlayer from './usePlayer';
@@ -131,11 +131,12 @@ export default function useRemoteHostBridge() {
   async function pushOnce() {
     if (remote.isRemoteMode.value || !await hostServerRunning()) return;
     const includeQueue = queueDirty;
+    const snapshotItem = player.currentItem.value ?? queue.items.value[0] ?? null;
     queueDirty = false;
     try {
       await withTimeout(
         invoke('remote_broadcast_state', {
-          playback: buildPlaybackSnapshot(playbackStatus(), player.position.value, player.currentItem.value ?? queue.items.value[0] ?? null, currentPlaybackArtwork(player.currentItem.value?.track), lyricsPayload(), creditGroups.value, queue.items.value.length > 0, player.pauseAtEndOfTrack.value),
+          playback: buildPlaybackSnapshot(playbackStatus(), player.position.value, snapshotItem, currentPlaybackArtwork(player.currentItem.value?.track), lyricsPayload(), creditGroups.value, queue.items.value.length > 0, player.pauseAtEndOfTrack.value, currentPlaybackNavigation(snapshotItem?.track)),
           queue: includeQueue ? buildQueueSnapshot(queue.items.value) : null,
           devices: buildDevicesSnapshot(devices.devices.value, devices.selectedDeviceId.value, devices.volume.value),
         }),

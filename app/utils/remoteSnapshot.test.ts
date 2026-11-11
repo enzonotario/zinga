@@ -1,6 +1,6 @@
 import type { QueueItem } from './playQueue';
 import { describe, expect, it } from 'vitest';
-import { buildDevicesSnapshot, buildPlaybackSnapshot, buildQueueSnapshot, parseDevicesSnapshot, parsePlaybackSnapshot, parseQueueSnapshot, remoteLyricsView } from './remoteSnapshot';
+import { buildDevicesSnapshot, buildPlaybackNavigation, buildPlaybackSnapshot, buildQueueSnapshot, parseDevicesSnapshot, parsePlaybackSnapshot, parseQueueSnapshot, remoteLyricsView, remoteNavigationRoutes } from './remoteSnapshot';
 
 function item(tlid: number): QueueItem {
   return { tlid, track: { uri: `tidal:track:${tlid}`, name: `Track ${tlid}`, artists: [{ name: 'Artist' }], length: 1000 } };
@@ -24,6 +24,9 @@ describe('remoteSnapshot utils', () => {
         credits: [{ role: 'Trumpet', names: ['Sheila'] }, { role: 'Bass', names: ['Duane'] }],
         hasQueue: false,
         pauseAtEnd: false,
+        provider: null,
+        albumId: null,
+        artistIds: [],
       });
     });
     it('should strip extra fields and clamp negative positions', () => {
@@ -39,6 +42,9 @@ describe('remoteSnapshot utils', () => {
         credits: null,
         hasQueue: false,
         pauseAtEnd: false,
+        provider: null,
+        albumId: null,
+        artistIds: [],
       });
       expect(buildPlaybackSnapshot('paused', 0, null, undefined, null, null, true)).toMatchObject({
         track: null,
@@ -83,6 +89,8 @@ describe('remoteSnapshot utils', () => {
         coverPath: '/api/playback/cover',
         lyrics: { plain: 'linea', synced: null },
         credits: null,
+        pauseAtEnd: false,
+        navigation: { provider: null, albumId: null, artistIds: [] },
       });
     });
     it('should keep a pending lyrics search without text', () => {
@@ -94,8 +102,32 @@ describe('remoteSnapshot utils', () => {
       }).lyrics).toEqual({ plain: null, synced: null, status: 'loading' });
     });
     it('should fall back to a stopped state for invalid data', () => {
-      expect(parsePlaybackSnapshot(null)).toEqual({ state: 'stopped', positionSec: 0, item: null, coverUrl: null, artistPicture: null, coverPath: null, lyrics: null, credits: null });
-      expect(parsePlaybackSnapshot({ state: 'weird', position: 'x', track: { tlid: 1 } })).toEqual({ state: 'stopped', positionSec: 0, item: null, coverUrl: null, artistPicture: null, coverPath: null, lyrics: null, credits: null });
+      const fallback = { state: 'stopped', positionSec: 0, item: null, coverUrl: null, artistPicture: null, coverPath: null, lyrics: null, credits: null, pauseAtEnd: false, navigation: { provider: null, albumId: null, artistIds: [] } };
+      expect(parsePlaybackSnapshot(null)).toEqual(fallback);
+      expect(parsePlaybackSnapshot({ state: 'weird', position: 'x', track: { tlid: 1 } })).toEqual(fallback);
+    });
+    it('should read the pause-at-end flag', () => {
+      expect(parsePlaybackSnapshot({ state: 'playing', pauseAtEnd: true }).pauseAtEnd).toBe(true);
+      expect(parsePlaybackSnapshot({ state: 'playing', pauseAtEnd: 'yes' }).pauseAtEnd).toBe(false);
+    });
+    it('should read the navigation fields and drop invalid ids', () => {
+      expect(parsePlaybackSnapshot({ provider: 'tidal', albumId: '42', artistIds: ['7', 7, '7', '../x', null] }).navigation).toEqual({
+        provider: 'tidal',
+        albumId: '42',
+        artistIds: ['7'],
+      });
+      expect(parsePlaybackSnapshot({ provider: 'spotify', albumId: '42', artistIds: ['7'] }).navigation).toEqual({
+        provider: null,
+        albumId: null,
+        artistIds: [],
+      });
+    });
+    it('should round-trip the navigation built by the host', () => {
+      const navigation = { provider: 'ytm' as const, albumId: 'MPREb_abc', artistIds: [] };
+      expect(parsePlaybackSnapshot(buildPlaybackSnapshot('playing', 1, item(1), undefined, null, null, true, true, navigation))).toMatchObject({
+        pauseAtEnd: true,
+        navigation,
+      });
     });
   });
 
@@ -134,6 +166,69 @@ describe('remoteSnapshot utils', () => {
         selectedDeviceId: null,
         volume: null,
       });
+    });
+  });
+
+  describe('buildPlaybackNavigation', () => {
+    const tidalTrack = { uri: 'tidal:track:300', name: 'Song', artists: [{ name: 'A' }] };
+
+    it('should use the loaded TIDAL metadata of the same track', () => {
+      const tidalData = {
+        uri: 'tidal:track:300',
+        album: { data: { id: '200' } },
+        artist: { data: { id: '100' } },
+        track: { relationships: { artists: { data: [{ id: '100' }, { id: '101' }] } } },
+      };
+      expect(buildPlaybackNavigation(tidalTrack, tidalData)).toEqual({ provider: 'tidal', albumId: '200', artistIds: ['100', '101'] });
+    });
+
+    it('should fall back to track relationships when album and artist are missing', () => {
+      const tidalData = {
+        uri: 'tidal:track:300',
+        track: { relationships: { albums: { data: [{ id: '201' }] }, artists: { data: [{ id: '102' }] } } },
+      };
+      expect(buildPlaybackNavigation(tidalTrack, tidalData)).toEqual({ provider: 'tidal', albumId: '201', artistIds: ['102'] });
+    });
+
+    it('should ignore metadata that belongs to another track', () => {
+      const tidalData = { uri: 'tidal:track:999', album: { data: { id: '200' } }, artist: { data: { id: '100' } } };
+      expect(buildPlaybackNavigation(tidalTrack, tidalData)).toEqual({ provider: 'tidal', albumId: null, artistIds: [] });
+    });
+
+    it('should read ids embedded in a long TIDAL uri', () => {
+      expect(buildPlaybackNavigation({ ...tidalTrack, uri: 'tidal:track:1:2:3' })).toEqual({ provider: 'tidal', albumId: '2', artistIds: ['1'] });
+    });
+
+    it('should take the YouTube Music album from the album uri', () => {
+      const track = { uri: 'ytm:track:dQw4w9WgXcQ', name: 'Song', artists: [{ name: 'A' }], album: { name: 'Album', uri: 'ytm:album:MPREb_abc' } };
+      expect(buildPlaybackNavigation(track)).toEqual({ provider: 'ytm', albumId: 'MPREb_abc', artistIds: [] });
+      expect(buildPlaybackNavigation({ ...track, album: { name: 'Album' } })).toEqual({ provider: 'ytm', albumId: null, artistIds: [] });
+    });
+
+    it('should leave local files and missing tracks without navigation', () => {
+      expect(buildPlaybackNavigation({ uri: 'file:///music/a.flac', name: 'A', artists: [] })).toEqual({ provider: null, albumId: null, artistIds: [] });
+      expect(buildPlaybackNavigation(null)).toEqual({ provider: null, albumId: null, artistIds: [] });
+    });
+  });
+
+  describe('remoteNavigationRoutes', () => {
+    it('should map TIDAL ids to the TIDAL pages', () => {
+      expect(remoteNavigationRoutes({ provider: 'tidal', albumId: '200', artistIds: ['100', '101'] })).toEqual({
+        albumRoute: '/album/200',
+        artistRoute: '/artist/100',
+      });
+    });
+
+    it('should map YouTube Music ids to the YouTube Music pages', () => {
+      expect(remoteNavigationRoutes({ provider: 'ytm', albumId: 'MPREb_abc', artistIds: ['UC123'] })).toEqual({
+        albumRoute: '/ytm/album/MPREb_abc',
+        artistRoute: '/ytm/artist/UC123',
+      });
+    });
+
+    it('should return no routes without a provider or ids', () => {
+      expect(remoteNavigationRoutes({ provider: null, albumId: '1', artistIds: ['2'] })).toEqual({ albumRoute: null, artistRoute: null });
+      expect(remoteNavigationRoutes({ provider: 'tidal', albumId: null, artistIds: [] })).toEqual({ albumRoute: null, artistRoute: null });
     });
   });
 });

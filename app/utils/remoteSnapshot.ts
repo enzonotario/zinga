@@ -1,4 +1,5 @@
-import type { QueueItem } from './playQueue';
+import type { QueueItem, QueueTrack } from './playQueue';
+import { extractTidalIdsFromUri } from '~/providers/tidal/utils';
 import { isQueueItem } from './playQueue';
 
 export type RemotePlaybackStatus = 'playing' | 'paused' | 'stopped';
@@ -25,6 +26,14 @@ export interface RemoteCreditGroup {
   names: string[]
 }
 
+export type RemoteProviderKind = 'tidal' | 'ytm';
+
+export interface RemoteNavigation {
+  provider: RemoteProviderKind | null
+  albumId: string | null
+  artistIds: string[]
+}
+
 export interface RemotePlaybackSnapshot {
   state: RemotePlaybackStatus
   position: number
@@ -36,6 +45,9 @@ export interface RemotePlaybackSnapshot {
   credits: RemoteCreditGroup[] | null
   hasQueue: boolean
   pauseAtEnd: boolean
+  provider: RemoteProviderKind | null
+  albumId: string | null
+  artistIds: string[]
 }
 
 export interface RemotePlayback {
@@ -47,6 +59,8 @@ export interface RemotePlayback {
   coverPath: string | null
   lyrics: RemoteLyricsSnapshot | null
   credits: RemoteCreditGroup[] | null
+  pauseAtEnd: boolean
+  navigation: RemoteNavigation
 }
 
 export interface RemoteDevice {
@@ -63,6 +77,8 @@ export interface RemoteDevicesSnapshot {
 }
 
 const STATUSES: RemotePlaybackStatus[] = ['playing', 'paused', 'stopped'];
+const NAV_ID_PATTERN = /^[\w-]+$/;
+const YTM_ALBUM_PREFIX = 'ytm:album:';
 
 function toQueueItem(item: QueueItem): QueueItem {
   return { tlid: item.tlid, track: item.track };
@@ -96,6 +112,58 @@ function normalizeCreditGroups(credits?: { role?: string | null, names?: (string
   return grouped.slice(0, 12);
 }
 
+function emptyNavigation(): RemoteNavigation {
+  return { provider: null, albumId: null, artistIds: [] };
+}
+
+function navId(value: unknown): string | null {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const id = String(value).trim();
+  return NAV_ID_PATTERN.test(id) ? id : null;
+}
+
+function uniqueNavIds(values: unknown[]): string[] {
+  return [...new Set(values.map(navId).filter((id): id is string => id != null))];
+}
+
+function trackProvider(uri?: string): RemoteProviderKind | null {
+  if (uri?.startsWith('tidal:track:')) return 'tidal';
+  if (uri?.startsWith('ytm:track:')) return 'ytm';
+  return null;
+}
+
+export function buildPlaybackNavigation(track: QueueTrack | null | undefined, tidalData?: any): RemoteNavigation {
+  const provider = trackProvider(track?.uri);
+  if (!track || !provider) return emptyNavigation();
+  if (provider === 'ytm') {
+    const albumUri = track.album?.uri;
+    const albumId = albumUri?.startsWith(YTM_ALBUM_PREFIX) ? navId(albumUri.slice(YTM_ALBUM_PREFIX.length)) : null;
+    return { provider, albumId, artistIds: [] };
+  }
+  const data = tidalData?.uri === track.uri ? tidalData : null;
+  const uriIds = extractTidalIdsFromUri(track.uri);
+  const relationships = data?.track?.relationships;
+  const relatedArtists: any[] = Array.isArray(relationships?.artists?.data) ? relationships.artists.data : [];
+  return {
+    provider,
+    albumId: navId(data?.album?.data?.id ?? data?.album?.id ?? relationships?.albums?.data?.[0]?.id ?? uriIds.albumId),
+    artistIds: uniqueNavIds([
+      data?.artist?.data?.id ?? data?.artist?.id,
+      ...relatedArtists.map((artist) => artist?.id),
+      uriIds.artistId,
+    ]),
+  };
+}
+
+export function remoteNavigationRoutes(navigation: RemoteNavigation) {
+  const prefix = navigation.provider === 'ytm' ? '/ytm' : '';
+  const artistId = navigation.artistIds[0];
+  return {
+    albumRoute: navigation.provider && navigation.albumId ? `${prefix}/album/${navigation.albumId}` : null,
+    artistRoute: navigation.provider && artistId ? `${prefix}/artist/${artistId}` : null,
+  };
+}
+
 export function buildPlaybackSnapshot(
   state: RemotePlaybackStatus,
   positionSec: number,
@@ -105,7 +173,9 @@ export function buildPlaybackSnapshot(
   credits?: RemoteCreditGroup[] | null,
   hasQueue = false,
   pauseAtEnd = false,
+  navigation?: RemoteNavigation | null,
 ): RemotePlaybackSnapshot {
+  const nav = navigation ?? emptyNavigation();
   const coverUrl = artwork?.coverUrl || null;
   const plain = cleanText(lyrics?.plain);
   const synced = cleanText(lyrics?.synced);
@@ -126,6 +196,9 @@ export function buildPlaybackSnapshot(
     credits: grouped.length ? grouped : null,
     hasQueue,
     pauseAtEnd,
+    provider: nav.provider,
+    albumId: nav.albumId,
+    artistIds: [...nav.artistIds],
   };
 }
 
@@ -185,6 +258,18 @@ export function parsePlaybackSnapshot(data: any): RemotePlayback {
     coverPath,
     lyrics: parseLyrics(data?.lyrics),
     credits: parseCredits(data?.credits),
+    pauseAtEnd: data?.pauseAtEnd === true,
+    navigation: parseNavigation(data),
+  };
+}
+
+function parseNavigation(data: any): RemoteNavigation {
+  const provider: RemoteProviderKind | null = data?.provider === 'tidal' || data?.provider === 'ytm' ? data.provider : null;
+  if (!provider) return emptyNavigation();
+  return {
+    provider,
+    albumId: navId(data?.albumId),
+    artistIds: Array.isArray(data?.artistIds) ? uniqueNavIds(data.artistIds) : [],
   };
 }
 

@@ -1,10 +1,17 @@
 import { computed } from 'vue';
 import { getCurrentProviderId } from '~/providers';
 import { extractTidalIds } from '~/providers/tidal/utils';
+import { parsePlaybackSnapshot, remoteNavigationRoutes } from '~/utils/remoteSnapshot';
 import useBottomBar from './useBottomBar';
+import useRemoteClient from './useRemoteClient';
 
 export default function useProviderNavigation() {
   const { currentTrack } = useBottomBar();
+  const remote = useRemoteClient();
+  const remoteRoutes = computed(() => {
+    if (!remote.isRemoteMode.value) return null;
+    return remoteNavigationRoutes(parsePlaybackSnapshot(remote.lastPlaybackState.value).navigation);
+  });
   const providerId = getCurrentProviderId();
   const artistId = computed(() => {
     if (currentTrack.value?.uri && providerId === 'tidal') {
@@ -48,6 +55,7 @@ export default function useProviderNavigation() {
     return undefined;
   });
   const albumRoute = computed(() => {
+    if (remoteRoutes.value?.albumRoute) return remoteRoutes.value.albumRoute;
     const albumUri = currentTrack.value?.albumUri;
     if (typeof albumUri === 'string' && albumUri.startsWith('ytm:album:')) {
       const ytmId = albumUri.slice('ytm:album:'.length);
@@ -57,6 +65,7 @@ export default function useProviderNavigation() {
     return id ? `/album/${id}` : null;
   });
   const artistRoute = computed(() => {
+    if (remoteRoutes.value?.artistRoute) return remoteRoutes.value.artistRoute;
     const id = artistId.value;
     return id ? `/artist/${id}` : null;
   });

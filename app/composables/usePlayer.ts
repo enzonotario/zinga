@@ -1,7 +1,7 @@
 import type { TrackInfo } from '~/types/track';
 import type { QueueTrack } from '~/utils/playQueue';
 import { invoke } from '@tauri-apps/api/core';
-import { computed, effectScope, readonly, watch } from 'vue';
+import { computed, effectScope, watch } from 'vue';
 import { parsePlaybackSnapshot } from '~/utils/remoteSnapshot';
 import useDevices, { LOCAL_DEVICE_ID } from './useDevices';
 import useDirectPlayer from './useDirectPlayer';
@@ -27,6 +27,7 @@ export default function usePlayer() {
     return direct.playingItem.value ?? queue.currentItem.value ?? null;
   });
   const position = computed(() => (remote.isRemoteMode.value ? remotePlayback.value.positionSec : direct.positionSec.value));
+  const pauseAtEndOfTrack = computed(() => (remote.isRemoteMode.value ? remotePlayback.value.pauseAtEnd : direct.stopAfterCurrent.value));
   const duration = computed(() => (currentItem.value?.track.length || 0) / 1000);
   const currentTrack = computed<TrackInfo | null>(() => {
     const track = currentItem.value?.track;
@@ -111,10 +112,18 @@ export default function usePlayer() {
   }
 
   function cancelPauseAtEndOfTrack() {
+    if (remote.isRemoteMode.value) {
+      if (remotePlayback.value.pauseAtEnd) void sendRemote('pause_at_end');
+      return;
+    }
     direct.stopAfterCurrent.value = false;
   }
 
   function togglePauseAtEndOfTrack() {
+    if (remote.isRemoteMode.value) {
+      void sendRemote('pause_at_end');
+      return;
+    }
     if (direct.stopAfterCurrent.value) {
       cancelPauseAtEndOfTrack();
       return;
@@ -271,7 +280,7 @@ export default function usePlayer() {
     previous,
     seek,
     clear,
-    pauseAtEndOfTrack: readonly(direct.stopAfterCurrent),
+    pauseAtEndOfTrack,
     togglePauseAtEndOfTrack,
     cancelPauseAtEndOfTrack,
   };

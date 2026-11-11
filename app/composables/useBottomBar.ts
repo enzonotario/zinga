@@ -1,6 +1,6 @@
 import type { QueueTrack } from '~/utils/playQueue';
 import { computed, ref, watch } from 'vue';
-import { parsePlaybackSnapshot } from '~/utils/remoteSnapshot';
+import { buildPlaybackNavigation, parsePlaybackSnapshot } from '~/utils/remoteSnapshot';
 import { fetchTidalMetadata } from '~/utils/tidalMetadata';
 import useDevices from './useDevices';
 import useDirectPlayer from './useDirectPlayer';
@@ -22,6 +22,10 @@ export function currentPlaybackArtwork(track?: QueueTrack | null) {
     artistPicture: currentTidalData.value?.artistPicture ?? null,
   };
 }
+export function currentPlaybackNavigation(track?: QueueTrack | null) {
+  return buildPlaybackNavigation(track, currentTidalData.value);
+}
+
 export default function useBottomBar() {
   const { t } = useI18n();
   const { selectedDeviceId, volume, setVolume, pauseVolumePolling, resumeVolumePolling, syncVolumeFromDevice, isVolumeSyncing } = useDevices();

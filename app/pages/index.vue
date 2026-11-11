@@ -54,6 +54,7 @@ const queueCollapsedHeight = ref(0);
 const queueCollapsing = ref(false);
 const queueCardHeight = ref(0);
 const isPlaying = computed(() => player.isDevicePlaying.value);
+const isVinylSpinning = computed(() => (remote.isRemoteMode.value ? remotePlayback.value.state === 'playing' : isPlaying.value));
 useResizeObserver(() => queueCard.value?.$el, (entries) => {
   queueCardHeight.value = entries[0]?.contentRect.height ?? 0;
 });
@@ -346,7 +347,7 @@ watch(
             :title="albumTitle"
             :artist="artistName"
             :year="albumReleaseDate"
-            :is-playing="isPlaying"
+            :is-playing="isVinylSpinning"
             :progress="progress"
             :track-count="vinylTrackCount"
             :current-track-number="vinylCurrentTrackNumber"

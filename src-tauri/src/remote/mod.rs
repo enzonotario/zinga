@@ -27,6 +27,7 @@ pub fn build_router(state: Arc<RemoteState>, client_dir: Option<std::path::PathB
         .route("/playback/cover", get(api::playback_cover))
         .route("/playback/play", post(api::playback_play))
         .route("/playback/pause", post(api::playback_pause))
+        .route("/playback/pause_at_end", post(api::playback_pause_at_end))
         .route("/playback/next", post(api::playback_next))
         .route("/playback/previous", post(api::playback_previous))
         .route("/playback/seek", post(api::playback_seek))
