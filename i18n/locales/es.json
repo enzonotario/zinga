@@ -618,7 +618,7 @@
       "ignoreArticles": "Ignorar artículos (The, Los, La…)",
       "numbersFirst": "Números primero",
       "variousArtistsLast": "Varios artistas al final",
-      "singlesSeparate": "EPs y singles después de los álbumes",
+      "singlesSeparate": "Singles y EPs después de los álbumes",
       "typeOrder": "Orden de tipos"
     },
     "groups": {
@@ -637,6 +637,46 @@
       "white": "Blanco",
       "gray": "Gris",
       "black": "Negro"
+    },
+    "view": {
+      "shelf": "Estante",
+      "list": "Lista"
+    },
+    "panel": {
+      "button": "Ordenar",
+      "title": "Ordenar colección",
+      "presets": "Formas de ordenar",
+      "custom": "Personalizado",
+      "rules": "Criterios",
+      "sortBy": "Ordenar por",
+      "thenBy": "luego por",
+      "addRule": "Agregar criterio",
+      "removeRule": "Quitar criterio",
+      "moveUp": "Subir",
+      "moveDown": "Bajar",
+      "ascending": "Ascendente",
+      "descending": "Descendente",
+      "dividers": "Separadores",
+      "options": "Opciones",
+      "reset": "Restablecer",
+      "analyzingCovers": "Analizando tapas {done}/{total}",
+      "sortNames": "Nombres para ordenar",
+      "sortNamesHint": "Hacé clic derecho en un disco para elegir cómo se ordena su artista.",
+      "noSortNames": "Todavía no personalizaste ningún artista."
+    },
+    "shelf": {
+      "manualHint": "Arrastrá los discos para acomodarlos a tu gusto",
+      "openAlbum": "Abrir álbum",
+      "sortArtistAs": "Ordenar a {artist} como…",
+      "jumpTo": "Ir a {letter}"
+    },
+    "sortName": {
+      "title": "Ordenar a {artist} como…",
+      "description": "Así se va a ubicar en el estante. Por ejemplo: «García, Charly».",
+      "placeholder": "Apellido, Nombre",
+      "preview": "Se ubica en la {letter}",
+      "save": "Guardar",
+      "remove": "Quitar"
     }
   }
 }

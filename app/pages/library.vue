@@ -1,8 +1,12 @@
 <script lang="ts" setup>
 import type { TableColumn } from '@nuxt/ui';
 import type { NormalizedAlbum, NormalizedArtist } from '~/providers/types';
+import { useLocalStorage } from '@vueuse/core';
 import { h, nextTick, onActivated, onDeactivated, resolveComponent } from 'vue';
 import { onBeforeRouteLeave } from 'vue-router';
+import useCollectionSort from '~/composables/useCollectionSort';
+import { applySubsetOrder } from '~/utils/collectionShelf';
+import { sortCollection } from '~/utils/collectionSort';
 
 definePageMeta({
   name: 'library',
@@ -17,6 +21,7 @@ const UButton = resolveComponent('UButton');
 const UIcon = resolveComponent('UIcon');
 const { t } = useI18n();
 type ViewMode = 'albums' | 'artists' | 'local';
+type AlbumView = 'shelf' | 'list';
 const localDb = useLocalDb();
 const feedSync = useFeedSync();
 const loading = ref(true);
@@ -25,10 +30,9 @@ const artists = useState<NormalizedArtist[]>('library-artists', () => []);
 const hasLoaded = useState('library-loaded', () => false);
 const scrollY = useState('library-scroll', () => 0);
 const viewMode = useState<ViewMode>('library-view-mode', () => 'albums');
+const albumView = useLocalStorage<AlbumView>('zinga:library-album-view', 'shelf');
 const search = useState('library-search', () => '');
-const albumSorting = useState<{ id: string, desc: boolean }[]>('library-album-sorting', () => [
-  { id: 'releaseDate', desc: true },
-]);
+const albumSorting = useState<{ id: string, desc: boolean }[]>('library-album-sorting', () => []);
 const artistSorting = useState<{ id: string, desc: boolean }[]>('library-artist-sorting', () => [
   { id: 'name', desc: false },
 ]);
@@ -201,6 +205,35 @@ const filteredAlbums = computed(() => {
   }
   return result;
 });
+const {
+  config: collectionConfig,
+  sorted: sortedAlbums,
+  grouped: groupedAlbums,
+  coverColors,
+  manualOrder,
+  artistSortNames,
+  saveManualOrder,
+} = useCollectionSort(filteredAlbums);
+const isManualOrder = computed(() => collectionConfig.value.rules[0]?.key === 'manual');
+const artistNames = computed(() => {
+  const names: Record<string, string> = {};
+  for (const album of albums.value) {
+    for (const artist of album.artists) names[artist.id] = artist.name;
+  }
+  return names;
+});
+async function handleReorder(visibleIds: string[]) {
+  const fullOrder = sortCollection(albums.value, collectionConfig.value, {
+    coverColors: coverColors.value,
+    manualOrder: manualOrder.value,
+    artistSortNames: artistSortNames.value,
+  }).map((album) => album.id);
+  try {
+    await saveManualOrder(applySubsetOrder(fullOrder, visibleIds));
+  } catch (err) {
+    console.error('Error guardando el orden manual:', err);
+  }
+}
 const filteredArtists = computed(() => {
   let result = [...artists.value];
   if (search.value) {
@@ -243,6 +276,9 @@ async function handleSync() {
     console.error('Error sincronizando:', err);
   }
 }
+watch(collectionConfig, () => {
+  albumSorting.value = [];
+});
 watch(feedSync.isSyncing, (isSyncing, wasSyncing) => {
   if (wasSyncing && !isSyncing && feedSync.progress.value.phase === 'done') {
     loadData();
@@ -291,7 +327,7 @@ onBeforeRouteLeave(() => {
 
 <template>
   <div class="min-h-full py-8">
-    <UCard>
+    <UCard :ui="{ root: 'overflow-visible' }">
       <template #header>
         <div class="flex items-center justify-between gap-4">
           <div class="flex flex-col">
@@ -334,6 +370,25 @@ onBeforeRouteLeave(() => {
               class="flex-1"
             />
             <template v-if="viewMode === 'albums'">
+              <div class="flex items-center gap-1 glass ring ring-default rounded-lg p-1 self-start">
+                <UButton
+                  :label="t('collectionSort.view.shelf')"
+                  icon="i-lucide-library-big"
+                  :variant="albumView === 'shelf' ? 'solid' : 'ghost'"
+                  size="sm"
+                  class="rounded-md"
+                  @click="albumView = 'shelf'"
+                />
+                <UButton
+                  :label="t('collectionSort.view.list')"
+                  icon="i-heroicons-list-bullet"
+                  :variant="albumView === 'list' ? 'solid' : 'ghost'"
+                  size="sm"
+                  class="rounded-md"
+                  @click="albumView = 'list'"
+                />
+              </div>
+              <LibraryCollectionSortPanel :artist-names="artistNames" />
               <USelectMenu
                 v-model="typeFilter"
                 :items="availableTypes"
@@ -376,7 +431,17 @@ onBeforeRouteLeave(() => {
               color="primary"
             />
           </div>
-          <template v-if="loading">
+          <div
+            v-if="loading && viewMode === 'albums' && albumView === 'shelf'"
+            class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2"
+          >
+            <div v-for="i in 12" :key="i" class="flex flex-col gap-2 p-2">
+              <USkeleton class="aspect-square w-full rounded-md" />
+              <USkeleton class="h-4 w-3/4" />
+              <USkeleton class="h-3 w-1/2" />
+            </div>
+          </div>
+          <template v-else-if="loading">
             <UiSkeletonTable
               :columns="viewMode === 'albums' ? 8 : 3"
               :rows="10"
@@ -384,10 +449,17 @@ onBeforeRouteLeave(() => {
             />
           </template>
           <template v-else-if="viewMode === 'albums'">
+            <LibraryCollectionShelf
+              v-if="filteredAlbums.length > 0 && albumView === 'shelf'"
+              :groups="groupedAlbums"
+              :sorted="sortedAlbums"
+              :manual="isManualOrder"
+              @reorder="handleReorder"
+            />
             <UTable
-              v-if="filteredAlbums.length > 0"
+              v-else-if="filteredAlbums.length > 0"
               v-model:sorting="albumSorting"
-              :data="filteredAlbums"
+              :data="sortedAlbums"
               :columns="albumColumns"
               :ui="{ td: 'py-2', th: 'py-3', tr: 'cursor-pointer hover:bg-elevated/50' }"
               @select="handleAlbumSelect"

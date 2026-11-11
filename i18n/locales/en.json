@@ -637,6 +637,46 @@
       "white": "White",
       "gray": "Gray",
       "black": "Black"
+    },
+    "view": {
+      "shelf": "Shelf",
+      "list": "List"
+    },
+    "panel": {
+      "button": "Sort",
+      "title": "Sort collection",
+      "presets": "Ways to sort",
+      "custom": "Custom",
+      "rules": "Criteria",
+      "sortBy": "Sort by",
+      "thenBy": "then by",
+      "addRule": "Add criterion",
+      "removeRule": "Remove criterion",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "ascending": "Ascending",
+      "descending": "Descending",
+      "dividers": "Dividers",
+      "options": "Options",
+      "reset": "Reset",
+      "analyzingCovers": "Analyzing covers {done}/{total}",
+      "sortNames": "Sort names",
+      "sortNamesHint": "Right-click a record to choose how its artist is sorted.",
+      "noSortNames": "You haven't customized any artist yet."
+    },
+    "shelf": {
+      "manualHint": "Drag records to arrange them your way",
+      "openAlbum": "Open album",
+      "sortArtistAs": "Sort {artist} as…",
+      "jumpTo": "Go to {letter}"
+    },
+    "sortName": {
+      "title": "Sort {artist} as…",
+      "description": "This is where it goes on the shelf. For example: “García, Charly”.",
+      "placeholder": "Last name, First name",
+      "preview": "Filed under {letter}",
+      "save": "Save",
+      "remove": "Remove"
     }
   }
 }
